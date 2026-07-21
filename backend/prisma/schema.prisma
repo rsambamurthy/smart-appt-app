@@ -1,0 +1,822 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// SmartAppt — Prisma Schema
+// PostgreSQL 15 · Prisma 5.x
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_USER
+  MANAGER
+  RESIDENT
+  COMMITTEE
+  TREASURER
+  GATE_STAFF
+}
+
+enum OnboardingMode {
+  INVITE_ONLY
+  SELF_REGISTER_WITH_CODE
+  OPEN
+}
+
+enum TicketCategory {
+  PLUMBING
+  ELECTRICAL
+  CIVIL
+  HOUSEKEEPING
+  COMMON_AREA
+  OTHERS
+}
+
+enum TicketPriority {
+  EMERGENCY
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TicketStatus {
+  SUBMITTED
+  ACKNOWLEDGED
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum PenaltyType {
+  FLAT
+  PERCENTAGE
+}
+
+enum ChargeType {
+  FIXED
+  RATE_PER_SQFT
+}
+
+enum OneTimeDueStatus {
+  DRAFT
+  BILLS_GENERATED
+  CLOSED
+}
+
+enum BillStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  WAIVED
+}
+
+enum PaymentMode {
+  ONLINE
+  CASH
+  CHEQUE
+  BANK_TRANSFER
+}
+
+enum ExpensePaymentMode {
+  CASH
+  CHEQUE
+  ONLINE
+  UPI
+}
+
+enum ExpenseStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  RECORDED
+}
+
+enum ExpenseFrequency {
+  MONTHLY
+  QUARTERLY
+  HALF_YEARLY
+  ANNUAL
+}
+
+enum AnnouncementCategory {
+  GENERAL
+  URGENT
+  EVENT
+  MAINTENANCE
+  MEETING
+}
+
+enum DocumentCategory {
+  BYE_LAWS
+  AGREEMENT
+  INSURANCE
+  MINUTES
+  ANNUAL_REPORT
+  OTHERS
+}
+
+enum PollType {
+  YES_NO
+  MCQ
+}
+
+enum VisitType {
+  PRE_APPROVED
+  WALK_IN
+  DELIVERY
+  FREQUENT
+}
+
+enum VisitorStatus {
+  PENDING
+  APPROVED
+  DENIED
+  ENTERED
+  EXITED
+  EXPIRED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  APPROVE
+  REJECT
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+// ─── Core Tables ─────────────────────────────────────────────────────────────
+
+model Association {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String   @db.VarChar(255)
+  address     String?  @db.Text
+  city        String?  @db.VarChar(100)
+  state       String?  @db.VarChar(100)
+  pincode     String?  @db.VarChar(10)
+  logo_s3_key String?  @db.Text
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now()) @db.Timestamptz
+  updated_at  DateTime @updatedAt @db.Timestamptz
+
+  // Relations
+  config             AssociationConfig?
+  units              Unit[]
+  users              User[]
+  refresh_tokens     RefreshToken[]
+  maintenance_tickets MaintenanceTicket[]
+  ticket_attachments TicketAttachment[]
+  ticket_status_logs TicketStatusLog[]
+  dues_config        DuesConfig?
+  bills              Bill[]
+  payments           Payment[]
+  expenses           Expense[]
+  expense_budgets    ExpenseBudget[]
+  expense_categories ExpenseCategoryConfig[]
+  vendors            Vendor[]
+  recurring_expenses RecurringExpense[]
+  announcements      Announcement[]
+  announcement_reads AnnouncementRead[]
+  documents          Document[]
+  polls              Poll[]
+  poll_votes         PollVote[]
+  visitors           Visitor[]
+  frequent_visitors  FrequentVisitor[]
+  audit_logs         AuditLog[]
+  invites            UserInvite[]
+  one_time_dues      OneTimeDue[]
+
+  @@map("associations")
+}
+
+model AssociationConfig {
+  id                        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id            String         @unique @db.Uuid
+  association               Association    @relation(fields: [association_id], references: [id])
+  association_name          String         @db.VarChar(255)
+  onboarding_mode           OnboardingMode @default(INVITE_ONLY)
+  registration_unit_code    String?        @db.VarChar(50)
+  require_manager_approval  Boolean        @default(true)
+  invite_expiry_hours       Int            @default(48) @db.SmallInt
+  invite_max_resends        Int            @default(3) @db.SmallInt
+  otp_length                Int            @default(6) @db.SmallInt
+  otp_ttl_seconds           Int            @default(300) @db.SmallInt
+  otp_max_attempts          Int            @default(3) @db.SmallInt
+  otp_lockout_minutes       Int            @default(15) @db.SmallInt
+  otp_resend_cooldown_sec   Int            @default(60) @db.SmallInt
+  session_idle_timeout_min  Int            @default(30) @db.SmallInt
+  max_concurrent_sessions   Int            @default(5) @db.SmallInt
+  expense_approval_threshold Decimal       @default(0) @db.Decimal(10, 2)
+  created_at                DateTime       @default(now()) @db.Timestamptz
+  updated_at                DateTime       @updatedAt @db.Timestamptz
+
+  @@map("association_config")
+}
+
+model Unit {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  flat_number    String      @db.VarChar(20)
+  block          String?     @db.VarChar(20)
+  floor          Int         @db.SmallInt
+  area_sqft      Decimal?    @db.Decimal(8, 2)
+  unit_type      String?     @db.VarChar(50)
+  created_at     DateTime    @default(now()) @db.Timestamptz
+  updated_at     DateTime    @updatedAt @db.Timestamptz
+
+  // Relations
+  users               User[]
+  maintenance_tickets MaintenanceTicket[]
+  bills               Bill[]
+  payments            Payment[]
+  visitors            Visitor[]
+  frequent_visitors   FrequentVisitor[]
+
+  @@unique([association_id, flat_number])
+  @@index([flat_number])
+  @@map("units")
+}
+
+model User {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  phone          String      @db.VarChar(20)
+  email          String?     @db.VarChar(255)
+  name           String      @db.VarChar(255)
+  role           UserRole
+  unit_id        String?     @db.Uuid
+  unit           Unit?       @relation(fields: [unit_id], references: [id])
+  is_owner       Boolean     @default(false)
+  google_sub     String?     @db.VarChar(255)
+  fcm_token      String?     @db.Text
+  move_in_date   DateTime?   @db.Date
+  move_out_date  DateTime?   @db.Date
+  is_active      Boolean     @default(true)
+  profile_photo_s3_key String? @db.Text
+  vehicle_numbers String[]   @db.VarChar(20)
+  notification_prefs Json?
+  created_at     DateTime    @default(now()) @db.Timestamptz
+  updated_at     DateTime    @updatedAt @db.Timestamptz
+  deleted_at     DateTime?   @db.Timestamptz
+
+  // Relations
+  refresh_tokens      RefreshToken[]
+  raised_tickets      MaintenanceTicket[] @relation("RaisedBy")
+  assigned_tickets    MaintenanceTicket[] @relation("AssignedTo")
+  ticket_status_logs  TicketStatusLog[]
+  recorded_payments   Payment[]
+  created_expenses    Expense[]           @relation("CreatedBy")
+  approved_expenses   Expense[]           @relation("ApprovedBy")
+  posted_announcements Announcement[]
+  announcement_reads  AnnouncementRead[]
+  uploaded_documents  Document[]
+  created_polls       Poll[]
+  poll_votes          PollVote[]
+  pre_approved_visitors Visitor[]         @relation("ResidentApproval")
+  logged_visitors     Visitor[]           @relation("LoggedBy")
+  frequent_visitors   FrequentVisitor[]
+  audit_logs          AuditLog[]
+  invites_sent        UserInvite[]        @relation("InvitedBy")
+  invite_received     UserInvite?         @relation("InvitedUser")
+  dues_config_updated   DuesConfig[]
+  expense_budgets       ExpenseBudget[]
+  recurring_expenses    RecurringExpense[]
+  vendors_created       Vendor[]
+  one_time_dues_created OneTimeDue[] @relation("OneTimeDueCreator")
+
+  @@unique([association_id, phone])
+  @@index([phone])
+  @@index([email])
+  @@index([unit_id])
+  @@index([role])
+  @@map("users")
+}
+
+model UserInvite {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String       @db.Uuid
+  association    Association  @relation(fields: [association_id], references: [id])
+  phone          String       @db.VarChar(20)
+  email          String?      @db.VarChar(255)
+  name           String?      @db.VarChar(255)
+  role           UserRole
+  unit_id        String?      @db.Uuid
+  token          String       @unique @db.VarChar(64)
+  status         InviteStatus @default(PENDING)
+  resend_count   Int          @default(0) @db.SmallInt
+  expires_at     DateTime     @db.Timestamptz
+  invited_by     String       @db.Uuid
+  inviter        User         @relation("InvitedBy", fields: [invited_by], references: [id])
+  accepted_by    String?      @unique @db.Uuid
+  invitee        User?        @relation("InvitedUser", fields: [accepted_by], references: [id])
+  created_at     DateTime     @default(now()) @db.Timestamptz
+  updated_at     DateTime     @updatedAt @db.Timestamptz
+
+  @@index([token])
+  @@index([phone])
+  @@map("user_invites")
+}
+
+model RefreshToken {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  user_id        String      @db.Uuid
+  user           User        @relation(fields: [user_id], references: [id])
+  token_hash     String      @db.VarChar(64)
+  expires_at     DateTime    @db.Timestamptz
+  revoked_at     DateTime?   @db.Timestamptz
+  created_at     DateTime    @default(now()) @db.Timestamptz
+
+  @@index([user_id])
+  @@index([token_hash])
+  @@map("refresh_tokens")
+}
+
+// ─── Maintenance Tables ───────────────────────────────────────────────────────
+
+model MaintenanceTicket {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String         @db.Uuid
+  association    Association    @relation(fields: [association_id], references: [id])
+  unit_id        String         @db.Uuid
+  unit           Unit           @relation(fields: [unit_id], references: [id])
+  raised_by      String         @db.Uuid
+  raiser         User           @relation("RaisedBy", fields: [raised_by], references: [id])
+  category       TicketCategory
+  priority       TicketPriority
+  title          String         @db.VarChar(255)
+  description    String         @db.Text
+  status         TicketStatus   @default(SUBMITTED)
+  assigned_to    String?        @db.Uuid
+  assignee       User?          @relation("AssignedTo", fields: [assigned_to], references: [id])
+  assigned_at    DateTime?      @db.Timestamptz
+  sla_due_at     DateTime?      @db.Timestamptz
+  sla_breached   Boolean        @default(false)
+  resolved_at    DateTime?      @db.Timestamptz
+  closed_at      DateTime?      @db.Timestamptz
+  rating         Int?           @db.SmallInt
+  rating_comment String?        @db.Text
+  created_at     DateTime       @default(now()) @db.Timestamptz
+  updated_at     DateTime       @updatedAt @db.Timestamptz
+
+  attachments  TicketAttachment[]
+  status_logs  TicketStatusLog[]
+
+  @@index([unit_id])
+  @@index([status])
+  @@index([assigned_to])
+  @@index([priority])
+  @@index([created_at])
+  @@map("maintenance_tickets")
+}
+
+model TicketAttachment {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String            @db.Uuid
+  association    Association       @relation(fields: [association_id], references: [id])
+  ticket_id      String            @db.Uuid
+  ticket         MaintenanceTicket @relation(fields: [ticket_id], references: [id])
+  s3_key         String            @db.Text
+  mime_type      String            @db.VarChar(50)
+  size_bytes     BigInt
+  created_at     DateTime          @default(now()) @db.Timestamptz
+
+  @@index([ticket_id])
+  @@map("ticket_attachments")
+}
+
+model TicketStatusLog {
+  id             String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String            @db.Uuid
+  association    Association       @relation(fields: [association_id], references: [id])
+  ticket_id      String            @db.Uuid
+  ticket         MaintenanceTicket @relation(fields: [ticket_id], references: [id])
+  from_status    TicketStatus?
+  to_status      TicketStatus
+  changed_by     String            @db.Uuid
+  changer        User              @relation(fields: [changed_by], references: [id])
+  note           String?           @db.Text
+  created_at     DateTime          @default(now()) @db.Timestamptz
+
+  @@index([ticket_id])
+  @@map("ticket_status_logs")
+}
+
+// ─── Financial Tables ─────────────────────────────────────────────────────────
+
+model DuesConfig {
+  id                  String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id      String      @unique @db.Uuid
+  association         Association @relation(fields: [association_id], references: [id])
+  charge_type         ChargeType  @default(FIXED)
+  monthly_charge      Decimal     @db.Decimal(10, 2)
+  rate_per_sqft       Decimal?    @db.Decimal(10, 4)
+  due_day             Int         @db.SmallInt
+  penalty_type        PenaltyType
+  penalty_value       Decimal     @db.Decimal(10, 2)
+  penalty_grace_days  Int         @db.SmallInt
+  cash_balance        Decimal?    @db.Decimal(12, 2)
+  cash_balance_as_on  DateTime?   @db.Date
+  updated_by          String      @db.Uuid
+  updater             User        @relation(fields: [updated_by], references: [id])
+  created_at          DateTime    @default(now()) @db.Timestamptz
+  updated_at          DateTime    @updatedAt @db.Timestamptz
+
+  @@map("dues_config")
+}
+
+model Bill {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id   String      @db.Uuid
+  association      Association @relation(fields: [association_id], references: [id])
+  unit_id          String      @db.Uuid
+  unit             Unit        @relation(fields: [unit_id], references: [id])
+  period_month     Int         @db.SmallInt
+  period_year      Int         @db.SmallInt
+  base_amount      Decimal     @db.Decimal(10, 2)
+  penalty          Decimal     @default(0) @db.Decimal(10, 2)
+  levy_amount      Decimal     @default(0) @db.Decimal(10, 2)
+  total_amount     Decimal     @db.Decimal(10, 2)
+  due_date         DateTime    @db.Date
+  status           BillStatus  @default(UNPAID)
+  // One-time due link (null = regular monthly bill)
+  one_time_due_id  String?     @db.Uuid
+  one_time_due     OneTimeDue? @relation(fields: [one_time_due_id], references: [id])
+  bill_label       String?     @db.VarChar(255)
+  created_at       DateTime    @default(now()) @db.Timestamptz
+  updated_at       DateTime    @updatedAt @db.Timestamptz
+
+  payments Payment[]
+
+  @@unique([unit_id, period_month, period_year, one_time_due_id])
+  @@index([unit_id])
+  @@index([status])
+  @@index([due_date])
+  @@index([one_time_due_id])
+  @@map("bills")
+}
+
+model OneTimeDue {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String           @db.Uuid
+  association    Association      @relation(fields: [association_id], references: [id])
+  title          String           @db.VarChar(255)
+  description    String?          @db.Text
+  charge_type    ChargeType       @default(FIXED)
+  amount         Decimal          @db.Decimal(10, 2)
+  due_date       DateTime         @db.Date
+  status         OneTimeDueStatus @default(DRAFT)
+  bills_count    Int              @default(0)
+  created_by     String           @db.Uuid
+  creator        User             @relation("OneTimeDueCreator", fields: [created_by], references: [id])
+  bills          Bill[]
+  created_at     DateTime         @default(now()) @db.Timestamptz
+  updated_at     DateTime         @updatedAt @db.Timestamptz
+
+  @@index([association_id])
+  @@map("one_time_dues")
+}
+
+model Payment {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id   String      @db.Uuid
+  association      Association @relation(fields: [association_id], references: [id])
+  bill_id          String      @db.Uuid
+  bill             Bill        @relation(fields: [bill_id], references: [id])
+  unit_id          String      @db.Uuid
+  unit             Unit        @relation(fields: [unit_id], references: [id])
+  amount           Decimal     @db.Decimal(10, 2)
+  payment_mode     PaymentMode
+  payment_date     DateTime    @db.Timestamptz
+  gateway          String?     @db.VarChar(50)
+  gateway_order_id String?     @db.VarChar(100)
+  gateway_txn_id   String?     @unique @db.VarChar(100)
+  reference_no     String?     @db.VarChar(100)
+  recorded_by      String?     @db.Uuid
+  recorder         User?       @relation(fields: [recorded_by], references: [id])
+  receipt_s3_key   String?     @db.Text
+  created_at       DateTime    @default(now()) @db.Timestamptz
+
+  @@index([bill_id])
+  @@index([unit_id])
+  @@index([payment_date])
+  @@map("payments")
+}
+
+model Vendor {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  name           String      @db.VarChar(255)
+  service_type   String?     @db.VarChar(100)
+  phone          String?     @db.VarChar(20)
+  email          String?     @db.VarChar(255)
+  bank_name      String?     @db.VarChar(100)
+  account_no_enc String?     @db.Text
+  ifsc           String?     @db.VarChar(20)
+  is_active      Boolean     @default(true)
+  created_by     String      @db.Uuid
+  creator        User        @relation(fields: [created_by], references: [id])
+  created_at     DateTime    @default(now()) @db.Timestamptz
+
+  expenses           Expense[]
+  recurring_expenses RecurringExpense[]
+
+  @@index([name])
+  @@index([service_type])
+  @@map("vendors")
+}
+
+model Expense {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id  String             @db.Uuid
+  association     Association        @relation(fields: [association_id], references: [id])
+  expense_date    DateTime           @db.Date
+  category        String          @db.VarChar(100)
+  vendor_id       String?            @db.Uuid
+  vendor          Vendor?            @relation(fields: [vendor_id], references: [id])
+  vendor_name     String?            @db.VarChar(255)
+  amount          Decimal            @db.Decimal(10, 2)
+  payment_mode    ExpensePaymentMode
+  description     String?            @db.Text
+  invoice_s3_key  String?            @db.Text
+  status          ExpenseStatus      @default(PENDING_APPROVAL)
+  approved_by     String?            @db.Uuid
+  approver        User?              @relation("ApprovedBy", fields: [approved_by], references: [id])
+  approved_at     DateTime?          @db.Timestamptz
+  approval_note   String?            @db.Text
+  is_recurring    Boolean            @default(false)
+  recurring_id    String?            @db.Uuid
+  recurring       RecurringExpense?  @relation(fields: [recurring_id], references: [id])
+  created_by      String             @db.Uuid
+  creator         User               @relation("CreatedBy", fields: [created_by], references: [id])
+  created_at      DateTime           @default(now()) @db.Timestamptz
+  updated_at      DateTime           @updatedAt @db.Timestamptz
+  deleted_at      DateTime?          @db.Timestamptz
+
+  @@index([expense_date])
+  @@index([category])
+  @@index([status])
+  @@index([vendor_id])
+  @@index([created_by])
+  @@map("expenses")
+}
+
+model ExpenseBudget {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String          @db.Uuid
+  association    Association     @relation(fields: [association_id], references: [id])
+  category       String         @db.VarChar(100)
+  financial_year Int             @db.SmallInt
+  budget_amount  Decimal         @db.Decimal(10, 2)
+  updated_by     String          @db.Uuid
+  updater        User            @relation(fields: [updated_by], references: [id])
+  created_at     DateTime        @default(now()) @db.Timestamptz
+  updated_at     DateTime        @updatedAt @db.Timestamptz
+
+  @@unique([association_id, category, financial_year])
+  @@map("expense_budgets")
+}
+
+model ExpenseCategoryConfig {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  name           String      @db.VarChar(100)
+  display_name   String      @db.VarChar(100)
+  color          String?     @db.VarChar(20)
+  is_active      Boolean     @default(true)
+  sort_order     Int         @default(0) @db.SmallInt
+  created_at     DateTime    @default(now()) @db.Timestamptz
+  updated_at     DateTime    @updatedAt @db.Timestamptz
+
+  @@unique([association_id, name])
+  @@index([association_id, is_active])
+  @@map("expense_category_configs")
+}
+
+model RecurringExpense {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String           @db.Uuid
+  association    Association      @relation(fields: [association_id], references: [id])
+  description    String           @db.VarChar(255)
+  category       String         @db.VarChar(100)
+  vendor_id      String?          @db.Uuid
+  vendor         Vendor?          @relation(fields: [vendor_id], references: [id])
+  amount         Decimal          @db.Decimal(10, 2)
+  frequency      ExpenseFrequency
+  next_due_date  DateTime         @db.Date
+  reminder_days  Int              @default(3) @db.SmallInt
+  is_active      Boolean          @default(true)
+  created_by     String           @db.Uuid
+  creator        User             @relation(fields: [created_by], references: [id])
+  created_at     DateTime         @default(now()) @db.Timestamptz
+  updated_at     DateTime         @updatedAt @db.Timestamptz
+
+  expenses Expense[]
+
+  @@index([next_due_date])
+  @@index([is_active])
+  @@map("recurring_expenses")
+}
+
+// ─── Communication Tables ─────────────────────────────────────────────────────
+
+model Announcement {
+  id             String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String               @db.Uuid
+  association    Association          @relation(fields: [association_id], references: [id])
+  title          String               @db.VarChar(255)
+  body           String               @db.Text
+  category       AnnouncementCategory
+  is_urgent      Boolean              @default(false)
+  posted_by      String               @db.Uuid
+  poster         User                 @relation(fields: [posted_by], references: [id])
+  published_at   DateTime?            @db.Timestamptz
+  expires_at     DateTime?            @db.Timestamptz
+  attachment_keys String[]            @db.Text
+  created_at     DateTime             @default(now()) @db.Timestamptz
+  updated_at     DateTime             @updatedAt @db.Timestamptz
+
+  reads AnnouncementRead[]
+
+  @@index([published_at])
+  @@index([category])
+  @@index([posted_by])
+  @@map("announcements")
+}
+
+model AnnouncementRead {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id  String       @db.Uuid
+  association     Association  @relation(fields: [association_id], references: [id])
+  announcement_id String       @db.Uuid
+  announcement    Announcement @relation(fields: [announcement_id], references: [id])
+  user_id         String       @db.Uuid
+  user            User         @relation(fields: [user_id], references: [id])
+  read_at         DateTime     @db.Timestamptz
+
+  @@unique([announcement_id, user_id])
+  @@index([announcement_id])
+  @@map("announcement_reads")
+}
+
+model Document {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String           @db.Uuid
+  association    Association      @relation(fields: [association_id], references: [id])
+  title          String           @db.VarChar(255)
+  category       DocumentCategory
+  s3_key         String           @db.Text
+  file_data      Bytes?
+  mime_type      String?          @db.VarChar(100)
+  file_name      String?          @db.VarChar(255)
+  version        Int              @default(1) @db.SmallInt
+  uploaded_by    String           @db.Uuid
+  uploader       User             @relation(fields: [uploaded_by], references: [id])
+  created_at     DateTime         @default(now()) @db.Timestamptz
+  deleted_at     DateTime?        @db.Timestamptz
+
+  @@index([category])
+  @@index([uploaded_by])
+  @@map("documents")
+}
+
+model Poll {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  question       String      @db.VarChar(500)
+  poll_type      PollType
+  options        Json?
+  created_by     String      @db.Uuid
+  creator        User        @relation(fields: [created_by], references: [id])
+  closes_at      DateTime    @db.Timestamptz
+  created_at     DateTime    @default(now()) @db.Timestamptz
+
+  votes PollVote[]
+
+  @@index([closes_at])
+  @@map("polls")
+}
+
+model PollVote {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  poll_id        String      @db.Uuid
+  poll           Poll        @relation(fields: [poll_id], references: [id])
+  user_id        String      @db.Uuid
+  user           User        @relation(fields: [user_id], references: [id])
+  answer         String      @db.VarChar(255)
+  voted_at       DateTime    @default(now()) @db.Timestamptz
+
+  @@unique([poll_id, user_id])
+  @@map("poll_votes")
+}
+
+// ─── Gate & Visitor Tables ────────────────────────────────────────────────────
+
+model Visitor {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String        @db.Uuid
+  association    Association   @relation(fields: [association_id], references: [id])
+  unit_id        String        @db.Uuid
+  unit           Unit          @relation(fields: [unit_id], references: [id])
+  resident_id    String        @db.Uuid
+  resident       User          @relation("ResidentApproval", fields: [resident_id], references: [id])
+  visitor_name   String        @db.VarChar(255)
+  visitor_phone  String?       @db.VarChar(20)
+  purpose        String?       @db.VarChar(255)
+  visit_type     VisitType
+  status         VisitorStatus @default(PENDING)
+  qr_token       String?       @unique @db.VarChar(64)
+  expected_at    DateTime?     @db.Timestamptz
+  entered_at     DateTime?     @db.Timestamptz
+  exited_at      DateTime?     @db.Timestamptz
+  vehicle_number String?       @db.VarChar(20)
+  logged_by      String        @db.Uuid
+  logger         User          @relation("LoggedBy", fields: [logged_by], references: [id])
+  created_at     DateTime      @default(now()) @db.Timestamptz
+  updated_at     DateTime      @updatedAt @db.Timestamptz
+
+  @@index([unit_id])
+  @@index([status])
+  @@index([created_at])
+  @@index([qr_token])
+  @@index([visitor_name])
+  @@map("visitors")
+}
+
+model FrequentVisitor {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  unit_id        String      @db.Uuid
+  unit           Unit        @relation(fields: [unit_id], references: [id])
+  resident_id    String      @db.Uuid
+  resident       User        @relation(fields: [resident_id], references: [id])
+  name           String      @db.VarChar(255)
+  phone          String?     @db.VarChar(20)
+  role           String?     @db.VarChar(100)
+  access_days    Json
+  access_from    String      @db.VarChar(5)
+  access_until   String      @db.VarChar(5)
+  is_active      Boolean     @default(true)
+  created_at     DateTime    @default(now()) @db.Timestamptz
+
+  @@index([unit_id])
+  @@index([is_active])
+  @@map("frequent_visitors")
+}
+
+// ─── Audit Log ───────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  entity_type    String      @db.VarChar(50)
+  entity_id      String      @db.Uuid
+  action         AuditAction
+  performed_by   String      @db.Uuid
+  performer      User        @relation(fields: [performed_by], references: [id])
+  ip_address     String?     @db.VarChar(45)
+  old_value      Json?
+  new_value      Json?
+  created_at     DateTime    @default(now()) @db.Timestamptz
+
+  @@index([entity_type, entity_id])
+  @@index([performed_by])
+  @@index([created_at])
+  @@map("audit_logs")
+}
+
+// ─── System Configuration ─────────────────────────────────────────────────────
+
+model MenuGroupConfig {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  group_id   String   @db.VarChar(50)
+  role       String   @db.VarChar(50)
+  enabled    Boolean  @default(true)
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  @@unique([group_id, role])
+  @@map("menu_group_config")
+}

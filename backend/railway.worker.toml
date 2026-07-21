@@ -1,0 +1,7 @@
+[build]
+dockerfilePath = "Dockerfile.worker"
+
+[deploy]
+startCommand = "npm run worker"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

@@ -1,0 +1,54 @@
+# ── Dependencies ──────────────────────────────────────────────
+node_modules/
+.pnp
+.pnp.js
+
+# ── Environment files (contain secrets) ───────────────────────
+.env
+.env.local
+.env.*.local
+.env.mobile
+
+# ── Build outputs ─────────────────────────────────────────────
+dist/
+build/
+backend/dist/
+
+# ── Logs ──────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+
+# ── OS files ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Editor ────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+
+# ── Android (Capacitor) ───────────────────────────────────────
+frontend/android/.gradle/
+frontend/android/app/build/
+frontend/android/build/
+frontend/android/capacitor-cordova-android-plugins/
+frontend/android/.idea/
+frontend/android/local.properties
+frontend/android/app/release/
+*.apk
+*.aab
+
+# ── iOS (Capacitor) ───────────────────────────────────────────
+frontend/ios/App/Pods/
+frontend/ios/App/App.xcworkspace/xcuserdata/
+frontend/ios/.xcode.env.local
+
+# ── Prisma ────────────────────────────────────────────────────
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
+
+# ── Misc ──────────────────────────────────────────────────────
+*.pem
+coverage/
+.nyc_output/

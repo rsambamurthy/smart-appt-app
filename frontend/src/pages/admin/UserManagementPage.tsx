@@ -1,0 +1,500 @@
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import Layout from '../../components/organisms/Layout';
+import PageSubHeader from '../../components/molecules/PageSubHeader';
+import {
+  useListUsersQuery, useCreateUserMutation, useUpdateUserMutation, useDeactivateUserMutation,
+  useListUnitsQuery, useCreateUnitMutation, useUpdateUnitMutation, useDeleteUnitMutation,
+} from '../../store/api/usersApi';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type Tab = 'users' | 'units';
+
+const ROLES = ['SUPER_USER', 'MANAGER', 'RESIDENT', 'COMMITTEE', 'TREASURER', 'GATE_STAFF'] as const;
+
+const ROLE_BADGE: Record<string, string> = {
+  SUPER_USER: 'badge-purple',
+  MANAGER: 'badge-blue',
+  RESIDENT: 'badge-green',
+  COMMITTEE: 'badge-yellow',
+  TREASURER: 'badge-yellow',
+  GATE_STAFF: 'badge-gray',
+};
+
+type UserRecord = {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  role: string;
+  unit_id?: string;
+  is_owner: boolean;
+  is_active: boolean;
+  unit?: { id?: string; flat_number: string; block?: string };
+};
+
+type UnitRecord = {
+  id: string;
+  flat_number: string;
+  block?: string;
+  floor: number;
+  area_sqft?: number | string;
+  unit_type?: string;
+  users: { id: string; name: string; phone: string; role: string; is_owner: boolean }[];
+};
+
+type UserForm = {
+  phone: string; name: string; email: string;
+  role: string; unit_id: string; is_owner: boolean;
+};
+
+type UnitForm = {
+  flat_number: string; block: string; floor: string;
+  area_sqft: string; unit_type: string;
+};
+
+// ─── Shared UI ────────────────────────────────────────────────────────────────
+
+function SidePanel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 40 }} />
+      <div style={{
+        position: 'fixed', right: 0, top: 0, bottom: 0, width: 420,
+        background: 'var(--color-surface)', boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
+        zIndex: 50, padding: '1.5rem', overflowY: 'auto',
+        display: 'flex', flexDirection: 'column', gap: '1rem',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ fontSize: '1.05rem', fontWeight: 700 }}>{title}</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.5rem', color: 'var(--color-muted)', padding: '0 0.25rem', cursor: 'pointer' }}>×</button>
+        </div>
+        {children}
+      </div>
+    </>
+  );
+}
+
+function ConfirmModal({ message, onConfirm, onCancel, confirmLabel = 'Confirm', danger = true }:
+  { message: string; onConfirm: () => void; onCancel: () => void; confirmLabel?: string; danger?: boolean }) {
+  return (
+    <>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60 }} />
+      <div style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+        background: 'var(--color-surface)', borderRadius: 'var(--radius)',
+        padding: '1.75rem', zIndex: 70, width: 380,
+        boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+      }}>
+        <p style={{ marginBottom: '1.5rem', lineHeight: 1.6, fontSize: '0.9rem' }}>{message}</p>
+        <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+          <button className="btn-secondary" onClick={onCancel}>Cancel</button>
+          <button className={danger ? 'btn-danger' : 'btn-primary'} onClick={onConfirm}>{confirmLabel}</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ErrorBox({ message }: { message: string }) {
+  return (
+    <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.65rem', borderRadius: 'var(--radius)', fontSize: '0.85rem' }}>
+      {message}
+    </div>
+  );
+}
+
+// ─── Users Tab ────────────────────────────────────────────────────────────────
+
+const BLANK_USER: UserForm = { phone: '', name: '', email: '', role: 'RESIDENT', unit_id: '', is_owner: false };
+
+function UsersTab() {
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [panel, setPanel] = useState<{ mode: 'add' | 'edit'; user?: UserRecord } | null>(null);
+  const [confirm, setConfirm] = useState<{ userId: string; action: 'deactivate' | 'activate' } | null>(null);
+  const [form, setForm] = useState<UserForm>(BLANK_USER);
+  const [formError, setFormError] = useState('');
+
+  const queryParams: Record<string, unknown> = {};
+  if (search) queryParams['search'] = search;
+  if (roleFilter) queryParams['role'] = roleFilter;
+  if (statusFilter !== '') queryParams['is_active'] = statusFilter === 'true';
+
+  const { data, isFetching, refetch } = useListUsersQuery(queryParams);
+  const { data: unitsData } = useListUnitsQuery();
+  const [createUser, { isLoading: creating }] = useCreateUserMutation();
+  const [updateUser, { isLoading: updating }] = useUpdateUserMutation();
+  const [deactivateUser] = useDeactivateUserMutation();
+
+  const users = (data?.data ?? []) as UserRecord[];
+  const units = (unitsData?.data ?? []) as UnitRecord[];
+
+  const openAdd = () => { setForm(BLANK_USER); setFormError(''); setPanel({ mode: 'add' }); };
+  const openEdit = (u: UserRecord) => {
+    setForm({ phone: u.phone, name: u.name, email: u.email ?? '', role: u.role, unit_id: u.unit_id ?? '', is_owner: u.is_owner });
+    setFormError('');
+    setPanel({ mode: 'edit', user: u });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError('');
+    try {
+      const body = {
+        phone: form.phone, name: form.name,
+        email: form.email || undefined,
+        role: form.role, unit_id: form.unit_id || undefined, is_owner: form.is_owner,
+      };
+      if (panel?.mode === 'add') {
+        await createUser(body).unwrap();
+      } else if (panel?.user) {
+        const { phone: _p, ...updateBody } = body;
+        void _p;
+        await updateUser({ id: panel.user.id, body: updateBody }).unwrap();
+      }
+      setPanel(null);
+      refetch();
+    } catch (err: unknown) {
+      setFormError((err as { data?: { detail?: string } })?.data?.detail ?? 'An error occurred.');
+    }
+  };
+
+  const handleToggleActive = async () => {
+    if (!confirm) return;
+    try {
+      if (confirm.action === 'deactivate') {
+        await deactivateUser(confirm.userId).unwrap();
+      } else {
+        await updateUser({ id: confirm.userId, body: { is_active: true } }).unwrap();
+      }
+    } catch { /* ignore */ }
+    setConfirm(null);
+    refetch();
+  };
+
+  return (
+    <>
+      {/* Toolbar */}
+      <div className="ent-toolbar">
+        <input
+          type="search"
+          placeholder="Search name or phone…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
+          <option value="">All Roles</option>
+          {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="">All Status</option>
+          <option value="true">Active</option>
+          <option value="false">Inactive</option>
+        </select>
+        <button className="ent-btn-add" onClick={openAdd}>+ Add User</button>
+      </div>
+
+      {/* Table */}
+      {isFetching ? (
+        <div className="skeleton" style={{ height: 240, borderRadius: 6 }} />
+      ) : users.length === 0 ? (
+        <div className="ent-page-table" style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-muted)' }}>
+          No users found.{' '}
+          {!(search || roleFilter || statusFilter) && (
+            <button className="ent-btn-add" onClick={openAdd} style={{ marginLeft: '0.5rem' }}>Add the first user</button>
+          )}
+        </div>
+      ) : (
+        <div className="ent-page-table">
+          <div style={{ overflowX: 'auto' }}>
+            <table>
+              <thead>
+                <tr>
+                  {['Name', 'Phone', 'Email', 'Role', 'Unit', 'Status', 'Actions'].map((h) => (
+                    <th key={h}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u) => {
+                  const unitHref = u.unit?.id ? `/admin/units/${u.unit.id}` : undefined;
+                  const unitLabel = u.unit
+                    ? `${u.unit.block ? u.unit.block + '-' : ''}${u.unit.flat_number}`
+                    : '—';
+                  return (
+                    <tr key={u.id}>
+                      <td style={{ fontWeight: 500 }}>{u.name}</td>
+                      <td style={{ color: 'var(--color-muted)' }}>{u.phone}</td>
+                      <td style={{ color: 'var(--color-muted)' }}>{u.email ?? '—'}</td>
+                      <td><span className={`badge ${ROLE_BADGE[u.role] ?? 'badge-gray'}`}>{u.role}</span></td>
+                      <td>
+                        {unitHref ? (
+                          <Link to={unitHref} style={{ color: 'var(--theme-accent)', fontWeight: 500 }}>
+                            {unitLabel}
+                          </Link>
+                        ) : unitLabel}
+                        {u.unit && (
+                          <span style={{ marginLeft: '0.35rem', color: 'var(--color-muted)', fontSize: '0.75rem' }}>
+                            {u.is_owner ? '(Owner)' : '(Tenant)'}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <span className={`badge ${u.is_active ? 'badge-green' : 'badge-red'}`}>
+                          {u.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                          <button className="ent-ia ent-ia-edit" onClick={() => openEdit(u)} title="Edit">✎</button>
+                          {u.is_active ? (
+                            <button className="ent-ia ent-ia-del" onClick={() => setConfirm({ userId: u.id, action: 'deactivate' })} title="Deactivate">⊗</button>
+                          ) : (
+                            <button className="ent-ia ent-ia-edit" onClick={() => setConfirm({ userId: u.id, action: 'activate' })} title="Activate">↺</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Side panel */}
+      {panel && (
+        <SidePanel
+          title={panel.mode === 'add' ? 'Add User' : `Edit — ${panel.user?.name}`}
+          onClose={() => setPanel(null)}
+        >
+          {formError && <ErrorBox message={formError} />}
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            <div className="form-group">
+              <label>Phone *</label>
+              <input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required disabled={panel.mode === 'edit'} placeholder="+91 98765 43210" />
+            </div>
+            <div className="form-group">
+              <label>Name *</label>
+              <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required placeholder="Full name" />
+            </div>
+            <div className="form-group">
+              <label>Email</label>
+              <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="optional" />
+            </div>
+            <div className="form-group">
+              <label>Role *</label>
+              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Unit / Flat</label>
+              <select value={form.unit_id} onChange={(e) => setForm({ ...form, unit_id: e.target.value })}>
+                <option value="">— None —</option>
+                {units.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.block ? `${u.block}-` : ''}{u.flat_number}{u.unit_type ? ` (${u.unit_type})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input type="checkbox" id="is_owner_chk" checked={form.is_owner} onChange={(e) => setForm({ ...form, is_owner: e.target.checked })} style={{ width: 'auto', margin: 0 }} />
+              <label htmlFor="is_owner_chk" style={{ margin: 0, fontWeight: 400 }}>Owner (not a tenant)</label>
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <button type="submit" className="btn-primary" style={{ flex: 1 }} disabled={creating || updating}>
+                {creating || updating ? 'Saving…' : panel.mode === 'add' ? 'Create User' : 'Save Changes'}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => setPanel(null)}>Cancel</button>
+            </div>
+          </form>
+        </SidePanel>
+      )}
+
+      {confirm && (
+        <ConfirmModal
+          message={confirm.action === 'deactivate' ? 'Deactivate this user? They cannot log in until reactivated.' : 'Reactivate this user?'}
+          confirmLabel={confirm.action === 'deactivate' ? 'Deactivate' : 'Activate'}
+          danger={confirm.action === 'deactivate'}
+          onConfirm={handleToggleActive}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Units Tab ────────────────────────────────────────────────────────────────
+
+const BLANK_UNIT: UnitForm = { flat_number: '', block: '', floor: '0', area_sqft: '', unit_type: '' };
+
+function UnitsTab() {
+  const [panel, setPanel] = useState<{ mode: 'add' | 'edit'; unit?: UnitRecord } | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [form, setForm] = useState<UnitForm>(BLANK_UNIT);
+  const [formError, setFormError] = useState('');
+
+  const { data, isFetching, refetch } = useListUnitsQuery();
+  const [createUnit, { isLoading: creating }] = useCreateUnitMutation();
+  const [updateUnit, { isLoading: updating }] = useUpdateUnitMutation();
+  const [deleteUnit] = useDeleteUnitMutation();
+
+  const units = (data?.data ?? []) as UnitRecord[];
+
+  const openAdd = () => { setForm(BLANK_UNIT); setFormError(''); setPanel({ mode: 'add' }); };
+  const openEdit = (u: UnitRecord) => {
+    setForm({ flat_number: u.flat_number, block: u.block ?? '', floor: String(u.floor), area_sqft: u.area_sqft ? String(u.area_sqft) : '', unit_type: u.unit_type ?? '' });
+    setFormError('');
+    setPanel({ mode: 'edit', unit: u });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError('');
+    try {
+      const body = {
+        flat_number: form.flat_number, block: form.block || undefined,
+        floor: parseInt(form.floor, 10),
+        area_sqft: form.area_sqft ? parseFloat(form.area_sqft) : undefined,
+        unit_type: form.unit_type || undefined,
+      };
+      if (panel?.mode === 'add') { await createUnit(body).unwrap(); }
+      else if (panel?.unit) { await updateUnit({ id: panel.unit.id, body }).unwrap(); }
+      setPanel(null);
+      refetch();
+    } catch (err: unknown) {
+      setFormError((err as { data?: { detail?: string } })?.data?.detail ?? 'An error occurred.');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    try { await deleteUnit({ id: deleteConfirm }).unwrap(); } catch { /* ignore */ }
+    setDeleteConfirm(null);
+    refetch();
+  };
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button className="ent-btn-add" onClick={openAdd}>+ Add Unit</button>
+      </div>
+
+      {isFetching ? (
+        <div className="skeleton" style={{ height: 240, borderRadius: 6 }} />
+      ) : units.length === 0 ? (
+        <div className="ent-page-table" style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-muted)' }}>
+          No units found.{' '}
+          <button className="ent-btn-add" onClick={openAdd} style={{ marginLeft: '0.5rem' }}>Add the first unit</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {units.map((u) => (
+            <div key={u.id} className="ent-section" style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem', alignItems: 'start', padding: '14px 16px', marginBottom: 0 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                  <Link
+                    to={`/admin/units/${u.id}`}
+                    style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--theme-accent)' }}
+                  >
+                    {u.block ? `${u.block}-` : ''}{u.flat_number}
+                  </Link>
+                  {u.unit_type && <span className="badge badge-blue">{u.unit_type}</span>}
+                  <span className="badge badge-gray">Floor {u.floor}</span>
+                  {u.area_sqft && <span style={{ color: 'var(--color-muted)', fontSize: '0.8rem' }}>{u.area_sqft} sqft</span>}
+                </div>
+                {u.users.length > 0 ? (
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {u.users.map((r) => (
+                      <span key={r.id} style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius)', padding: '2px 10px', fontSize: '0.8rem' }}>
+                        <strong>{r.name}</strong>
+                        <span style={{ color: 'var(--color-muted)', marginLeft: 4 }}>{r.is_owner ? 'Owner' : 'Tenant'}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span style={{ color: 'var(--color-muted)', fontSize: '0.8rem' }}>Unoccupied</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <Link to={`/admin/units/${u.id}`} className="btn-secondary" style={{ padding: '4px 12px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center' }}>
+                  View
+                </Link>
+                <button className="btn-secondary" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => openEdit(u)}>Edit</button>
+                <button className="btn-danger" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => setDeleteConfirm(u.id)} disabled={u.users.length > 0} title={u.users.length > 0 ? 'Remove residents before deleting' : 'Delete'}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {panel && (
+        <SidePanel
+          title={panel.mode === 'add' ? 'Add Unit' : `Edit — ${panel.unit?.block ? panel.unit.block + '-' : ''}${panel.unit?.flat_number}`}
+          onClose={() => setPanel(null)}
+        >
+          {formError && <ErrorBox message={formError} />}
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            <div className="form-group"><label>Flat Number *</label><input type="text" value={form.flat_number} onChange={(e) => setForm({ ...form, flat_number: e.target.value })} required placeholder="e.g. 101" /></div>
+            <div className="form-group"><label>Block</label><input type="text" value={form.block} onChange={(e) => setForm({ ...form, block: e.target.value })} placeholder="e.g. A" /></div>
+            <div className="form-group"><label>Floor *</label><input type="number" value={form.floor} onChange={(e) => setForm({ ...form, floor: e.target.value })} required min={0} /></div>
+            <div className="form-group"><label>Unit Type</label><input type="text" value={form.unit_type} onChange={(e) => setForm({ ...form, unit_type: e.target.value })} placeholder="e.g. 2BHK, Studio" /></div>
+            <div className="form-group"><label>Area (sqft)</label><input type="number" value={form.area_sqft} onChange={(e) => setForm({ ...form, area_sqft: e.target.value })} min={0} step="0.01" placeholder="optional" /></div>
+            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+              <button type="submit" className="btn-primary" style={{ flex: 1 }} disabled={creating || updating}>
+                {creating || updating ? 'Saving…' : panel.mode === 'add' ? 'Create Unit' : 'Save Changes'}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => setPanel(null)}>Cancel</button>
+            </div>
+          </form>
+        </SidePanel>
+      )}
+
+      {deleteConfirm && (
+        <ConfirmModal
+          message="Delete this unit permanently? This cannot be undone."
+          confirmLabel="Delete"
+          danger
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function UserManagementPage() {
+  const [tab, setTab] = useState<Tab>('users');
+
+  return (
+    <Layout>
+      <PageSubHeader
+        crumbs={[
+          { label: 'Admin', path: '/dashboard' },
+          { label: 'User Management' },
+        ]}
+      />
+
+      <div className="ent-page-hdr">
+        <h1>User Management</h1>
+        <p>Manage residents, staff, and apartment units for your association.</p>
+      </div>
+
+      {/* Tabs */}
+      <div className="ent-tabs">
+        <button className={`ent-tab${tab === 'users' ? ' active' : ''}`} onClick={() => setTab('users')}>Users</button>
+        <button className={`ent-tab${tab === 'units' ? ' active' : ''}`} onClick={() => setTab('units')}>Units / Flats</button>
+      </div>
+
+      {tab === 'users' ? <UsersTab /> : <UnitsTab />}
+    </Layout>
+  );
+}
