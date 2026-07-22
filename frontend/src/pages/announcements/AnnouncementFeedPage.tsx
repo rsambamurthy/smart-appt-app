@@ -304,29 +304,40 @@ const FeedCard = ({ item, currentUserId, currentUserRole, onRead, onVote, onDele
   return (
     <>
       <div onClick={handleClick} style={{
-        background: '#fff', borderRadius: 12,
+        background: '#fff', borderRadius: 10,
         border: `1px solid ${isUnread ? cat.border : '#e5e7eb'}`,
         borderLeft: `4px solid ${cat.border}`,
-        padding: '1rem', cursor: 'pointer',
+        padding: '0.6rem 0.75rem', cursor: 'pointer',
         transition: 'box-shadow 0.15s',
       }}>
-        {/* Header row — chevron lives here so it never overlaps action buttons */}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        {/* Header row */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <Avatar name={item.poster?.name ?? 'System'} role={item.poster?.role ?? 'MANAGER'} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: isUnread ? 700 : 600, fontSize: '0.95rem', color: '#111827' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontWeight: isUnread ? 700 : 600, fontSize: '0.88rem', color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isUnread && <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: '#C4572B', marginRight: 5, verticalAlign: 'middle' }} />}
                 {item.title}
-                {isUnread && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#C4572B', marginLeft: 7, verticalAlign: 'middle' }} />}
               </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {/* Right-side controls: badge · delete · chevron */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                 <CategoryBadge cat={item.category} />
-                <span style={{ fontSize: '0.75rem', color: '#9ca3af', userSelect: 'none' }}>
+                {canDelete && (
+                  <button onClick={handleDeleteClick}
+                    title="Delete announcement"
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      padding: '2px 4px', fontSize: '0.95rem', lineHeight: 1,
+                      color: '#dc2626', borderRadius: 4,
+                    }}>🗑</button>
+                )}
+                <span style={{ fontSize: '0.7rem', color: '#9ca3af', userSelect: 'none', cursor: 'pointer' }}
+                  onClick={(e) => { e.stopPropagation(); handleClick(); }}>
                   {expanded ? '▲' : '▼'}
                 </span>
               </div>
             </div>
-            <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: 2 }}>
+            <div style={{ fontSize: '0.7rem', color: '#9ca3af', marginTop: 1 }}>
               {item.poster?.name ?? 'Committee'} · {fmtDate(item.published_at)}
             </div>
           </div>
@@ -334,8 +345,8 @@ const FeedCard = ({ item, currentUserId, currentUserRole, onRead, onVote, onDele
 
         {/* Body — always show first 2 lines, expand on click */}
         <div style={{
-          marginTop: '0.625rem', fontSize: '0.875rem', color: '#374151',
-          lineHeight: 1.55,
+          marginTop: '0.4rem', fontSize: '0.82rem', color: '#374151',
+          lineHeight: 1.5,
           display: '-webkit-box',
           WebkitLineClamp: expanded ? 'unset' : 2,
           WebkitBoxOrient: 'vertical',
@@ -366,20 +377,6 @@ const FeedCard = ({ item, currentUserId, currentUserRole, onRead, onVote, onDele
             {item.expires_at && (
               <div style={{ marginTop: '0.625rem', fontSize: '0.75rem', color: '#9ca3af' }}>
                 Expires {new Date(item.expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-              </div>
-            )}
-            {/* Delete button — shown only to poster or privileged roles */}
-            {canDelete && (
-              <div style={{ marginTop: '0.875rem', display: 'flex', justifyContent: 'flex-end' }}>
-                <button onClick={handleDeleteClick}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    padding: '0.4rem 0.9rem', background: '#fee2e2', color: '#dc2626',
-                    border: '1px solid #fca5a5', borderRadius: 8,
-                    fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
-                  }}>
-                  🗑 Delete
-                </button>
               </div>
             )}
           </div>
