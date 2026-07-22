@@ -6,15 +6,18 @@ import { notificationService } from '../../services/notification.service';
 
 export class AnnouncementsService {
   async post(associationId: string, body: {
-    title: string; body: string; category: string; is_urgent?: boolean; expires_at?: string;
+    title: string; body: string; category: string; is_urgent?: boolean | string; expires_at?: string;
   }, postedBy: string, attachmentKeys: string[]) {
+    // FormData sends booleans as strings — normalise
+    const isUrgent = body.is_urgent === true || body.is_urgent === 'true';
+
     const ann = await prisma.announcement.create({
       data: {
         association_id: associationId,
         title: body.title,
         body: body.body,
         category: body.category as never,
-        is_urgent: body.is_urgent ?? false,
+        is_urgent: isUrgent,
         posted_by: postedBy,
         published_at: new Date(),
         expires_at: body.expires_at ? new Date(body.expires_at) : null,
@@ -22,19 +25,29 @@ export class AnnouncementsService {
       },
     });
 
-    const residents = await prisma.user.findMany({
-      where: { association_id: associationId, is_active: true, deleted_at: null },
-      select: { id: true },
-    });
-
-    await notificationService.dispatch({
-      type: ann.is_urgent ? 'URGENT_ANNOUNCEMENT' : 'ANNOUNCEMENT_POSTED',
-      channels: ann.is_urgent ? ['PUSH', 'SMS', 'EMAIL'] : ['PUSH', 'EMAIL'],
-      recipients: residents.map((r) => r.id),
-      data: { announcement_id: ann.id, title: body.title },
-    });
+    // Fire-and-forget — notification failures must never crash the POST
+    this.dispatchNotifications(associationId, ann.id, ann.is_urgent, body.title).catch(() => {});
 
     return { data: ann };
+  }
+
+  private async dispatchNotifications(
+    associationId: string, announcementId: string, isUrgent: boolean, title: string,
+  ) {
+    try {
+      const residents = await prisma.user.findMany({
+        where: { association_id: associationId, is_active: true, deleted_at: null },
+        select: { id: true },
+      });
+      await notificationService.dispatch({
+        type: isUrgent ? 'URGENT_ANNOUNCEMENT' : 'ANNOUNCEMENT_POSTED',
+        channels: isUrgent ? ['PUSH', 'SMS', 'EMAIL'] : ['PUSH', 'EMAIL'],
+        recipients: residents.map((r) => r.id),
+        data: { announcement_id: announcementId, title },
+      });
+    } catch (err) {
+      logger.error('Notification dispatch failed for announcement', { announcementId, error: (err as Error).message });
+    }
   }
 
   async list(associationId: string, query: { cursor?: string; limit: number; category?: string; date_from?: string; date_to?: string }) {
