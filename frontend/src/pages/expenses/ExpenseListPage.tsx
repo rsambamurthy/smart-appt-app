@@ -11,7 +11,7 @@ import {
   useDeleteExpenseMutation,
   useApproveExpenseMutation,
 } from '../../store/api/expensesApi';
-import { useGetDuesConfigQuery } from '../../store/api/duesApi';
+import { useGetDuesDashboardQuery } from '../../store/api/duesApi';
 
 const PAYMENT_MODES = ['CASH', 'CHEQUE', 'ONLINE', 'UPI'] as const;
 
@@ -59,11 +59,12 @@ export default function ExpenseListPage() {
     date_to: filterDateTo ? new Date(filterDateTo + 'T23:59:59').toISOString() : undefined,
     limit: 100,
   });
-  const { data: configData } = useGetDuesConfigQuery();
+  const { data: dashData } = useGetDuesDashboardQuery();
   const expenses = (expData?.data ?? []) as Expense[];
-  const cfg = configData?.data as Record<string, unknown> | undefined;
-  const openingBalance = cfg ? Number(cfg['cash_balance'] ?? 0) : 0;
-  const openingBalanceAsOn = cfg?.['cash_balance_as_on'] as string | undefined;
+  const dash = dashData?.data as Record<string, unknown> | undefined;
+  const openingBalance = dash ? Number(dash['cash_balance'] ?? 0) : 0;
+  const openingBalanceAsOn = dash?.['cash_balance_as_on'] as string | undefined;
+  const totalCollections = dash ? Number(dash['total_collected'] ?? 0) : 0;
 
   const [createExpense, { isLoading: isCreating }] = useCreateExpenseMutation();
   const [updateExpense, { isLoading: isUpdating }] = useUpdateExpenseMutation();
@@ -170,33 +171,43 @@ export default function ExpenseListPage() {
         </div>
 
         {/* ── Balance Ledger ── */}
-        {openingBalance > 0 && (
-          <div className="ent-meta" style={{ marginBottom: '1.25rem' }}>
-            <div>
-              <div className="ent-meta-label">
-                Opening Balance{openingBalanceAsOn ? ` (as on ${new Date(openingBalanceAsOn).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })})` : ''}
+        {openingBalance > 0 && (() => {
+          const totalExpenses = filtered.reduce((s, e) => s + Number(e.amount), 0);
+          const closingBalance = openingBalance + totalCollections - totalExpenses;
+          return (
+            <div className="ent-meta" style={{ marginBottom: '1.25rem' }}>
+              <div>
+                <div className="ent-meta-label">
+                  Opening Balance{openingBalanceAsOn ? ` (as on ${new Date(openingBalanceAsOn).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })})` : ''}
+                </div>
+                <div className="ent-meta-value" style={{ fontWeight: 700, fontSize: '1.1rem', color: '#16a34a' }}>
+                  ₹{openingBalance.toLocaleString()}
+                </div>
               </div>
-              <div className="ent-meta-value" style={{ fontWeight: 700, fontSize: '1.1rem', color: '#16a34a' }}>
-                ₹{openingBalance.toLocaleString()}
+              <div>
+                <div className="ent-meta-label">Total Collections</div>
+                <div className="ent-meta-value" style={{ fontWeight: 700, fontSize: '1.1rem', color: '#16a34a' }}>
+                  + ₹{totalCollections.toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div className="ent-meta-label">Total Expenses ({filtered.length} transactions)</div>
+                <div className="ent-meta-value" style={{ fontWeight: 700, fontSize: '1.1rem', color: '#dc2626' }}>
+                  − ₹{totalExpenses.toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div className="ent-meta-label">Closing Balance</div>
+                <div className="ent-meta-value" style={{
+                  fontWeight: 700, fontSize: '1.1rem',
+                  color: closingBalance >= 0 ? '#16a34a' : '#dc2626',
+                }}>
+                  ₹{closingBalance.toLocaleString()}
+                </div>
               </div>
             </div>
-            <div>
-              <div className="ent-meta-label">Total Expenses ({filtered.length} transactions)</div>
-              <div className="ent-meta-value" style={{ fontWeight: 700, fontSize: '1.1rem', color: '#dc2626' }}>
-                − ₹{filtered.reduce((s, e) => s + Number(e.amount), 0).toLocaleString()}
-              </div>
-            </div>
-            <div>
-              <div className="ent-meta-label">Closing Balance</div>
-              <div className="ent-meta-value" style={{
-                fontWeight: 700, fontSize: '1.1rem',
-                color: (openingBalance - filtered.reduce((s, e) => s + Number(e.amount), 0)) >= 0 ? '#16a34a' : '#dc2626',
-              }}>
-                ₹{(openingBalance - filtered.reduce((s, e) => s + Number(e.amount), 0)).toLocaleString()}
-              </div>
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Table */}
         <div className="ent-section">

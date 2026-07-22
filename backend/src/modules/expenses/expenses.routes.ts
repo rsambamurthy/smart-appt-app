@@ -16,7 +16,7 @@ router.use(authenticate);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // ── Category Config ──────────────────────────────────────────────────────────
-router.get('/categories', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
+router.get('/categories', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER, UserRole.RESIDENT), (req, res, next) =>
   expensesController.listCategories(req as never, res, next));
 
 router.post('/categories', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(categoryConfigSchema), (req, res, next) =>

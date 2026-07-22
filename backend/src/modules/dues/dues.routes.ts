@@ -39,6 +39,9 @@ router.get('/bills/my', requireRoles(UserRole.RESIDENT), (req, res, next) =>
 router.post('/payments/initiate', requireRoles(UserRole.RESIDENT), validate(initiatePaymentSchema), (req, res, next) =>
   duesController.initiatePayment(req as never, res, next));
 
+router.post('/payments/verify', requireRoles(UserRole.RESIDENT), (req, res, next) =>
+  duesController.verifyPayment(req as never, res, next));
+
 router.post('/payments/offline', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(offlinePaymentSchema), (req, res, next) =>
   duesController.offlinePayment(req as never, res, next));
 
@@ -48,7 +51,7 @@ router.get('/arrears', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, User
 router.post('/levy', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(createLevySchema), (req, res, next) =>
   duesController.createLevy(req as never, res, next));
 
-router.get('/dashboard', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
+router.get('/dashboard', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER, UserRole.RESIDENT), (req, res, next) =>
   duesController.dashboard(req as never, res, next));
 
 
