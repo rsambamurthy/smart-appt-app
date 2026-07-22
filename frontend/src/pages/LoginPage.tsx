@@ -27,6 +27,22 @@ const inputStyle: React.CSSProperties = {
   letterSpacing: '0.15em', textAlign: 'center',
 };
 
+// Defined OUTSIDE the page component so React never unmounts it on re-render
+const PinInput = ({ value, onChange, placeholder = '● ● ● ●', autoFocus = false }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean;
+}) => (
+  <input
+    type="password"
+    inputMode="numeric"
+    maxLength={4}
+    placeholder={placeholder}
+    value={value}
+    onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
+    style={inputStyle}
+    autoFocus={autoFocus}
+  />
+);
+
 const btn = (primary = true): React.CSSProperties => ({
   width: '100%', padding: '0.75rem', borderRadius: 8, border: 'none',
   background: primary ? 'var(--color-primary, #1e3a5f)' : '#f3f4f6',
@@ -181,19 +197,6 @@ export default function LoginPage() {
   const extractError = (err: unknown, fallback: string) =>
     (err as { data?: { detail?: string } })?.data?.detail ?? fallback;
 
-  // ── PIN input (4-digit grid) ──────────────────────────────────────────────
-  const PinInput = ({ value, onChange, placeholder = '● ● ● ●', autoFocus = false }: { value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean }) => (
-    <input
-      type="password"
-      inputMode="numeric"
-      maxLength={4}
-      placeholder={placeholder}
-      value={value}
-      onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
-      style={inputStyle}
-      autoFocus={autoFocus}
-    />
-  );
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'var(--color-bg, #f1f5f9)' }}>

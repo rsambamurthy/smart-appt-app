@@ -9,7 +9,10 @@ const inputStyle: React.CSSProperties = {
   letterSpacing: '0.25em', textAlign: 'center',
 };
 
-const PinInput = ({ label, value, onChange, autoFocus = false }: { label: string; value: string; onChange: (v: string) => void; autoFocus?: boolean }) => (
+// Defined OUTSIDE the page component so React never unmounts it on re-render
+const PinInput = ({ label, value, onChange, autoFocus = false }: {
+  label: string; value: string; onChange: (v: string) => void; autoFocus?: boolean;
+}) => (
   <div style={{ marginBottom: '1rem' }}>
     <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: '0.875rem' }}>{label}</label>
     <input
