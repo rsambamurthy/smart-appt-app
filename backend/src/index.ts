@@ -7,17 +7,29 @@ import logger from './utils/logger';
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
 const start = async () => {
-  // Start listening first so healthcheck passes immediately
-  httpServer.listen(PORT, () => {
-    logger.info(`API server running on port ${PORT}`, { env: process.env.NODE_ENV });
+  // Start listening FIRST — health check must respond immediately
+  await new Promise<void>((resolve) => {
+    httpServer.listen(PORT, () => {
+      logger.info(`API server running on port ${PORT}`, { env: process.env.NODE_ENV });
+      resolve();
+    });
   });
 
-  // Connect to DB and Redis after server is up
-  await prisma.$connect();
-  logger.info('Database connected');
+  // Connect to DB — log failure but don't crash
+  try {
+    await prisma.$connect();
+    logger.info('Database connected');
+  } catch (err: any) {
+    logger.error('Database connection failed', { error: err.message });
+  }
 
-  await redis.ping();
-  logger.info('Redis connected');
+  // Connect to Redis — log failure but don't crash
+  try {
+    await redis.ping();
+    logger.info('Redis connected');
+  } catch (err: any) {
+    logger.error('Redis connection failed', { error: err.message });
+  }
 };
 
 const shutdown = async () => {
