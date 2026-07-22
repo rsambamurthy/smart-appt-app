@@ -22,6 +22,7 @@ const PinInput = ({ label, value, onChange, autoFocus = false }: {
       placeholder="● ● ● ●"
       value={value}
       onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
+      onBlur={(e) => { if (e.target.value.length < 4) setTimeout(() => e.target.focus(), 10); }}
       style={inputStyle}
       autoFocus={autoFocus}
     />

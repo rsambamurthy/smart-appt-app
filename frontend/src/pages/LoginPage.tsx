@@ -38,6 +38,7 @@ const PinInput = ({ value, onChange, placeholder = '● ● ● ●', autoFocus 
     placeholder={placeholder}
     value={value}
     onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
+    onBlur={(e) => { if (e.target.value.length < 4) setTimeout(() => e.target.focus(), 10); }}
     style={inputStyle}
     autoFocus={autoFocus}
   />
@@ -233,7 +234,7 @@ export default function LoginPage() {
             <p style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '1rem' }}>Enter your 4-digit M-PIN for {phone}</p>
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: '0.875rem' }}>M-PIN</label>
-              <PinInput value={mpin} onChange={setMpin} />
+              <PinInput value={mpin} onChange={setMpin} autoFocus />
             </div>
             <button type="submit" style={btn()} disabled={verifyingMpin || mpin.length < 4}>
               {verifyingMpin ? 'Verifying...' : 'Login'}
