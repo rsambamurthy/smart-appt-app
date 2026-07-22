@@ -1,10 +1,15 @@
 import Redis from 'ioredis';
 import logger from '../utils/logger';
 
-const redis = new Redis(process.env.REDIS_URL!, {
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
-  lazyConnect: false,
+const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', {
+  maxRetriesPerRequest: null,  // don't reject queued commands; let them wait for connection
+  enableReadyCheck: false,     // don't block on PING after connect
+  lazyConnect: true,           // don't connect at module import; connect explicitly in index.ts
+  connectTimeout: 10000,
+  retryStrategy: (times) => {
+    if (times > 10) return null;  // give up after 10 retries
+    return Math.min(times * 500, 5000);
+  },
 });
 
 redis.on('connect', () => logger.info('Redis connected'));

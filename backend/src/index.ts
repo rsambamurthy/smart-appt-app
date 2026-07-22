@@ -1,3 +1,12 @@
+// Guard against any unhandled rejections / exceptions crashing the server
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+  // log but do NOT exit — healthcheck must keep responding
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+
 import 'dotenv/config';
 import { httpServer } from './app';
 import prisma from './config/database';
@@ -23,12 +32,17 @@ const start = async () => {
     logger.error('Database connection failed', { error: err.message });
   }
 
-  // Connect to Redis — log failure but don't crash
+  // Connect to Redis explicitly (lazyConnect: true means no auto-connect at import)
   try {
-    await redis.ping();
+    await redis.connect();
     logger.info('Redis connected');
   } catch (err: any) {
-    logger.error('Redis connection failed', { error: err.message });
+    // Already connected (EISCONN) is fine; log anything else
+    if ((err as any).message?.includes('EISCONN')) {
+      logger.info('Redis already connected');
+    } else {
+      logger.error('Redis connection failed', { error: err.message });
+    }
   }
 };
 
@@ -36,7 +50,7 @@ const shutdown = async () => {
   logger.info('Shutting down...');
   httpServer.close();
   await prisma.$disconnect();
-  await redis.quit();
+  try { await redis.quit(); } catch { /* ignore */ }
   process.exit(0);
 };
 

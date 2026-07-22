@@ -4,7 +4,7 @@ RUN apk add --no-cache openssl
 COPY package*.json ./
 RUN npm install --cache /tmp/npm-cache --legacy-peer-deps
 COPY . .
-RUN npx prisma generate
+RUN ./node_modules/.bin/prisma generate
 RUN npm run build
 EXPOSE 3000
 CMD ["node", "dist/index.js"]

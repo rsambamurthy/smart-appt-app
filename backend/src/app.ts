@@ -29,6 +29,10 @@ import { registerAssociationSchema } from './modules/associations/associations.s
 const app = express();
 const httpServer = createServer(app);
 
+// ── Health check — MUST be registered before all middleware ───────────────────
+// Railway healthchecker hits this; it must respond even if DB/Redis are down.
+app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
 // ── Socket.io (visitor approval real-time) ────────────────────────────────────
 export const io = new SocketServer(httpServer, {
   cors: {
@@ -80,9 +84,6 @@ app.use(
   }),
 );
 app.use(ipLimiter);
-
-// ── Health check ──────────────────────────────────────────────────────────────
-app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // ── API routes ────────────────────────────────────────────────────────────────
 const API = '/api/v1';
