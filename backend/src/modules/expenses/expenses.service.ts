@@ -201,16 +201,24 @@ export class ExpensesService {
   }
 
   async getTransparencyView(associationId: string) {
-    const actuals = await prisma.expense.groupBy({
-      by: ['category'],
+    const expenses = await prisma.expense.findMany({
       where: {
         association_id: associationId,
         deleted_at: null,
         status: { in: [ExpenseStatus.APPROVED, ExpenseStatus.RECORDED] },
       },
-      _sum: { amount: true },
+      orderBy: { expense_date: 'desc' },
+      select: {
+        id: true,
+        expense_date: true,
+        category: true,
+        vendor_name: true,
+        amount: true,
+        payment_mode: true,
+        description: true,
+      },
     });
-    return { data: actuals.map((a) => ({ category: a.category, total: a._sum.amount ?? 0 })) };
+    return { data: expenses };
   }
 
   async setBudget(associationId: string, category: string, body: SetBudgetBody, updatedBy: string) {

@@ -11,6 +11,7 @@ import {
   useDeleteExpenseMutation,
   useApproveExpenseMutation,
 } from '../../store/api/expensesApi';
+import { useGetDuesConfigQuery } from '../../store/api/duesApi';
 
 const PAYMENT_MODES = ['CASH', 'CHEQUE', 'ONLINE', 'UPI'] as const;
 
@@ -44,7 +45,6 @@ export default function ExpenseListPage() {
   const isCommittee = user?.role === 'COMMITTEE' || user?.role === 'SUPER_USER';
 
   const [filterCategory, setFilterCategory] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
   const [search, setSearch] = useState('');
@@ -55,12 +55,15 @@ export default function ExpenseListPage() {
 
   const { data: expData, isLoading } = useListExpensesQuery({
     category: filterCategory || undefined,
-    status: filterStatus || undefined,
     date_from: filterDateFrom ? new Date(filterDateFrom).toISOString() : undefined,
     date_to: filterDateTo ? new Date(filterDateTo + 'T23:59:59').toISOString() : undefined,
     limit: 100,
   });
+  const { data: configData } = useGetDuesConfigQuery();
   const expenses = (expData?.data ?? []) as Expense[];
+  const cfg = configData?.data as Record<string, unknown> | undefined;
+  const openingBalance = cfg ? Number(cfg['cash_balance'] ?? 0) : 0;
+  const openingBalanceAsOn = cfg?.['cash_balance_as_on'] as string | undefined;
 
   const [createExpense, { isLoading: isCreating }] = useCreateExpenseMutation();
   const [updateExpense, { isLoading: isUpdating }] = useUpdateExpenseMutation();
@@ -152,14 +155,10 @@ export default function ExpenseListPage() {
               <option value="">All Categories</option>
               {activeCats.map((c) => <option key={c.name} value={c.name}>{c.display_name}</option>)}
             </select>
-            <select className="ent-fc" style={{ width: 120 }} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-              <option value="">All Status</option>
-              {Object.entries(STATUS_BADGE).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            </select>
             <input className="ent-fc" type="date" style={{ width: 135 }} value={filterDateFrom} onChange={(e) => setFilterDateFrom(e.target.value)} title="From" />
             <input className="ent-fc" type="date" style={{ width: 135 }} value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)} title="To" />
-            {(filterCategory || filterStatus || filterDateFrom || filterDateTo || search) && (
-              <button onClick={() => { setFilterCategory(''); setFilterStatus(''); setFilterDateFrom(''); setFilterDateTo(''); setSearch(''); }}
+            {(filterCategory || filterDateFrom || filterDateTo || search) && (
+              <button onClick={() => { setFilterCategory(''); setFilterDateFrom(''); setFilterDateTo(''); setSearch(''); }}
                 style={{ padding: '0 10px', height: 30, border: '1px solid #d1d5db', borderRadius: 4, background: '#f9fafb', color: '#6b7280', fontSize: '0.8rem', cursor: 'pointer' }}>
                 ✕ Clear
               </button>
@@ -169,6 +168,35 @@ export default function ExpenseListPage() {
             )}
           </div>
         </div>
+
+        {/* ── Balance Ledger ── */}
+        {openingBalance > 0 && (
+          <div className="ent-meta" style={{ marginBottom: '1.25rem' }}>
+            <div>
+              <div className="ent-meta-label">
+                Opening Balance{openingBalanceAsOn ? ` (as on ${new Date(openingBalanceAsOn).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })})` : ''}
+              </div>
+              <div className="ent-meta-value" style={{ fontWeight: 700, fontSize: '1.1rem', color: '#16a34a' }}>
+                ₹{openingBalance.toLocaleString()}
+              </div>
+            </div>
+            <div>
+              <div className="ent-meta-label">Total Expenses ({filtered.length} transactions)</div>
+              <div className="ent-meta-value" style={{ fontWeight: 700, fontSize: '1.1rem', color: '#dc2626' }}>
+                − ₹{filtered.reduce((s, e) => s + Number(e.amount), 0).toLocaleString()}
+              </div>
+            </div>
+            <div>
+              <div className="ent-meta-label">Closing Balance</div>
+              <div className="ent-meta-value" style={{
+                fontWeight: 700, fontSize: '1.1rem',
+                color: (openingBalance - filtered.reduce((s, e) => s + Number(e.amount), 0)) >= 0 ? '#16a34a' : '#dc2626',
+              }}>
+                ₹{(openingBalance - filtered.reduce((s, e) => s + Number(e.amount), 0)).toLocaleString()}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Table */}
         <div className="ent-section">
@@ -188,13 +216,12 @@ export default function ExpenseListPage() {
                   <tr>
                     <th>Date</th><th>Category</th><th>Vendor / Description</th>
                     <th style={{ textAlign: 'right' }}>Amount</th><th>Mode</th>
-                    <th>Status</th><th>Added By</th><th style={{ textAlign: 'center' }}>Actions</th>
+                    <th>Added By</th><th style={{ textAlign: 'center' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((e) => {
                     const cat = getCat(e.category);
-                    const badge = STATUS_BADGE[e.status] ?? STATUS_BADGE['RECORDED'];
                     const canEdit = isTreasurer && (e.status === 'RECORDED' || e.status === 'PENDING_APPROVAL');
                     const canDelete = isTreasurer && e.status !== 'APPROVED';
                     const canApprove = isCommittee && e.status === 'PENDING_APPROVAL';
@@ -219,11 +246,6 @@ export default function ExpenseListPage() {
                         </td>
                         <td style={{ textAlign: 'right', fontWeight: 700 }}>₹{Number(e.amount).toLocaleString()}</td>
                         <td style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>{e.payment_mode}</td>
-                        <td>
-                          <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: '0.78rem', fontWeight: 600, background: badge.bg, color: badge.color }}>
-                            {badge.label}
-                          </span>
-                        </td>
                         <td style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>{e.creator?.name ?? '—'}</td>
                         <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                           {canEdit && <button className="ent-ia ent-ia-edit" title="Edit" onClick={() => openEdit(e)}>✎</button>}

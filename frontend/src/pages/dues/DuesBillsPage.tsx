@@ -357,7 +357,7 @@ export default function DuesBillsPage() {
                   <th style={{ textAlign: 'right' }}>Penalty</th>
                   <th style={{ textAlign: 'right' }}>Total</th>
                   <th style={{ textAlign: 'right' }}>Paid</th>
-                  <th>Due Date</th>
+                  <th>Received Date</th>
                   <th>Status</th>
                   <th style={{ textAlign: 'center' }}>Action</th>
                 </tr>
@@ -383,7 +383,14 @@ export default function DuesBillsPage() {
                         {paid > 0 ? `₹${paid.toLocaleString()}` : '—'}
                       </td>
                       <td style={{ color: 'var(--color-muted)', fontSize: '0.85rem' }}>
-                        {new Date(bill.due_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        {bill.payments.length > 0
+                          ? new Date(
+                              bill.payments.reduce((latest, p) =>
+                                p.payment_date > latest ? p.payment_date : latest,
+                                bill.payments[0].payment_date
+                              )
+                            ).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                          : '—'}
                       </td>
                       <td>
                         <span style={{
