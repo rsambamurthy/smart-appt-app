@@ -4,7 +4,10 @@ import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { authController } from './auth.controller';
 import { validate } from '../../middleware/validate';
 import { authenticate } from '../../middleware/auth';
-import { otpRequestSchema, otpVerifySchema, refreshTokenSchema } from './auth.schema';
+import {
+  otpRequestSchema, otpVerifySchema, refreshTokenSchema,
+  mpinVerifySchema, mpinSetSchema, mpinResetSchema, mpinChangeSchema,
+} from './auth.schema';
 
 const router = Router();
 
@@ -64,6 +67,31 @@ router.post('/logout', authenticate, (req, res, next) =>
 // GET /auth/me
 router.get('/me', authenticate, (req, res, next) =>
   authController.me(req as never, res, next),
+);
+
+// GET /auth/mpin/status?phone=...
+router.get('/mpin/status', (req, res, next) =>
+  authController.getMpinStatus(req, res, next),
+);
+
+// POST /auth/mpin/verify  (login with M-PIN)
+router.post('/mpin/verify', validate(mpinVerifySchema), (req, res, next) =>
+  authController.verifyMpin(req, res, next),
+);
+
+// POST /auth/mpin/set  (authenticated — set M-PIN after OTP login)
+router.post('/mpin/set', authenticate, validate(mpinSetSchema), (req, res, next) =>
+  authController.setMpin(req as never, res, next),
+);
+
+// POST /auth/mpin/reset  (unauthenticated — reset via OTP)
+router.post('/mpin/reset', validate(mpinResetSchema), (req, res, next) =>
+  authController.resetMpin(req, res, next),
+);
+
+// POST /auth/mpin/change  (authenticated — change with current M-PIN)
+router.post('/mpin/change', authenticate, validate(mpinChangeSchema), (req, res, next) =>
+  authController.changeMpin(req as never, res, next),
 );
 
 export default router;

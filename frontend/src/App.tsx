@@ -31,6 +31,7 @@ import AssociationManagementPage from './pages/admin/AssociationManagementPage';
 import AssociationDetailPage from './pages/admin/AssociationDetailPage';
 import OneTimeDuesPage from './pages/dues/OneTimeDuesPage';
 import MenuConfigPage from './pages/admin/MenuConfigPage';
+import ChangeMpinPage from './pages/ChangeMpinPage';
 
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
   const token = useSelector((s: RootState) => s.auth.access_token);
@@ -90,6 +91,7 @@ export default function App() {
         <Route path="/admin/associations/:id" element={<RoleRoute roles={['SUPER_USER']}><AssociationDetailPage /></RoleRoute>} />
         <Route path="/admin/menu-config" element={<RoleRoute roles={['SUPER_USER']}><MenuConfigPage /></RoleRoute>} />
 
+        <Route path="/change-mpin" element={<ProtectedRoute><ChangeMpinPage /></ProtectedRoute>} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>

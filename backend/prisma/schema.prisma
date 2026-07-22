@@ -264,6 +264,7 @@ model User {
   is_owner       Boolean     @default(false)
   google_sub     String?     @db.VarChar(255)
   fcm_token      String?     @db.Text
+  mpin_hash      String?     @db.Text
   move_in_date   DateTime?   @db.Date
   move_out_date  DateTime?   @db.Date
   is_active      Boolean     @default(true)

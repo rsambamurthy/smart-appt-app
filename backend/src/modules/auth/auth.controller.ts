@@ -49,6 +49,41 @@ export class AuthController {
       res.json({ data: req.user });
     } catch (err) { next(err); }
   }
+
+  async getMpinStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await authService.getMpinStatus(req.query.phone as string);
+      res.json({ data: result });
+    } catch (err) { next(err); }
+  }
+
+  async verifyMpin(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await authService.verifyMpin(req.body.phone, req.body.mpin);
+      res.json({ data: result });
+    } catch (err) { next(err); }
+  }
+
+  async setMpin(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await authService.setMpin(req.user!.id, req.body.mpin);
+      res.json({ data: { message: 'M-PIN set successfully' } });
+    } catch (err) { next(err); }
+  }
+
+  async resetMpin(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await authService.resetMpin(req.body.phone, req.body.otp, req.body.new_mpin);
+      res.json({ data: { message: 'M-PIN reset successfully' } });
+    } catch (err) { next(err); }
+  }
+
+  async changeMpin(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await authService.changeMpin(req.user!.id, req.body.current_mpin, req.body.new_mpin);
+      res.json({ data: { message: 'M-PIN changed successfully' } });
+    } catch (err) { next(err); }
+  }
 }
 
 export const authController = new AuthController();

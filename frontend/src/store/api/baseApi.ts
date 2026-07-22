@@ -3,7 +3,7 @@ import type { RootState } from '../index';
 
 // Web: uses Vite proxy → relative /api/v1
 // Mobile (Capacitor): uses VITE_API_URL=https://your-ngrok-url.ngrok.io/api/v1
-const API_BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
+export const API_BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
 
 export const baseApi = createApi({
   reducerPath: 'baseApi',

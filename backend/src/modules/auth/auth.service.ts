@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import prisma from '../../config/database';
 import {
   setOtp, getOtp, deleteOtp, isOtpLocked, incrementOtpAttempts, checkOtpRequestLimit,
@@ -7,6 +8,10 @@ import { generateOtp, generateToken, hashToken, normalisePhone } from '../../uti
 import { UnauthorizedError, ConflictError, RateLimitError, NotFoundError, UnprocessableError } from '../../utils/errors';
 import { whatsAppService } from '../../services/whatsapp.service';
 import logger from '../../utils/logger';
+
+function hashMpin(mpin: string): string {
+  return crypto.createHash('sha256').update(mpin).digest('hex');
+}
 
 export class AuthService {
   // ── OTP Request ─────────────────────────────────────────────────────────────
@@ -131,6 +136,51 @@ export class AuthService {
       where: { user_id: userId, revoked_at: null },
       data: { revoked_at: new Date() },
     });
+  }
+
+  // ── M-PIN: check status ──────────────────────────────────────────────────────
+  async getMpinStatus(rawPhone: string): Promise<{ has_mpin: boolean }> {
+    const phone = normalisePhone(rawPhone);
+    const user = await prisma.user.findFirst({ where: { phone, deleted_at: null, is_active: true } });
+    return { has_mpin: !!(user?.mpin_hash) };
+  }
+
+  // ── M-PIN: verify (login) ────────────────────────────────────────────────────
+  async verifyMpin(rawPhone: string, mpin: string): Promise<{ access_token: string; refresh_token: string; user: object }> {
+    const phone = normalisePhone(rawPhone);
+    const user = await prisma.user.findFirst({ where: { phone, deleted_at: null, is_active: true } });
+    if (!user) throw new NotFoundError('User');
+    if (!user.mpin_hash) throw new UnauthorizedError('M-PIN not set. Please login with OTP.');
+    if (user.mpin_hash !== hashMpin(mpin)) throw new UnauthorizedError('Incorrect M-PIN.');
+    return this.issueTokenPair(user);
+  }
+
+  // ── M-PIN: set (after OTP verify, authenticated) ─────────────────────────────
+  async setMpin(userId: string, mpin: string): Promise<void> {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { mpin_hash: hashMpin(mpin) },
+    });
+  }
+
+  // ── M-PIN: reset via OTP ──────────────────────────────────────────────────────
+  async resetMpin(rawPhone: string, otp: string, newMpin: string): Promise<void> {
+    const phone = normalisePhone(rawPhone);
+    const storedOtp = await getOtp(phone);
+    if (!storedOtp || storedOtp !== otp) throw new UnauthorizedError('Invalid or expired OTP.');
+    const user = await prisma.user.findFirst({ where: { phone, deleted_at: null, is_active: true } });
+    if (!user) throw new NotFoundError('User');
+    await prisma.user.update({ where: { id: user.id }, data: { mpin_hash: hashMpin(newMpin) } });
+    await deleteOtp(phone);
+  }
+
+  // ── M-PIN: change (authenticated, requires current M-PIN) ────────────────────
+  async changeMpin(userId: string, currentMpin: string, newMpin: string): Promise<void> {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundError('User');
+    if (!user.mpin_hash) throw new UnauthorizedError('No M-PIN set. Use set M-PIN instead.');
+    if (user.mpin_hash !== hashMpin(currentMpin)) throw new UnauthorizedError('Current M-PIN is incorrect.');
+    await prisma.user.update({ where: { id: userId }, data: { mpin_hash: hashMpin(newMpin) } });
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────────
