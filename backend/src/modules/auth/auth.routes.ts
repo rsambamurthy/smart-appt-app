@@ -8,17 +8,24 @@ import { otpRequestSchema, otpVerifySchema, refreshTokenSchema } from './auth.sc
 
 const router = Router();
 
-// Configure Google OAuth strategy
-passport.use(
-  new GoogleStrategy(
-    {
-      clientID: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      callbackURL: process.env.GOOGLE_CALLBACK_URL!,
-    },
-    (_accessToken, _refreshToken, profile, done) => done(null, profile as unknown as Express.User),
-  ),
-);
+// Configure Google OAuth strategy only if credentials are present
+const googleOAuthEnabled =
+  !!process.env.GOOGLE_CLIENT_ID &&
+  !!process.env.GOOGLE_CLIENT_SECRET &&
+  !!process.env.GOOGLE_CALLBACK_URL;
+
+if (googleOAuthEnabled) {
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID: process.env.GOOGLE_CLIENT_ID!,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+        callbackURL: process.env.GOOGLE_CALLBACK_URL!,
+      },
+      (_accessToken, _refreshToken, profile, done) => done(null, profile as unknown as Express.User),
+    ),
+  );
+}
 
 router.use(passport.initialize());
 
@@ -33,17 +40,16 @@ router.post('/otp/verify', validate(otpVerifySchema), (req, res, next) =>
 );
 
 // GET /auth/google
-router.get(
-  '/google',
-  passport.authenticate('google', { scope: ['profile', 'email'], session: false }),
-);
+router.get('/google', (req, res, next) => {
+  if (!googleOAuthEnabled) return res.status(501).json({ error: 'Google OAuth not configured' });
+  return passport.authenticate('google', { scope: ['profile', 'email'], session: false })(req, res, next);
+});
 
 // GET /auth/google/callback
-router.get(
-  '/google/callback',
-  passport.authenticate('google', { session: false, failureRedirect: '/login' }),
-  (req, res, next) => authController.googleCallback(req, res, next),
-);
+router.get('/google/callback', (req, res, next) => {
+  if (!googleOAuthEnabled) return res.status(501).json({ error: 'Google OAuth not configured' });
+  return passport.authenticate('google', { session: false, failureRedirect: '/login' })(req, res, next);
+}, (req, res, next) => authController.googleCallback(req, res, next));
 
 // POST /auth/token/refresh
 router.post('/token/refresh', validate(refreshTokenSchema), (req, res, next) =>
