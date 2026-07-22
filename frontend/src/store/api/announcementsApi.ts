@@ -13,6 +13,7 @@ export const announcementsApi = baseApi.injectEndpoints({
     getDocumentUrl: builder.query<{ data: { url: string } }, string>({ query: (id) => `/announcements/documents/${id}/download` }),
     uploadDocument: builder.mutation<{ data: unknown }, FormData>({ query: (body) => ({ url: '/announcements/documents', method: 'POST', body }), invalidatesTags: ['Document'] }),
     deactivateDocument: builder.mutation<{ data: unknown }, string>({ query: (id) => ({ url: `/announcements/documents/${id}`, method: 'DELETE' }), invalidatesTags: ['Document'] }),
+    deleteAnnouncement: builder.mutation<{ data: { deleted: boolean; id: string } }, string>({ query: (id) => ({ url: `/announcements/${id}`, method: 'DELETE' }), invalidatesTags: ['Announcement'] }),
   }),
 });
 
@@ -20,4 +21,5 @@ export const {
   useListAnnouncementsQuery, useGetAnnouncementQuery, usePostAnnouncementMutation,
   useMarkReadMutation, useCreatePollMutation, useVoteMutation, useGetPollResultsQuery,
   useListDocumentsQuery, useGetDocumentUrlQuery, useUploadDocumentMutation, useDeactivateDocumentMutation,
+  useDeleteAnnouncementMutation,
 } = announcementsApi;

@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
-import { NotFoundError } from '../../utils/errors';
+import { NotFoundError, ForbiddenError } from '../../utils/errors';
 import { paginatedResponse } from '../../utils/helpers';
 import { notificationService } from '../../services/notification.service';
 import logger from '../../utils/logger';
@@ -187,6 +187,24 @@ export class AnnouncementsService {
     if (!doc) throw new NotFoundError('Document');
     await prisma.document.update({ where: { id: docId }, data: { deleted_at: new Date() } });
     return { data: { message: 'Document deactivated' } };
+  }
+
+  async hardDelete(associationId: string, announcementId: string, userId: string, userRole: string) {
+    const ann = await prisma.announcement.findFirst({
+      where: { id: announcementId, association_id: associationId },
+    });
+    if (!ann) throw new NotFoundError('Announcement');
+
+    const canDelete = ann.posted_by === userId
+      || userRole === 'MANAGER'
+      || userRole === 'SUPER_USER';
+    if (!canDelete) throw new ForbiddenError();
+
+    // Remove read receipts first (FK constraint), then delete announcement
+    await prisma.announcementRead.deleteMany({ where: { announcement_id: announcementId } });
+    await prisma.announcement.delete({ where: { id: announcementId } });
+
+    return { data: { deleted: true, id: announcementId } };
   }
 }
 

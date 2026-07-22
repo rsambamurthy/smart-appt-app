@@ -1,10 +1,12 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useSelector } from 'react-redux';
+import { io } from 'socket.io-client';
 import type { RootState } from '../../store';
 import Layout from '../../components/organisms/Layout';
 import {
   useListAnnouncementsQuery, useMarkReadMutation,
   usePostAnnouncementMutation, useVoteMutation,
+  useDeleteAnnouncementMutation,
 } from '../../store/api/announcementsApi';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -16,6 +18,7 @@ interface PollData { id: string; question: string; options: PollOption[] | null;
 interface Announcement {
   id: string; title: string; body: string; category: string;
   is_urgent: boolean; published_at: string; expires_at?: string;
+  posted_by: string;
   poster: Poster; attachment_keys: string[];
   poll?: PollData; read?: boolean;
 }
@@ -31,7 +34,8 @@ const CAT_COLOR: Record<string, { bg: string; text: string; border: string }> = 
   GENERAL:     { bg: '#f3f4f6', text: '#374151', border: '#9ca3af' },
 };
 
-const ROLES_CAN_POST = ['MANAGER', 'COMMITTEE', 'SUPER_USER'];
+const ROLES_CAN_POST   = ['MANAGER', 'COMMITTEE', 'SUPER_USER'];
+const ROLES_CAN_DELETE = ['MANAGER', 'SUPER_USER'];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const initials = (name: string) =>
@@ -39,8 +43,7 @@ const initials = (name: string) =>
 
 const fmtDate = (iso: string) => {
   const d = new Date(iso);
-  const now = new Date();
-  const diff = (now.getTime() - d.getTime()) / 1000;
+  const diff = (Date.now() - d.getTime()) / 1000;
   if (diff < 60) return 'just now';
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
@@ -231,90 +234,166 @@ const ComposeModal = ({ onClose, onPost }: { onClose: () => void; onPost: () => 
   );
 };
 
+// ── Delete Confirm Modal ───────────────────────────────────────────────────────
+const DeleteConfirmModal = ({ onConfirm, onCancel, deleting }: {
+  onConfirm: () => void;
+  onCancel: () => void;
+  deleting: boolean;
+}) => (
+  <div style={{
+    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100,
+  }}>
+    <div style={{
+      background: '#fff', borderRadius: 14, padding: '1.5rem', width: '100%', maxWidth: 360,
+      margin: '1rem', boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+    }}>
+      <div style={{ fontSize: '1.5rem', textAlign: 'center', marginBottom: '0.75rem' }}>🗑️</div>
+      <h3 style={{ margin: '0 0 0.5rem', textAlign: 'center', color: '#111827' }}>Delete Announcement?</h3>
+      <p style={{ margin: '0 0 1.25rem', textAlign: 'center', color: '#6b7280', fontSize: '0.875rem' }}>
+        This will permanently remove the announcement for everyone in the association.
+      </p>
+      <div style={{ display: 'flex', gap: '0.75rem' }}>
+        <button onClick={onCancel} disabled={deleting}
+          style={{ flex: 1, padding: '0.65rem', background: '#f3f4f6', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer', color: '#374151' }}>
+          Cancel
+        </button>
+        <button onClick={onConfirm} disabled={deleting}
+          style={{ flex: 1, padding: '0.65rem', background: '#dc2626', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer', color: '#fff' }}>
+          {deleting ? 'Deleting...' : 'Delete'}
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 // ── Feed Card ─────────────────────────────────────────────────────────────────
-const FeedCard = ({ item, onRead, onVote }: {
+const FeedCard = ({ item, currentUserId, currentUserRole, onRead, onVote, onDelete }: {
   item: Announcement;
+  currentUserId: string;
+  currentUserRole: string;
   onRead: (id: string) => void;
   onVote: (pollId: string, answer: string) => void;
+  onDelete: (id: string) => void;
 }) => {
   const [expanded, setExpanded] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const isUnread = !item.read;
   const cat = CAT_COLOR[item.category] ?? CAT_COLOR['GENERAL'];
+
+  // Show delete button if: user is the poster, or has a manager-level role
+  const canDelete = item.posted_by === currentUserId || ROLES_CAN_DELETE.includes(currentUserRole);
 
   const handleClick = () => {
     setExpanded((v) => !v);
     if (isUnread) onRead(item.id);
   };
 
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmDelete(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    setDeleting(true);
+    onDelete(item.id);
+    // Modal stays open briefly while parent removes the card
+  };
+
   return (
-    <div onClick={handleClick} style={{
-      background: '#fff', borderRadius: 12,
-      border: `1px solid ${isUnread ? cat.border : '#e5e7eb'}`,
-      borderLeft: `4px solid ${cat.border}`,
-      padding: '1rem', cursor: 'pointer',
-      transition: 'box-shadow 0.15s',
-    }}>
-      {/* Header row */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        <Avatar name={item.poster?.name ?? 'System'} role={item.poster?.role ?? 'MANAGER'} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontWeight: isUnread ? 700 : 600, fontSize: '0.95rem', color: '#111827' }}>
-              {item.title}
-              {isUnread && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#C4572B', marginLeft: 7, verticalAlign: 'middle' }} />}
-            </span>
-            <CategoryBadge cat={item.category} />
-          </div>
-          <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: 2 }}>
-            {item.poster?.name ?? 'Committee'} · {fmtDate(item.published_at)}
-          </div>
-        </div>
-      </div>
-
-      {/* Body — always show first 2 lines, expand on click */}
-      <div style={{
-        marginTop: '0.625rem', fontSize: '0.875rem', color: '#374151',
-        lineHeight: 1.55,
-        display: '-webkit-box',
-        WebkitLineClamp: expanded ? 'unset' : 2,
-        WebkitBoxOrient: 'vertical',
-        overflow: expanded ? 'visible' : 'hidden',
+    <>
+      <div onClick={handleClick} style={{
+        background: '#fff', borderRadius: 12,
+        border: `1px solid ${isUnread ? cat.border : '#e5e7eb'}`,
+        borderLeft: `4px solid ${cat.border}`,
+        padding: '1rem', cursor: 'pointer',
+        transition: 'box-shadow 0.15s',
       }}>
-        {item.body}
-      </div>
-
-      {/* Expanded section */}
-      {expanded && (
-        <div onClick={(e) => e.stopPropagation()}>
-          {/* Attachments */}
-          {item.attachment_keys?.length > 0 && (
-            <div style={{ marginTop: '0.75rem', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {item.attachment_keys.map((k) => (
-                <span key={k} style={{
-                  background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6,
-                  padding: '3px 10px', fontSize: '0.78rem', color: '#374151',
-                }}>📎 {k.split('/').pop()}</span>
-              ))}
+        {/* Header row */}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <Avatar name={item.poster?.name ?? 'System'} role={item.poster?.role ?? 'MANAGER'} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: isUnread ? 700 : 600, fontSize: '0.95rem', color: '#111827' }}>
+                {item.title}
+                {isUnread && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#C4572B', marginLeft: 7, verticalAlign: 'middle' }} />}
+              </span>
+              <CategoryBadge cat={item.category} />
             </div>
-          )}
-          {/* Poll */}
-          {item.poll && (
-            <PollBlock poll={item.poll} onVote={(answer) => onVote(item.poll!.id, answer)} />
-          )}
-          {/* Expires */}
-          {item.expires_at && (
-            <div style={{ marginTop: '0.625rem', fontSize: '0.75rem', color: '#9ca3af' }}>
-              Expires {new Date(item.expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: 2 }}>
+              {item.poster?.name ?? 'Committee'} · {fmtDate(item.published_at)}
             </div>
-          )}
+          </div>
         </div>
-      )}
 
-      {/* Expand hint */}
-      <div style={{ marginTop: '0.375rem', fontSize: '0.72rem', color: '#9ca3af', textAlign: 'right' }}>
-        {expanded ? '▲ show less' : '▼ read more'}
+        {/* Body — always show first 2 lines, expand on click */}
+        <div style={{
+          marginTop: '0.625rem', fontSize: '0.875rem', color: '#374151',
+          lineHeight: 1.55,
+          display: '-webkit-box',
+          WebkitLineClamp: expanded ? 'unset' : 2,
+          WebkitBoxOrient: 'vertical',
+          overflow: expanded ? 'visible' : 'hidden',
+        }}>
+          {item.body}
+        </div>
+
+        {/* Expanded section */}
+        {expanded && (
+          <div onClick={(e) => e.stopPropagation()}>
+            {/* Attachments */}
+            {item.attachment_keys?.length > 0 && (
+              <div style={{ marginTop: '0.75rem', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {item.attachment_keys.map((k) => (
+                  <span key={k} style={{
+                    background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6,
+                    padding: '3px 10px', fontSize: '0.78rem', color: '#374151',
+                  }}>📎 {k.split('/').pop()}</span>
+                ))}
+              </div>
+            )}
+            {/* Poll */}
+            {item.poll && (
+              <PollBlock poll={item.poll} onVote={(answer) => onVote(item.poll!.id, answer)} />
+            )}
+            {/* Expires */}
+            {item.expires_at && (
+              <div style={{ marginTop: '0.625rem', fontSize: '0.75rem', color: '#9ca3af' }}>
+                Expires {new Date(item.expires_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+              </div>
+            )}
+            {/* Delete button — shown only to poster or privileged roles */}
+            {canDelete && (
+              <div style={{ marginTop: '0.875rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <button onClick={handleDeleteClick}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '0.4rem 0.9rem', background: '#fee2e2', color: '#dc2626',
+                    border: '1px solid #fca5a5', borderRadius: 8,
+                    fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer',
+                  }}>
+                  🗑 Delete
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Expand hint */}
+        <div style={{ marginTop: '0.375rem', fontSize: '0.72rem', color: '#9ca3af', textAlign: 'right' }}>
+          {expanded ? '▲ show less' : '▼ read more'}
+        </div>
       </div>
-    </div>
+
+      {confirmDelete && (
+        <DeleteConfirmModal
+          deleting={deleting}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => { setConfirmDelete(false); setDeleting(false); }}
+        />
+      )}
+    </>
   );
 };
 
@@ -330,6 +409,37 @@ export default function AnnouncementFeedPage() {
   const { data, isFetching, refetch } = useListAnnouncementsQuery(queryParams);
   const [markRead] = useMarkReadMutation();
   const [vote] = useVoteMutation();
+  const [deleteAnnouncement] = useDeleteAnnouncementMutation();
+
+  // ── Real-time socket: join association room, listen for deletions ─────────
+  useEffect(() => {
+    if (!user?.association_id) return;
+
+    const socket = io('/', {
+      auth: { token: sessionStorage.getItem('access_token') },
+      transports: ['websocket'],
+    });
+
+    socket.emit('join:association', user.association_id);
+
+    socket.on('announcement:deleted', (_payload: { id: string }) => {
+      // Refresh the list for ALL users — the deleted card will vanish
+      refetch();
+    });
+
+    return () => { socket.disconnect(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.association_id]);
+
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteAnnouncement(id).unwrap();
+      // Local refetch is immediate; socket will trigger refetch on all other clients
+      refetch();
+    } catch {
+      // error is surfaced via RTK Query; card stays visible
+    }
+  };
 
   const items = (data?.data ?? []) as Announcement[];
 
@@ -392,8 +502,11 @@ export default function AnnouncementFeedPage() {
             <FeedCard
               key={a.id}
               item={a}
+              currentUserId={user?.id ?? ''}
+              currentUserRole={user?.role ?? ''}
               onRead={(id) => markRead(id)}
               onVote={(pollId, answer) => vote({ id: pollId, answer })}
+              onDelete={handleDelete}
             />
           ))}
         </div>

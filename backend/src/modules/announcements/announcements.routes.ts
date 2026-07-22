@@ -6,6 +6,7 @@ import { requireRoles } from '../../middleware/rbac';
 import { announcementsService } from './announcements.service';
 import { parsePagination } from '../../utils/helpers';
 import { AuthRequest } from '../../types';
+import { io } from '../../app';
 
 const router = Router();
 router.use(authenticate);
@@ -100,6 +101,20 @@ router.post('/:id/read', requireRoles(UserRole.RESIDENT, UserRole.COMMITTEE), as
 router.get('/:id/reads', requireRoles(UserRole.MANAGER), async (req: AuthRequest, res, next) => {
   try { res.json(await announcementsService.getReadReceipts(req.user!.association_id, req.params['id'])); }
   catch (err) { next(err); }
+});
+
+router.delete('/:id', async (req: AuthRequest, res, next) => {
+  try {
+    const result = await announcementsService.hardDelete(
+      req.user!.association_id,
+      req.params['id'],
+      req.user!.id,
+      req.user!.role as string,
+    );
+    // Broadcast deletion to all association members so their feeds refresh
+    io.to(`association:${req.user!.association_id}`).emit('announcement:deleted', { id: req.params['id'] });
+    res.json(result);
+  } catch (err) { next(err); }
 });
 
 export default router;

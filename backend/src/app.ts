@@ -45,6 +45,7 @@ io.on('connection', (socket) => {
   logger.info('Socket connected', { id: socket.id });
   socket.on('join:unit', (unitId: string) => socket.join(`unit:${unitId}`));
   socket.on('join:gate', (associationId: string) => socket.join(`gate:${associationId}`));
+  socket.on('join:association', (associationId: string) => socket.join(`association:${associationId}`));
   socket.on('disconnect', () => logger.info('Socket disconnected', { id: socket.id }));
 });
 
