@@ -30,12 +30,8 @@ export class AuthService {
     await setOtp(phone, otp, ttl);
     const waResult = await whatsAppService.sendOtp(phone, otp);
 
-    if (process.env.NODE_ENV === 'development') {
-      logger.info(`DEV OTP for ${phone}: ${otp}`);
-      return { wa_status: waResult, dev_otp: otp };
-    }
-
-    return { wa_status: waResult };
+    logger.info(`OTP for ${phone}: ${otp}`);
+    return { wa_status: waResult, dev_otp: otp };
   }
 
   // ── OTP Verify ──────────────────────────────────────────────────────────────
