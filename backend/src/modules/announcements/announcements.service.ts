@@ -3,6 +3,7 @@ import prisma from '../../config/database';
 import { NotFoundError } from '../../utils/errors';
 import { paginatedResponse } from '../../utils/helpers';
 import { notificationService } from '../../services/notification.service';
+import logger from '../../utils/logger';
 
 export class AnnouncementsService {
   async post(associationId: string, body: {
