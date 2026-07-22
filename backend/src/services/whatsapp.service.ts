@@ -2,7 +2,7 @@ import https from 'https';
 import logger from '../utils/logger';
 
 const WA_HOST = 'graph.facebook.com';
-const WA_API_PATH = '/v19.0';
+const WA_API_PATH = '/v21.0';
 
 class WhatsAppService {
   private get phoneNumberId(): string {
@@ -58,32 +58,56 @@ class WhatsAppService {
     });
   }
 
-  // Send OTP via WhatsApp plain text message
-  async sendOtp(phone: string, otp: string): Promise<{ sent: boolean; error?: string }> {
+  // Send OTP via WhatsApp — uses template if configured, falls back to text
+  async sendOtp(phone: string, otp: string): Promise<{ sent: boolean; error?: string; meta_response?: unknown }> {
     if (!this.isConfigured()) {
       logger.info(`[WA-SKIP] WhatsApp not configured — OTP for ${phone}: ${otp}`);
       return { sent: false, error: 'WhatsApp not configured' };
     }
 
-    try {
-      const payload = {
-        messaging_product: 'whatsapp',
-        to: this.toMetaPhone(phone),
-        type: 'text',
-        text: {
-          body: `Your SmartAppt OTP is *${otp}*. Valid for 5 minutes. Do not share this code.`,
-        },
-      };
+    const templateName = process.env.WHATSAPP_OTP_TEMPLATE;
+    const templateLang = process.env.WHATSAPP_OTP_TEMPLATE_LANG ?? 'en';
+    const to = this.toMetaPhone(phone);
 
+    // Prefer template message (works outside 24h window; required for non-initiated conversations)
+    const payload = templateName
+      ? {
+          messaging_product: 'whatsapp',
+          to,
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code: templateLang },
+            components: [
+              {
+                type: 'body',
+                parameters: [{ type: 'text', text: otp }],
+              },
+            ],
+          },
+        }
+      : {
+          messaging_product: 'whatsapp',
+          to,
+          type: 'text',
+          text: {
+            body: `Your SmartAppt OTP is *${otp}*. Valid for 5 minutes. Do not share this code.`,
+          },
+        };
+
+    try {
       const res = await this.post(`${WA_API_PATH}/${this.phoneNumberId}/messages`, payload);
 
+      // Always log the full Meta response so we can debug delivery issues
+      logger.info('WhatsApp API response', { phone, status: res.status, body: JSON.stringify(res.body) });
+
       if (!res.ok) {
-        const errMsg = (res.body as { error?: { message?: string } })?.error?.message ?? `HTTP ${res.status}`;
+        const errMsg = (res.body as { error?: { message?: string; code?: number } })?.error?.message ?? `HTTP ${res.status}`;
         throw new Error(errMsg);
       }
 
-      logger.info(`WhatsApp OTP sent to ${phone}`);
-      return { sent: true };
+      logger.info(`WhatsApp OTP sent to ${phone} via ${templateName ? `template "${templateName}"` : 'text'}`);
+      return { sent: true, meta_response: res.body };
     } catch (err) {
       const error = (err as Error).message;
       logger.error('WhatsApp OTP send failed', { phone, error });
