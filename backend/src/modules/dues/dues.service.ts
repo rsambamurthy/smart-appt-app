@@ -24,10 +24,17 @@ export class DuesService {
   }
 
   async upsertConfig(associationId: string, body: DuesConfigBody, updatedBy: string) {
+    // Prisma DateTime fields need a Date object, not a plain "YYYY-MM-DD" string
+    const { cash_balance_as_on, ...rest } = body;
+    const data = {
+      ...rest,
+      cash_balance_as_on: cash_balance_as_on ? new Date(cash_balance_as_on) : null,
+      updated_by: updatedBy,
+    };
     const config = await prisma.duesConfig.upsert({
       where: { association_id: associationId },
-      update: { ...body, updated_by: updatedBy },
-      create: { association_id: associationId, ...body, updated_by: updatedBy },
+      update: data,
+      create: { association_id: associationId, ...data },
     });
     return { data: config };
   }
@@ -194,6 +201,56 @@ export class DuesService {
     } catch {
       throw new GatewayError('Razorpay');
     }
+  }
+
+  // ── Client-side Payment Verification ────────────────────────────────────────
+  async verifyPayment(
+    associationId: string,
+    userId: string,
+    body: { bill_id: string; razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string },
+  ) {
+    // Verify HMAC signature: sha256(order_id + "|" + payment_id)
+    const expectedSig = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
+      .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
+      .digest('hex');
+
+    if (expectedSig !== body.razorpay_signature) throw new UnprocessableError('Invalid payment signature.');
+
+    // Idempotency: don't double-record if webhook already processed it
+    const existing = await prisma.payment.findFirst({ where: { gateway_txn_id: body.razorpay_payment_id } });
+    if (existing) return { data: { status: 'already_processed', payment_id: existing.id } };
+
+    const bill = await prisma.bill.findFirst({ where: { id: body.bill_id, association_id: associationId } });
+    if (!bill) throw new NotFoundError('Bill');
+    if (bill.status === BillStatus.PAID) return { data: { status: 'already_paid' } };
+
+    const payment = await prisma.payment.create({
+      data: {
+        association_id: associationId,
+        bill_id: body.bill_id,
+        unit_id: bill.unit_id,
+        amount: bill.total_amount,
+        payment_mode: PaymentMode.ONLINE,
+        payment_date: new Date(),
+        gateway: 'razorpay',
+        gateway_order_id: body.razorpay_order_id,
+        gateway_txn_id: body.razorpay_payment_id,
+        reference_no: body.razorpay_signature,
+        recorded_by: userId,
+      },
+    });
+
+    await prisma.bill.update({ where: { id: body.bill_id }, data: { status: BillStatus.PAID } });
+
+    await notificationService.dispatch({
+      type: 'PAYMENT_RECEIVED',
+      channels: ['PUSH', 'EMAIL'],
+      recipients: [userId],
+      data: { payment_id: payment.id, amount: Number(payment.amount), bill_id: body.bill_id },
+    });
+
+    return { data: { status: 'success', payment_id: payment.id } };
   }
 
   // ── Razorpay Webhook ─────────────────────────────────────────────────────────
