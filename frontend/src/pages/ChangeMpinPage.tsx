@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChangeMpinMutation } from '../store/api/authApi';
 import PageSubHeader from '../components/molecules/PageSubHeader';
+import type { Crumb } from '../components/molecules/PageSubHeader';
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '0.65rem 0.9rem', border: '1px solid #d1d5db',
@@ -54,9 +55,11 @@ export default function ChangeMpinPage() {
     }
   };
 
+  const crumbs: Crumb[] = [{ label: 'Home', path: '/dashboard' }, { label: 'Change M-PIN' }];
+
   return (
     <div>
-      <PageSubHeader title="Change M-PIN" subtitle="Update your 4-digit login PIN" />
+      <PageSubHeader crumbs={crumbs} />
       <div style={{ maxWidth: 420, margin: '2rem auto', padding: '0 1rem' }}>
         <div className="card">
           {error && (
