@@ -310,7 +310,7 @@ const FeedCard = ({ item, currentUserId, currentUserRole, onRead, onVote, onDele
         padding: '1rem', cursor: 'pointer',
         transition: 'box-shadow 0.15s',
       }}>
-        {/* Header row */}
+        {/* Header row — chevron lives here so it never overlaps action buttons */}
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
           <Avatar name={item.poster?.name ?? 'System'} role={item.poster?.role ?? 'MANAGER'} />
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -319,7 +319,12 @@ const FeedCard = ({ item, currentUserId, currentUserRole, onRead, onVote, onDele
                 {item.title}
                 {isUnread && <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#C4572B', marginLeft: 7, verticalAlign: 'middle' }} />}
               </span>
-              <CategoryBadge cat={item.category} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <CategoryBadge cat={item.category} />
+                <span style={{ fontSize: '0.75rem', color: '#9ca3af', userSelect: 'none' }}>
+                  {expanded ? '▲' : '▼'}
+                </span>
+              </div>
             </div>
             <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: 2 }}>
               {item.poster?.name ?? 'Committee'} · {fmtDate(item.published_at)}
@@ -380,10 +385,6 @@ const FeedCard = ({ item, currentUserId, currentUserRole, onRead, onVote, onDele
           </div>
         )}
 
-        {/* Expand hint */}
-        <div style={{ marginTop: '0.375rem', fontSize: '0.72rem', color: '#9ca3af', textAlign: 'right' }}>
-          {expanded ? '▲ show less' : '▼ read more'}
-        </div>
       </div>
 
       {confirmDelete && (
