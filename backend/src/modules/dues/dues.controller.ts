@@ -48,6 +48,11 @@ export class DuesController {
     catch (err) { next(err); }
   }
 
+  async verifyPayment(req: AuthRequest, res: Response, next: NextFunction) {
+    try { res.json(await duesService.verifyPayment(req.user!.association_id, req.user!.id, req.body)); }
+    catch (err) { next(err); }
+  }
+
   async webhook(req: Request, res: Response, next: NextFunction) {
     try {
       const sig = req.headers['x-razorpay-signature'] as string;
