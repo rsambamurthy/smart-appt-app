@@ -1,6 +1,5 @@
 [build]
 dockerfilePath = "Dockerfile"
-dockerBuildTarget = "production"
 
 [deploy]
 startCommand = "./node_modules/.bin/prisma migrate deploy && node dist/index.js"

@@ -1,24 +1,10 @@
-FROM node:20-alpine AS base
+FROM node:20-alpine
 WORKDIR /app
 RUN apk add --no-cache openssl
 COPY package*.json ./
 RUN npm install --cache /tmp/npm-cache --legacy-peer-deps
 COPY . .
 RUN npx prisma generate
-
-FROM base AS development
-CMD ["npm", "run", "dev"]
-
-FROM base AS builder
-RUN npm run build || true
-
-FROM node:20-alpine AS production
-WORKDIR /app
-RUN apk add --no-cache openssl
-COPY package*.json ./
-RUN npm install --cache /tmp/npm-cache --legacy-peer-deps
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY prisma ./prisma
+RUN npm run build
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
