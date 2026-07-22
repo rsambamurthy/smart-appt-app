@@ -9,7 +9,7 @@ const inputStyle: React.CSSProperties = {
   letterSpacing: '0.25em', textAlign: 'center',
 };
 
-const PinInput = ({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) => (
+const PinInput = ({ label, value, onChange, autoFocus = false }: { label: string; value: string; onChange: (v: string) => void; autoFocus?: boolean }) => (
   <div style={{ marginBottom: '1rem' }}>
     <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: '0.875rem' }}>{label}</label>
     <input
@@ -20,6 +20,7 @@ const PinInput = ({ label, value, onChange }: { label: string; value: string; on
       value={value}
       onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
       style={inputStyle}
+      autoFocus={autoFocus}
     />
   </div>
 );
@@ -65,7 +66,7 @@ export default function ChangeMpinPage() {
             </div>
           )}
           <form onSubmit={handleSubmit}>
-            <PinInput label="Current M-PIN" value={currentMpin} onChange={setCurrentMpin} />
+            <PinInput label="Current M-PIN" value={currentMpin} onChange={setCurrentMpin} autoFocus />
             <PinInput label="New M-PIN" value={newMpin} onChange={setNewMpin} />
             <PinInput label="Confirm New M-PIN" value={confirmMpin} onChange={setConfirmMpin} />
             <button

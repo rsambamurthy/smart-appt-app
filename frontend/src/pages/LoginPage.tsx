@@ -182,7 +182,7 @@ export default function LoginPage() {
     (err as { data?: { detail?: string } })?.data?.detail ?? fallback;
 
   // ── PIN input (4-digit grid) ──────────────────────────────────────────────
-  const PinInput = ({ value, onChange, placeholder = '● ● ● ●' }: { value: string; onChange: (v: string) => void; placeholder?: string }) => (
+  const PinInput = ({ value, onChange, placeholder = '● ● ● ●', autoFocus = false }: { value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean }) => (
     <input
       type="password"
       inputMode="numeric"
@@ -191,7 +191,7 @@ export default function LoginPage() {
       value={value}
       onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
       style={inputStyle}
-      autoFocus
+      autoFocus={autoFocus}
     />
   );
 
@@ -280,11 +280,11 @@ export default function LoginPage() {
             </p>
             <div style={{ marginBottom: '0.75rem' }}>
               <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: '0.875rem' }}>New M-PIN</label>
-              <PinInput value={newMpin} onChange={setNewMpin} />
+              <PinInput value={newMpin} onChange={setNewMpin} autoFocus />
             </div>
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: '0.875rem' }}>Confirm M-PIN</label>
-              <PinInput value={confirmMpin} onChange={setConfirmMpin} placeholder="● ● ● ●" />
+              <PinInput value={confirmMpin} onChange={setConfirmMpin} />
             </div>
             <button type="submit" style={btn()} disabled={settingMpin || newMpin.length < 4 || confirmMpin.length < 4}>
               {settingMpin ? 'Setting M-PIN...' : 'Set M-PIN & Login'}
@@ -322,7 +322,7 @@ export default function LoginPage() {
             </div>
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', fontWeight: 600, marginBottom: 6, fontSize: '0.875rem' }}>Confirm M-PIN</label>
-              <PinInput value={confirmMpin} onChange={setConfirmMpin} placeholder="● ● ● ●" />
+              <PinInput value={confirmMpin} onChange={setConfirmMpin} />
             </div>
             <button type="submit" style={btn()} disabled={resettingMpin || !otp || newMpin.length < 4 || confirmMpin.length < 4}>
               {resettingMpin ? 'Resetting...' : 'Reset M-PIN & Login'}
