@@ -18,11 +18,50 @@ export class FeeConfigService {
       where: { association_id: associationId },
       orderBy: [{ fee_type: 'asc' }, { created_at: 'asc' }],
     });
+
+    // If FeeConfig is empty, fall back to DuesConfig and return synthetic rows
+    // (no `id` set — user reviews and saves to persist them)
+    if (rows.length === 0) {
+      const legacy = await prisma.duesConfig.findUnique({ where: { association_id: associationId } });
+      if (legacy) {
+        const synthetic: FeeConfigRow[] = [
+          {
+            fee_type: 'MONTHLY_CHARGE',
+            calc_method: legacy.charge_type === 'RATE_PER_SQFT' ? 'RATE_PER_SQFT' : 'FIXED_AMOUNT',
+            amount: legacy.charge_type === 'RATE_PER_SQFT'
+              ? (legacy.rate_per_sqft?.toNumber() ?? 0)
+              : legacy.monthly_charge.toNumber(),
+            due_day: legacy.due_day,
+            as_on_date: null,
+            is_active: true,
+          },
+          {
+            fee_type: 'PENALTY_AMOUNT',
+            calc_method: 'FIXED_AMOUNT',
+            amount: legacy.penalty_value.toNumber(),
+            due_day: legacy.due_day,
+            as_on_date: null,
+            is_active: true,
+          },
+          ...(legacy.cash_balance != null ? [{
+            fee_type: 'CASH_OPENING_BALANCE' as FeeType,
+            calc_method: null,
+            amount: legacy.cash_balance.toNumber(),
+            due_day: null,
+            as_on_date: legacy.cash_balance_as_on
+              ? legacy.cash_balance_as_on.toISOString().split('T')[0]
+              : null,
+            is_active: true,
+          }] : []),
+        ];
+        return { data: synthetic };
+      }
+    }
+
     return {
       data: rows.map((r) => ({
         ...r,
         amount: r.amount.toNumber(),
-        // Return date as YYYY-MM-DD string so date inputs render correctly
         as_on_date: r.as_on_date ? r.as_on_date.toISOString().split('T')[0] : null,
       })),
     };
