@@ -1,5 +1,5 @@
 import { Response, NextFunction } from 'express';
-import { AuthRequest } from '../../middleware/auth';
+import { AuthRequest } from '../../types';
 import { feeConfigService } from './fee-config.service';
 
 export class FeeConfigController {
