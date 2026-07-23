@@ -200,6 +200,7 @@ model Association {
   invites            UserInvite[]
   one_time_dues      OneTimeDue[]
   other_receipts     OtherReceipt[]
+  accounts           Account[]
 
   @@map("associations")
 }
@@ -839,6 +840,36 @@ model AuditLog {
 }
 
 // ─── System Configuration ─────────────────────────────────────────────────────
+
+// ── Financial Accounting ─────────────────────────────────────────────────────
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  INCOME
+  EXPENSE
+  EQUITY
+}
+
+model Account {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  code           String      @db.VarChar(20)
+  name           String      @db.VarChar(120)
+  type           AccountType
+  sub_type       String?     @db.VarChar(60)
+  description    String?     @db.VarChar(255)
+  is_system      Boolean     @default(false)
+  is_active      Boolean     @default(true)
+  sort_order     Int         @default(0) @db.SmallInt
+  created_at     DateTime    @default(now()) @db.Timestamptz
+  updated_at     DateTime    @updatedAt @db.Timestamptz
+
+  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+
+  @@unique([association_id, code])
+  @@map("accounts")
+}
 
 model MenuGroupConfig {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid

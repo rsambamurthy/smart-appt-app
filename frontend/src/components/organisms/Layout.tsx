@@ -85,6 +85,16 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    id: 'accounting',
+    label: 'Accounting',
+    icon: 'A',
+    roles: ['SUPER_USER', 'MANAGER', 'TREASURER'],
+    landingPath: '/accounting/chart-of-accounts',
+    items: [
+      { id: 'chart_of_accounts', label: 'Chart of Accounts', path: '/accounting/chart-of-accounts', roles: ['SUPER_USER', 'MANAGER', 'TREASURER'], dot: '#2563eb', end: true },
+    ],
+  },
+  {
     id: 'residents',
     label: 'Residents',
     icon: 'R',

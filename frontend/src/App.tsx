@@ -36,6 +36,7 @@ import MenuConfigPage from './pages/admin/MenuConfigPage';
 import ChangeMpinPage from './pages/ChangeMpinPage';
 import TransactionsDashboardPage from './pages/transactions/TransactionsDashboardPage';
 import ReportsPage from './pages/transactions/ReportsPage';
+import ChartOfAccountsPage from './pages/accounting/ChartOfAccountsPage';
 
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
   const token = useSelector((s: RootState) => s.auth.access_token);
@@ -100,6 +101,9 @@ export default function App() {
         {/* Transactions */}
         <Route path="/transactions/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><TransactionsDashboardPage /></RoleRoute>} />
         <Route path="/transactions/reports"   element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ReportsPage /></RoleRoute>} />
+
+        {/* Accounting */}
+        <Route path="/accounting/chart-of-accounts" element={<RoleRoute roles={['MANAGER', 'TREASURER']}><ChartOfAccountsPage /></RoleRoute>} />
 
         <Route path="/change-mpin" element={<ProtectedRoute><ChangeMpinPage /></ProtectedRoute>} />
         <Route path="*" element={<NotFoundPage />} />
