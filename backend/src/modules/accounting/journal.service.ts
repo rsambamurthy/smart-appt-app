@@ -465,11 +465,17 @@ class JournalService {
 
     if (!amount || amount <= 0) return;
 
-    const [cashAcct, obAcct] = await Promise.all([
-      prisma.account.findUnique({ where: { association_id_code: { association_id: associationId, code: '1001' } } }),
-      prisma.account.findUnique({ where: { association_id_code: { association_id: associationId, code: '5003' } } }),
-    ]);
-    if (!cashAcct || !obAcct) return; // accounts not yet seeded — skip silently
+    const cashAcct = await prisma.account.findUnique({
+      where: { association_id_code: { association_id: associationId, code: '1001' } },
+    });
+    // Prefer 5003 (Opening Balance Equity); fall back to 5001 (Reserve Fund) if not seeded yet
+    const obAcct =
+      (await prisma.account.findUnique({ where: { association_id_code: { association_id: associationId, code: '5003' } } })) ??
+      (await prisma.account.findUnique({ where: { association_id_code: { association_id: associationId, code: '5001' } } }));
+    if (!cashAcct || !obAcct) {
+      logger.warn('syncOpeningBalance: required accounts not found — run Chart of Accounts seed first.');
+      return;
+    }
 
     await this.post(associationId, {
       entry_date:     asOnDate ?? new Date(),

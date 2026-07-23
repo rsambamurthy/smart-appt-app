@@ -307,7 +307,7 @@ export default function JournalEntriesPage() {
                         title="Edit entry"
                         onClick={() => openEditForm(entry)}
                         style={{ marginLeft: 4 }}
-                      />
+                      ><i className="ti ti-pencil" /></button>
                     </div>
 
                     {/* Lines */}
