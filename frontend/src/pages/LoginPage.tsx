@@ -84,58 +84,26 @@ const PinInput = ({ value, onChange, placeholder = '● ● ● ●', autoFocus 
   />
 );
 
-// ── Building SVG illustration ────────────────────────────────────────────────
-const BuildingHeader = () => (
-  <div style={{ position: 'relative', height: 200, overflow: 'hidden', background: '#E8CFC4' }}>
-    <svg viewBox="0 0 320 200" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
-      xmlns="http://www.w3.org/2000/svg">
-      <rect width="320" height="200" fill="#E8CFC4"/>
-      {/* Trees */}
-      <ellipse cx="60" cy="140" rx="40" ry="35" fill="#5A8A3C" opacity="0.7"/>
-      <rect x="57" y="140" width="6" height="30" fill="#6B4C2A"/>
-      <ellipse cx="265" cy="145" rx="35" ry="30" fill="#5A8A3C" opacity="0.7"/>
-      <rect x="262" y="145" width="6" height="25" fill="#6B4C2A"/>
-      <ellipse cx="290" cy="138" rx="28" ry="25" fill="#4A7A2C" opacity="0.8"/>
-      {/* Side wing */}
-      <rect x="48" y="80" width="40" height="90" fill="#F0EBE0"/>
-      <rect x="48" y="80" width="40" height="7" fill="#C4572B"/>
-      <rect x="48" y="115" width="40" height="7" fill="#C4572B"/>
-      <rect x="48" y="150" width="40" height="7" fill="#C4572B"/>
-      <rect x="55" y="91" width="14" height="20" fill="#B8C8D8" rx="1"/>
-      <rect x="55" y="125" width="14" height="20" fill="#B8C8D8" rx="1"/>
-      {/* Main building */}
-      <rect x="85" y="55" width="155" height="115" fill="#F5F0E5"/>
-      <rect x="85" y="55" width="155" height="8" fill="#C4572B"/>
-      <rect x="85" y="95" width="155" height="8" fill="#C4572B"/>
-      <rect x="85" y="133" width="155" height="8" fill="#C4572B"/>
-      <rect x="85" y="163" width="155" height="7" fill="#C4572B"/>
-      {/* Windows row 1 */}
-      <rect x="97" y="67" width="22" height="24" fill="#B8C8D8" rx="2"/>
-      <rect x="128" y="67" width="22" height="24" fill="#B8C8D8" rx="2"/>
-      <rect x="159" y="67" width="22" height="24" fill="#B8C8D8" rx="2"/>
-      <rect x="207" y="67" width="22" height="24" fill="#B8C8D8" rx="2"/>
-      {/* Windows row 2 */}
-      <rect x="97" y="106" width="22" height="24" fill="#B8C8D8" rx="2"/>
-      <rect x="128" y="106" width="22" height="24" fill="#B8C8D8" rx="2"/>
-      <rect x="159" y="106" width="22" height="24" fill="#B8C8D8" rx="2"/>
-      <rect x="207" y="106" width="22" height="24" fill="#B8C8D8" rx="2"/>
-      {/* Balcony bands */}
-      <rect x="93" y="63" width="30" height="4" fill="#C4572B"/>
-      <rect x="124" y="63" width="30" height="4" fill="#C4572B"/>
-      <rect x="155" y="63" width="30" height="4" fill="#C4572B"/>
-      <rect x="93" y="102" width="30" height="4" fill="#C4572B"/>
-      <rect x="124" y="102" width="30" height="4" fill="#C4572B"/>
-      <rect x="155" y="102" width="30" height="4" fill="#C4572B"/>
-      {/* Gate */}
-      <rect x="135" y="143" width="55" height="27" fill="#9C3F1E"/>
-      <rect x="141" y="148" width="18" height="22" fill="#6B4C2A" rx="1"/>
-      <rect x="166" y="148" width="18" height="22" fill="#6B4C2A" rx="1"/>
-      {/* Compound wall */}
-      <rect x="85" y="165" width="155" height="5" fill="#E8D9C0"/>
-      {/* Ground */}
-      <rect x="0" y="168" width="320" height="32" fill="#C8B8A0"/>
-      <rect x="0" y="178" width="320" height="22" fill="#B0A090"/>
-    </svg>
+// ── Logo header ───────────────────────────────────────────────────────────────
+const LogoHeader = () => (
+  <div style={{
+    background: '#1B2A4A',
+    padding: '32px 24px 28px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 14,
+  }}>
+    <img
+      src="/smartappt-logo.png"
+      alt="SmartAppt"
+      style={{ height: 90, width: 'auto' }}
+    />
+    <div style={{ textAlign: 'center' }}>
+      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.05em' }}>
+        Effortless Apartment Management
+      </div>
+    </div>
   </div>
 );
 
@@ -246,20 +214,11 @@ export default function LoginPage() {
         boxShadow: '0 8px 32px rgba(0,0,0,0.13)',
         border: `1px solid ${T.creamBorder}`,
       }}>
-        {/* Building illustration header */}
-        <BuildingHeader />
+        {/* Logo header */}
+        <LogoHeader />
 
         {/* Login card body */}
         <div style={{ background: '#FFFFFF', padding: '20px 24px 28px' }}>
-          {/* Branding */}
-          <div style={{ textAlign: 'center', marginBottom: 20 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: T.primaryDark, letterSpacing: 0.5 }}>
-              SmartAppt
-            </div>
-            <div style={{ fontSize: 12, color: T.mutedText, marginTop: 3 }}>
-              Apartment Association Management
-            </div>
-          </div>
 
           {error && <div style={errBox}>{error}</div>}
 

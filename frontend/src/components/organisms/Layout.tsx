@@ -214,8 +214,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </button>
 
         <div className="sa-logo">
-          <div className="sa-logo-box">SA</div>
-          SmartAppt
+          <img src="/smartappt-logo.png" alt="SmartAppt" style={{ height: 36, width: 'auto', display: 'block' }} />
         </div>
 
         <div className="sa-search">
