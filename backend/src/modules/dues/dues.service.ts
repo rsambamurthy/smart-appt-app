@@ -37,7 +37,17 @@ export class DuesService {
   // ── Config ───────────────────────────────────────────────────────────────────
   async getConfig(associationId: string) {
     const config = await prisma.duesConfig.findUnique({ where: { association_id: associationId } });
-    return { data: config };
+    if (!config) return { data: null };
+    // Prisma Decimal objects don't serialize via res.json() — convert to plain numbers
+    return {
+      data: {
+        ...config,
+        monthly_charge: config.monthly_charge.toNumber(),
+        rate_per_sqft: config.rate_per_sqft?.toNumber() ?? null,
+        penalty_value: config.penalty_value.toNumber(),
+        cash_balance: config.cash_balance?.toNumber() ?? null,
+      },
+    };
   }
 
   async upsertConfig(associationId: string, body: DuesConfigBody, updatedBy: string) {
