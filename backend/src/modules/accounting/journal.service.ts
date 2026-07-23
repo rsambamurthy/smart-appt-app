@@ -1,8 +1,11 @@
 import { AccountType, JournalEntryType } from '@prisma/client';
 import prisma from '../../config/database';
-import { UnprocessableError } from '../../utils/errors';
+import { NotFoundError, UnprocessableError } from '../../utils/errors';
 import { CreateJournalEntryBody } from './journal.schema';
 import logger from '../../utils/logger';
+
+// Account types whose normal balance is DEBIT (DR increases balance)
+const DEBIT_NORMAL = new Set<string>(['ASSET', 'EXPENSE']);
 
 // ── Payment mode → account code ───────────────────────────────────────────────
 // CASH → 1001 (Cash in Hand), everything else → 1002 (Bank Account)
@@ -235,6 +238,91 @@ class JournalService {
 
     const nextCursor = entries.length === take ? entries[entries.length - 1].id : null;
     return { data: entries, nextCursor };
+  }
+
+  // ── LEDGER: all lines for one account with running balance ───────────────────
+  async getLedger(
+    associationId: string,
+    accountId:     string,
+    query: { from?: string; to?: string },
+  ) {
+    const account = await prisma.account.findFirst({
+      where: { id: accountId, association_id: associationId },
+    });
+    if (!account) throw new NotFoundError('Account not found.');
+
+    const isDebitNormal = DEBIT_NORMAL.has(account.type);
+
+    // Opening balance = all lines BEFORE 'from' date
+    let openingBalance = 0;
+    if (query.from) {
+      const before = await prisma.journalLine.findMany({
+        where: {
+          account_id:    accountId,
+          journal_entry: {
+            association_id: associationId,
+            entry_date:     { lt: new Date(query.from) },
+          },
+        },
+        select: { debit: true, credit: true },
+      });
+      const dr = before.reduce((s, l) => s + Number(l.debit),  0);
+      const cr = before.reduce((s, l) => s + Number(l.credit), 0);
+      openingBalance = isDebitNormal ? dr - cr : cr - dr;
+    }
+
+    // Lines within the range
+    const lines = await prisma.journalLine.findMany({
+      where: {
+        account_id: accountId,
+        journal_entry: {
+          association_id: associationId,
+          ...(query.from || query.to ? {
+            entry_date: {
+              ...(query.from ? { gte: new Date(query.from) } : {}),
+              ...(query.to   ? { lte: new Date(query.to)   } : {}),
+            },
+          } : {}),
+        },
+      },
+      include: {
+        journal_entry: {
+          select: { id: true, entry_date: true, narration: true, reference_type: true, type: true },
+        },
+      },
+      orderBy: [
+        { journal_entry: { entry_date: 'asc' } },
+        { journal_entry: { created_at: 'asc' } },
+      ],
+    });
+
+    // Compute running balance
+    let balance = openingBalance;
+    const rows = lines.map(l => {
+      const dr = Number(l.debit);
+      const cr = Number(l.credit);
+      balance += isDebitNormal ? dr - cr : cr - dr;
+      return {
+        id:             l.id,
+        entry_date:     l.journal_entry.entry_date,
+        narration:      l.journal_entry.narration,
+        reference_type: l.journal_entry.reference_type,
+        entry_type:     l.journal_entry.type,
+        debit:          dr,
+        credit:         cr,
+        balance,
+      };
+    });
+
+    return {
+      data: {
+        account:        { id: account.id, code: account.code, name: account.name, type: account.type, sub_type: account.sub_type },
+        isDebitNormal,
+        openingBalance,
+        closingBalance: balance,
+        rows,
+      },
+    };
   }
 
   // ── CREATE manual entry ────────────────────────────────────────────────────

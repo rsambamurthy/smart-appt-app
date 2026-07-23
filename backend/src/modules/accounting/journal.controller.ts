@@ -16,6 +16,16 @@ class JournalController {
     } catch (err) { next(err); }
   };
 
+  getLedger = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const { account_id, from, to } = req.query as Record<string, string>;
+      if (!account_id) { res.status(400).json({ message: 'account_id is required' }); return; }
+      const result = await journalService.getLedger(associationId, account_id, { from, to });
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
   createManual = [
     validate(createJournalEntrySchema),
     async (req: Request, res: Response, next: NextFunction) => {

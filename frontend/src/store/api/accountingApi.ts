@@ -45,6 +45,25 @@ export interface JournalLineInput {
   narration?: string;
 }
 
+export interface LedgerRow {
+  id:             string;
+  entry_date:     string;
+  narration:      string;
+  reference_type: string | null;
+  entry_type:     'AUTO' | 'MANUAL';
+  debit:          number;
+  credit:         number;
+  balance:        number;
+}
+
+export interface LedgerResult {
+  account:        { id: string; code: string; name: string; type: string; sub_type: string | null };
+  isDebitNormal:  boolean;
+  openingBalance: number;
+  closingBalance: number;
+  rows:           LedgerRow[];
+}
+
 // ── Combined API ──────────────────────────────────────────────────────────────
 const accountingApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -91,6 +110,15 @@ const accountingApi = baseApi.injectEndpoints({
       query: (body) => ({ url: '/accounting/journal', method: 'POST', body }),
       invalidatesTags: ['Journal'],
     }),
+    getLedger: builder.query<{ data: LedgerResult }, { account_id: string; from?: string; to?: string }>({
+      query: ({ account_id, from, to }) => {
+        const q = new URLSearchParams({ account_id });
+        if (from) q.set('from', from);
+        if (to)   q.set('to',   to);
+        return `/accounting/journal/ledger?${q.toString()}`;
+      },
+      providesTags: ['Journal'],
+    }),
   }),
 });
 
@@ -103,4 +131,5 @@ export const {
   useDeleteAccountMutation,
   useListJournalEntriesQuery,
   useCreateJournalEntryMutation,
+  useGetLedgerQuery,
 } = accountingApi;

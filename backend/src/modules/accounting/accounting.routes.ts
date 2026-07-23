@@ -21,7 +21,8 @@ router.patch ('/accounts/:id/toggle',  requireRoles(...managerRoles), accounting
 router.delete('/accounts/:id',         requireRoles(...managerRoles), accountingController.deleteAccount);
 
 // ── Journal Entries ───────────────────────────────────────────────────────────
-router.get ('/journal',  requireRoles(...viewRoles),    journalController.list);
-router.post('/journal',  requireRoles(...managerRoles), ...journalController.createManual);
+router.get ('/journal',         requireRoles(...viewRoles),    journalController.list);
+router.post('/journal',         requireRoles(...managerRoles), ...journalController.createManual);
+router.get ('/journal/ledger',  requireRoles(...viewRoles),    journalController.getLedger);
 
 export default router;
