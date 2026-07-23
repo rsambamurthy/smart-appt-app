@@ -200,6 +200,18 @@ export class ExpensesService {
     return { data: { categories: categoryData } };
   }
 
+  async getTotal(associationId: string) {
+    const result = await prisma.expense.aggregate({
+      where: {
+        association_id: associationId,
+        deleted_at: null,
+        status: { in: [ExpenseStatus.APPROVED, ExpenseStatus.RECORDED] },
+      },
+      _sum: { amount: true },
+    });
+    return { data: { total_expenses: result._sum.amount ?? 0 } };
+  }
+
   async getTransparencyView(associationId: string) {
     const expenses = await prisma.expense.findMany({
       where: {

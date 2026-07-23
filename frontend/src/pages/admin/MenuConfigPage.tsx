@@ -26,51 +26,53 @@ interface MenuGroup {
 
 const MENU_STRUCTURE: MenuGroup[] = [
   {
-    label: 'User Management',
+    label: 'Configuration',
     items: [
-      { id: 'admin_users',  label: 'Manage Users', roles: ['MANAGER'] },
-      { id: 'admin_units',  label: 'Manage Units', roles: ['MANAGER'] },
-    ],
-  },
-  {
-    label: 'Maintenance',
-    items: [
-      { id: 'maintenance_list', label: 'Ticket List',   roles: ['MANAGER', 'RESIDENT', 'COMMITTEE', 'TREASURER', 'GATE_STAFF'] },
-      { id: 'maintenance_new',  label: 'Raise Ticket',  roles: ['MANAGER', 'RESIDENT', 'COMMITTEE', 'TREASURER', 'GATE_STAFF'] },
+      { id: 'dues_config',         label: 'Fee Configuration',  roles: ['TREASURER'] },
+      { id: 'expenses_categories', label: 'Expense Categories', roles: ['TREASURER', 'MANAGER'] },
+      { id: 'admin_users',         label: 'Manage Users',       roles: ['MANAGER'] },
+      { id: 'admin_units',         label: 'Manage Units',       roles: ['MANAGER'] },
     ],
   },
   {
     label: 'Dues & Payments',
     items: [
-      { id: 'dues_overview',  label: 'Overview',          roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
-      { id: 'dues_bills',     label: 'Bills & Payments',  roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
-      { id: 'dues_config',    label: 'Fee Configuration', roles: ['TREASURER'] },
-      { id: 'dues_my_bills',  label: 'My Bills',          roles: ['RESIDENT'] },
-      { id: 'dues_one_time',  label: 'One-Time Dues',     roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
+      { id: 'dues_overview',  label: 'Overview',         roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
+      { id: 'dues_bills',     label: 'Bills & Payments', roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
+      { id: 'dues_one_time',  label: 'One-Time Dues',    roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
     ],
   },
   {
-    label: 'Expenses',
+    label: 'Transactions',
     items: [
-      { id: 'expenses_list',         label: 'Expense List',  roles: ['TREASURER', 'COMMITTEE'] },
-      { id: 'expenses_dashboard',    label: 'Dashboard',     roles: ['TREASURER', 'COMMITTEE'] },
-      { id: 'expenses_categories',   label: 'Categories',    roles: ['TREASURER', 'MANAGER'] },
-      { id: 'expenses_transparency', label: 'Transparency',  roles: ['MANAGER', 'TREASURER', 'COMMITTEE', 'RESIDENT', 'GATE_STAFF'] },
+      { id: 'transactions_dashboard', label: 'Dashboard',     roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
+      { id: 'expenses_list',          label: 'Expenses List', roles: ['TREASURER', 'COMMITTEE'] },
+      { id: 'dues_other_receipts',    label: 'Receipts',      roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
+      { id: 'transactions_reports',   label: 'Reports',       roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
     ],
   },
   {
-    label: 'Announcements',
+    label: 'Residents',
     items: [
-      { id: 'announcements_feed', label: 'Feed',      roles: ['MANAGER', 'TREASURER', 'COMMITTEE', 'RESIDENT', 'GATE_STAFF'] },
+      { id: 'dues_my_bills',         label: 'My Bills',         roles: ['RESIDENT'] },
+      { id: 'maintenance_list',      label: 'Service Requests', roles: ['MANAGER', 'RESIDENT', 'COMMITTEE', 'TREASURER', 'GATE_STAFF'] },
+      { id: 'maintenance_new',       label: 'Raise Request',    roles: ['MANAGER', 'RESIDENT', 'COMMITTEE', 'TREASURER', 'GATE_STAFF'] },
+      { id: 'announcements_feed',    label: 'Announcements',    roles: ['MANAGER', 'TREASURER', 'COMMITTEE', 'RESIDENT', 'GATE_STAFF'] },
+      { id: 'expenses_transparency', label: 'Transparency',     roles: ['MANAGER', 'TREASURER', 'COMMITTEE', 'RESIDENT', 'GATE_STAFF'] },
+    ],
+  },
+  {
+    label: 'Documents',
+    items: [
       { id: 'announcements_docs', label: 'Documents', roles: ['MANAGER', 'TREASURER', 'COMMITTEE', 'RESIDENT', 'GATE_STAFF'] },
     ],
   },
   {
     label: 'Visitors',
     items: [
-      { id: 'visitors_log',        label: 'Visitor Log',     roles: ['MANAGER', 'GATE_STAFF'] },
-      { id: 'visitors_gate',       label: 'Gate Dashboard',  roles: ['GATE_STAFF'] },
-      { id: 'visitors_preapprove', label: 'Pre-approve',     roles: ['RESIDENT'] },
+      { id: 'visitors_log',        label: 'Visitor Log',    roles: ['MANAGER', 'GATE_STAFF'] },
+      { id: 'visitors_preapprove', label: 'Pre-Approve',    roles: ['RESIDENT'] },
+      { id: 'visitors_gate',       label: 'Gate Dashboard', roles: ['GATE_STAFF'] },
     ],
   },
 ];

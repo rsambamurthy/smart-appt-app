@@ -51,6 +51,10 @@ export const expensesApi = baseApi.injectEndpoints({
       query: () => '/expenses/dashboard',
       providesTags: ['Expense'],
     }),
+    getExpensesTotal: builder.query<{ data: { total_expenses: number } }, void>({
+      query: () => '/expenses/total',
+      providesTags: ['Expense'],
+    }),
     getTransparency: builder.query<{ data: unknown[] }, void>({
       query: () => '/expenses/transparency',
     }),
@@ -80,6 +84,7 @@ export const {
   useDeleteExpenseMutation,
   useApproveExpenseMutation,
   useGetExpenseDashboardQuery,
+  useGetExpensesTotalQuery,
   useGetTransparencyQuery,
   useSetBudgetMutation,
   useListRecurringQuery,

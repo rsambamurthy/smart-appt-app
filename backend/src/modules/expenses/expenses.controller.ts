@@ -51,6 +51,11 @@ export class ExpensesController {
     catch (err) { next(err); }
   }
 
+  async total(req: AuthRequest, res: Response, next: NextFunction) {
+    try { res.json(await expensesService.getTotal(req.user!.association_id)); }
+    catch (err) { next(err); }
+  }
+
   async transparency(req: AuthRequest, res: Response, next: NextFunction) {
     try { res.json(await expensesService.getTransparencyView(req.user!.association_id)); }
     catch (err) { next(err); }

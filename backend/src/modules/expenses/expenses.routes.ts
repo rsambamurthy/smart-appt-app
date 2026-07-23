@@ -32,8 +32,11 @@ router.delete('/categories/:id', requireRoles(UserRole.TREASURER, UserRole.MANAG
 router.post('/', requireRoles(UserRole.TREASURER), upload.single('invoice'), validate(createExpenseSchema), (req, res, next) =>
   expensesController.create(req as never, res, next));
 
-router.get('/dashboard', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE), (req, res, next) =>
+router.get('/dashboard', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   expensesController.dashboard(req as never, res, next));
+
+router.get('/total', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
+  expensesController.total(req as never, res, next));
 
 router.get('/transparency', (req, res, next) =>
   expensesController.transparency(req as never, res, next));
