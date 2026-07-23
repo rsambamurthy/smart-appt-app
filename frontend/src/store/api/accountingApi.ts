@@ -73,6 +73,14 @@ export interface PnLResult {
   netSurplus:   number;
 }
 
+export interface BackfillCount { posted: number; skipped: number; failed: number }
+export interface BackfillResult {
+  bills:    BackfillCount;
+  payments: BackfillCount;
+  expenses: BackfillCount;
+  receipts: BackfillCount;
+}
+
 export interface BsRow {
   id:       string;
   code:     string;
@@ -151,6 +159,10 @@ const accountingApi = baseApi.injectEndpoints({
       query: ({ from, to }) => `/accounting/journal/pnl?from=${from}&to=${to}`,
       providesTags: ['Journal'],
     }),
+    backfillTransactions: builder.mutation<{ data: BackfillResult }, void>({
+      query: () => ({ url: '/accounting/journal/backfill', method: 'POST' }),
+      invalidatesTags: ['Journal'],
+    }),
     getBalanceSheet: builder.query<{ data: BalanceSheetResult }, { asOf: string }>({
       query: ({ asOf }) => `/accounting/journal/balance-sheet?asOf=${asOf}`,
       providesTags: ['Journal'],
@@ -176,6 +188,7 @@ export const {
   useDeleteAccountMutation,
   useListJournalEntriesQuery,
   useCreateJournalEntryMutation,
+  useBackfillTransactionsMutation,
   useGetBalanceSheetQuery,
   useGetLedgerQuery,
   useGetPnLQuery,

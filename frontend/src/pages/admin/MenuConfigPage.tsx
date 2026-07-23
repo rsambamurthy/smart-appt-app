@@ -51,6 +51,16 @@ const MENU_STRUCTURE: MenuGroup[] = [
     ],
   },
   {
+    label: 'Accounting',
+    items: [
+      { id: 'chart_of_accounts', label: 'Chart of Accounts', roles: ['MANAGER', 'TREASURER'] },
+      { id: 'journal_entries',   label: 'Journal Entries',   roles: ['MANAGER', 'TREASURER', 'COMMITTEE'] },
+      { id: 'ledger',            label: 'Ledger',            roles: ['MANAGER', 'TREASURER', 'COMMITTEE'] },
+      { id: 'pnl',               label: 'Profit & Loss',     roles: ['MANAGER', 'TREASURER', 'COMMITTEE'] },
+      { id: 'balance_sheet',     label: 'Balance Sheet',     roles: ['MANAGER', 'TREASURER', 'COMMITTEE'] },
+    ],
+  },
+  {
     label: 'Residents',
     items: [
       { id: 'dues_my_bills',         label: 'My Bills',         roles: ['RESIDENT'] },

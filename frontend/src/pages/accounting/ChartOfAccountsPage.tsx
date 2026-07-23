@@ -5,7 +5,8 @@ import {
   useListAccountsQuery, useSeedAccountsMutation,
   useCreateAccountMutation, useUpdateAccountMutation,
   useToggleAccountMutation, useDeleteAccountMutation,
-  Account, AccountType,
+  useBackfillTransactionsMutation,
+  Account, AccountType, BackfillResult,
 } from '../../store/api/accountingApi';
 
 // ── Type config ──────────────────────────────────────────────────────────────
@@ -46,6 +47,21 @@ export default function ChartOfAccountsPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<Account | null>(null);
   const [deleteError, setDeleteError] = useState('');
+
+  const [backfill, { isLoading: isBackfilling }] = useBackfillTransactionsMutation();
+  const [backfillResult, setBackfillResult] = useState<BackfillResult | null>(null);
+  const [backfillError, setBackfillError] = useState('');
+
+  const handleBackfill = async () => {
+    setBackfillResult(null); setBackfillError('');
+    try {
+      const res = await backfill().unwrap();
+      setBackfillResult(res.data);
+    } catch (e: unknown) {
+      const err = e as { data?: { message?: string } };
+      setBackfillError(err?.data?.message ?? 'Sync failed. Ensure Chart of Accounts is seeded first.');
+    }
+  };
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleSeed = async () => {
@@ -267,7 +283,83 @@ export default function ChartOfAccountsPage() {
               <button onClick={() => { setDeleteTarget(null); setDeleteError(''); }} style={{ flex: 1, padding: '8px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             </div>
           </div>
-        </>
+        {/* ── Sync existing transactions ─────────────────────────────────── */}
+        {accounts.length > 0 && (
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginTop: 20 }}>
+            <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>Sync Existing Transactions</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                  Post historical bills, payments, expenses, and receipts that were created before accounting was set up. Already-posted entries are skipped automatically.
+                </div>
+              </div>
+              <button
+                onClick={handleBackfill}
+                disabled={isBackfilling}
+                style={{ padding: '7px 18px', borderRadius: 7, border: 'none', background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 500, cursor: isBackfilling ? 'default' : 'pointer', opacity: isBackfilling ? 0.7 : 1, whiteSpace: 'nowrap', marginLeft: 16 }}
+              >
+                {isBackfilling ? 'Syncing…' : '⟳ Sync to Accounting'}
+              </button>
+            </div>
+
+            {backfillError && (
+              <div style={{ padding: '10px 16px', background: '#fef2f2', color: '#dc2626', fontSize: 13 }}>{backfillError}</div>
+            )}
+
+            {backfillResult && (() => {
+              const rows: { label: string; r: { posted: number; skipped: number; failed: number } }[] = [
+                { label: 'Bills',    r: backfillResult.bills    },
+                { label: 'Payments', r: backfillResult.payments },
+                { label: 'Expenses', r: backfillResult.expenses },
+                { label: 'Receipts', r: backfillResult.receipts },
+              ];
+              const totalPosted  = rows.reduce((s, x) => s + x.r.posted,  0);
+              const totalSkipped = rows.reduce((s, x) => s + x.r.skipped, 0);
+              const totalFailed  = rows.reduce((s, x) => s + x.r.failed,  0);
+              return (
+                <div style={{ padding: '14px 16px' }}>
+                  <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
+                    <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '8px 16px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#16a34a' }}>{totalPosted}</div>
+                      <div style={{ fontSize: 11, color: '#15803d', fontWeight: 600 }}>Posted</div>
+                    </div>
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 16px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#64748b' }}>{totalSkipped}</div>
+                      <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Skipped</div>
+                    </div>
+                    {totalFailed > 0 && (
+                      <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: '8px 16px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: '#dc2626' }}>{totalFailed}</div>
+                        <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 600 }}>Failed</div>
+                      </div>
+                    )}
+                  </div>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc' }}>
+                        {['Type', 'Posted', 'Skipped', 'Failed'].map(h => (
+                          <th key={h} style={{ padding: '6px 12px', textAlign: h === 'Type' ? 'left' : 'center', fontWeight: 600, color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map(({ label, r }) => (
+                        <tr key={label} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '7px 12px', fontWeight: 500, color: '#475569' }}>{label}</td>
+                          <td style={{ padding: '7px 12px', textAlign: 'center', color: '#16a34a', fontWeight: r.posted > 0 ? 700 : 400 }}>{r.posted}</td>
+                          <td style={{ padding: '7px 12px', textAlign: 'center', color: '#64748b' }}>{r.skipped}</td>
+                          <td style={{ padding: '7px 12px', textAlign: 'center', color: r.failed > 0 ? '#dc2626' : '#64748b', fontWeight: r.failed > 0 ? 700 : 400 }}>{r.failed}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+      </>
       )}
     </Layout>
   );

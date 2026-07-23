@@ -1,4 +1,4 @@
-import { AccountType, JournalEntryType } from '@prisma/client';
+import { AccountType, JournalEntryType, ExpenseStatus } from '@prisma/client';
 import prisma from '../../config/database';
 import { NotFoundError, UnprocessableError } from '../../utils/errors';
 import { CreateJournalEntryBody } from './journal.schema';
@@ -449,6 +449,164 @@ class JournalService {
         totalLiabilitiesAndEquity,
       },
     };
+  }
+
+  // ── BACKFILL: post all unposted historical transactions ───────────────────
+  async backfillTransactions(associationId: string) {
+    const accountCount = await prisma.account.count({ where: { association_id: associationId } });
+    if (accountCount === 0) {
+      throw new UnprocessableError('Please seed the Chart of Accounts before syncing transactions.');
+    }
+
+    // Load all accounts once
+    const accounts = await prisma.account.findMany({
+      where: { association_id: associationId, is_active: true },
+    });
+    const byCode = (code: string) => accounts.find(a => a.code === code);
+    const cashAcct = byCode('1001');
+    const bankAcct = byCode('1002');
+    const drOrCr   = (mode: string) => (mode === 'CASH' ? cashAcct : bankAcct) ?? bankAcct ?? cashAcct;
+
+    // Already-posted reference IDs (idempotency guard)
+    const postedRefs = await prisma.journalEntry.findMany({
+      where: { association_id: associationId, reference_id: { not: null } },
+      select: { reference_type: true, reference_id: true },
+    });
+    const posted = new Set(postedRefs.map(e => `${e.reference_type}:${e.reference_id}`));
+
+    const results = {
+      bills:    { posted: 0, skipped: 0, failed: 0 },
+      payments: { posted: 0, skipped: 0, failed: 0 },
+      expenses: { posted: 0, skipped: 0, failed: 0 },
+      receipts: { posted: 0, skipped: 0, failed: 0 },
+    };
+
+    // ── Bills: DR 1004 / CR 3001 ──────────────────────────────────────────
+    const drBill = byCode('1004');
+    const crBill = byCode('3001');
+    if (drBill && crBill) {
+      const bills = await prisma.bill.findMany({
+        where: { association_id: associationId },
+        orderBy: { created_at: 'asc' },
+      });
+      for (const bill of bills) {
+        if (posted.has(`DUES_BILL:${bill.id}`)) { results.bills.skipped++; continue; }
+        try {
+          await this.post(associationId, {
+            entry_date:     new Date(bill.created_at),
+            narration:      bill.bill_label ?? `Bill ${bill.period_month}/${bill.period_year}`,
+            reference_type: 'DUES_BILL',
+            reference_id:   bill.id,
+            type:           JournalEntryType.AUTO,
+            lines: [
+              { account_id: drBill.id, debit: Number(bill.base_amount), credit: 0 },
+              { account_id: crBill.id, debit: 0, credit: Number(bill.base_amount) },
+            ],
+          });
+          results.bills.posted++;
+        } catch (err) {
+          logger.error('Backfill: bill failed', { billId: bill.id, err });
+          results.bills.failed++;
+        }
+      }
+    }
+
+    // ── Payments: DR 1001/1002 / CR 1004 ─────────────────────────────────
+    const crPayment = byCode('1004');
+    if (crPayment) {
+      const payments = await prisma.payment.findMany({
+        where: { association_id: associationId },
+        orderBy: { payment_date: 'asc' },
+      });
+      for (const pmt of payments) {
+        if (posted.has(`PAYMENT:${pmt.id}`)) { results.payments.skipped++; continue; }
+        const drAcct = drOrCr(pmt.payment_mode.toString());
+        if (!drAcct) { results.payments.failed++; continue; }
+        try {
+          await this.post(associationId, {
+            entry_date:     new Date(pmt.payment_date),
+            narration:      'Payment received',
+            reference_type: 'PAYMENT',
+            reference_id:   pmt.id,
+            type:           JournalEntryType.AUTO,
+            lines: [
+              { account_id: drAcct.id,     debit: Number(pmt.amount), credit: 0 },
+              { account_id: crPayment.id,  debit: 0, credit: Number(pmt.amount) },
+            ],
+          });
+          results.payments.posted++;
+        } catch (err) {
+          logger.error('Backfill: payment failed', { paymentId: pmt.id, err });
+          results.payments.failed++;
+        }
+      }
+    }
+
+    // ── Expenses: DR expense account / CR 1001/1002 ───────────────────────
+    const expenseAccts = accounts.filter(a => a.type === AccountType.EXPENSE);
+    const fallbackExp  = byCode('4008') ?? expenseAccts[0];
+    const expenses = await prisma.expense.findMany({
+      where: { association_id: associationId, status: ExpenseStatus.APPROVED, deleted_at: null },
+      orderBy: { expense_date: 'asc' },
+    });
+    for (const exp of expenses) {
+      if (posted.has(`EXPENSE:${exp.id}`)) { results.expenses.skipped++; continue; }
+      const expAcct = expenseAccts.find(a =>
+        a.name.toLowerCase().includes(exp.category.toLowerCase())
+      ) ?? fallbackExp;
+      const crAcct = drOrCr(exp.payment_mode.toString());
+      if (!expAcct || !crAcct) { results.expenses.failed++; continue; }
+      try {
+        await this.post(associationId, {
+          entry_date:     new Date(exp.expense_date),
+          narration:      exp.description ?? exp.category,
+          reference_type: 'EXPENSE',
+          reference_id:   exp.id,
+          type:           JournalEntryType.AUTO,
+          lines: [
+            { account_id: expAcct.id, debit: Number(exp.amount), credit: 0 },
+            { account_id: crAcct.id,  debit: 0, credit: Number(exp.amount) },
+          ],
+        });
+        results.expenses.posted++;
+      } catch (err) {
+        logger.error('Backfill: expense failed', { expenseId: exp.id, err });
+        results.expenses.failed++;
+      }
+    }
+
+    // ── Other Receipts: DR 1001/1002 / CR 3002 ───────────────────────────
+    const crReceipt = byCode('3002');
+    if (crReceipt) {
+      const receipts = await prisma.otherReceipt.findMany({
+        where: { association_id: associationId, deleted_at: null },
+        orderBy: { receipt_date: 'asc' },
+      });
+      for (const rcpt of receipts) {
+        if (posted.has(`OTHER_RECEIPT:${rcpt.id}`)) { results.receipts.skipped++; continue; }
+        const drAcct = drOrCr(rcpt.payment_mode.toString());
+        if (!drAcct) { results.receipts.failed++; continue; }
+        try {
+          await this.post(associationId, {
+            entry_date:     new Date(rcpt.receipt_date),
+            narration:      rcpt.description ?? rcpt.category,
+            reference_type: 'OTHER_RECEIPT',
+            reference_id:   rcpt.id,
+            type:           JournalEntryType.AUTO,
+            lines: [
+              { account_id: drAcct.id,    debit: Number(rcpt.amount), credit: 0 },
+              { account_id: crReceipt.id, debit: 0, credit: Number(rcpt.amount) },
+            ],
+          });
+          results.receipts.posted++;
+        } catch (err) {
+          logger.error('Backfill: receipt failed', { receiptId: rcpt.id, err });
+          results.receipts.failed++;
+        }
+      }
+    }
+
+    return { data: results };
   }
 
   // ── CREATE manual entry ────────────────────────────────────────────────────

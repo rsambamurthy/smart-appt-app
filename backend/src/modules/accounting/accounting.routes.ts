@@ -25,6 +25,7 @@ router.get ('/journal',         requireRoles(...viewRoles),    journalController
 router.post('/journal',         requireRoles(...managerRoles), ...journalController.createManual);
 router.get ('/journal/ledger',  requireRoles(...viewRoles),    journalController.getLedger);
 router.get ('/journal/pnl',           requireRoles(...viewRoles), journalController.getPnL);
-router.get ('/journal/balance-sheet', requireRoles(...viewRoles), journalController.getBalanceSheet);
+router.get ('/journal/balance-sheet', requireRoles(...viewRoles),    journalController.getBalanceSheet);
+router.post('/journal/backfill',      requireRoles(...managerRoles), journalController.backfill);
 
 export default router;
