@@ -86,18 +86,11 @@ const PinInput = ({ value, onChange, placeholder = '● ● ● ●', autoFocus 
 
 // ── Logo header ───────────────────────────────────────────────────────────────
 const LogoHeader = () => (
-  <div style={{
-    background: T.cream,
-    padding: '28px 24px 20px',
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderBottom: `1px solid ${T.creamBorder}`,
-  }}>
+  <div style={{ height: 200, overflow: 'hidden', borderBottom: `1px solid ${T.creamBorder}` }}>
     <img
       src="/smartappt-logo.png"
       alt="SmartAppt"
-      style={{ height: 130, width: 'auto' }}
+      style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }}
     />
   </div>
 );
