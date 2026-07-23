@@ -24,6 +24,12 @@ router.get('/config', requireRoles(UserRole.TREASURER), (req, res, next) =>
 router.put('/config', requireRoles(UserRole.TREASURER), validate(duesConfigSchema), (req, res, next) =>
   duesController.upsertConfig(req as never, res, next));
 
+router.get('/razorpay-config', requireRoles(UserRole.TREASURER), (req, res, next) =>
+  duesController.getRazorpayConfig(req as never, res, next));
+
+router.put('/razorpay-config', requireRoles(UserRole.TREASURER), (req, res, next) =>
+  duesController.saveRazorpayConfig(req as never, res, next));
+
 router.post('/bills/generate', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(generateBillsSchema), (req, res, next) =>
   duesController.generateBills(req as never, res, next));
 

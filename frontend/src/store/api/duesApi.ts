@@ -22,6 +22,8 @@ export const duesApi = baseApi.injectEndpoints({
     generateOneTimeDueBills: builder.mutation<{ data: { created: number; skipped: number } }, { id: string; body: object }>({ query: ({ id, body }) => ({ url: `/dues/one-time-dues/${id}/generate-bills`, method: 'POST', body }), invalidatesTags: ['Bill'] }),
     deleteOneTimeDueBills: builder.mutation<{ data: { deleted: boolean } }, string>({ query: (id) => ({ url: `/dues/one-time-dues/${id}/bills`, method: 'DELETE' }), invalidatesTags: ['Bill'] }),
     closeOneTimeDue: builder.mutation<{ data: unknown }, string>({ query: (id) => ({ url: `/dues/one-time-dues/${id}/close`, method: 'POST', body: {} }), invalidatesTags: ['Bill'] }),
+    getRazorpayConfig: builder.query<{ data: { razorpay_key_id: string | null; has_key_secret: boolean } }, void>({ query: () => '/dues/razorpay-config', providesTags: ['Bill'] }),
+    saveRazorpayConfig: builder.mutation<{ data: unknown }, { razorpay_key_id: string; razorpay_key_secret: string }>({ query: (body) => ({ url: '/dues/razorpay-config', method: 'PUT', body }), invalidatesTags: ['Bill'] }),
   }),
 });
 
@@ -32,4 +34,5 @@ export const {
   useRecordOfflinePaymentMutation, useGetArrearsQuery, useCreateLevyMutation, useGetDuesDashboardQuery,
   useListOneTimeDuesQuery, useCreateOneTimeDueMutation, useUpdateOneTimeDueMutation,
   useDeleteOneTimeDueMutation, useGenerateOneTimeDueBillsMutation, useDeleteOneTimeDueBillsMutation, useCloseOneTimeDueMutation,
+  useGetRazorpayConfigQuery, useSaveRazorpayConfigMutation,
 } = duesApi;

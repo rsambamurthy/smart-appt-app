@@ -15,6 +15,16 @@ export class DuesController {
     catch (err) { next(err); }
   }
 
+  async getRazorpayConfig(req: AuthRequest, res: Response, next: NextFunction) {
+    try { res.json(await duesService.getRazorpayConfig(req.user!.association_id)); }
+    catch (err) { next(err); }
+  }
+
+  async saveRazorpayConfig(req: AuthRequest, res: Response, next: NextFunction) {
+    try { res.json(await duesService.saveRazorpayConfig(req.user!.association_id, req.body, req.user!.id)); }
+    catch (err) { next(err); }
+  }
+
   async generateBills(req: AuthRequest, res: Response, next: NextFunction) {
     try { res.json(await duesService.generateBills(req.user!.association_id, req.body)); }
     catch (err) { next(err); }

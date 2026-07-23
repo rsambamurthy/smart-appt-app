@@ -11,10 +11,27 @@ import {
 } from './dues.schema';
 import { BillStatus, ExpenseStatus, OneTimeDueStatus, PaymentMode, UserRole } from '@prisma/client';
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_KEY_SECRET!,
+// Default platform Razorpay instance (fallback if association has no own keys)
+const defaultRazorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID ?? '',
+  key_secret: process.env.RAZORPAY_KEY_SECRET ?? '',
 });
+
+async function getRazorpayForAssociation(associationId: string): Promise<{ client: Razorpay; keyId: string; keySecret: string }> {
+  const config = await prisma.duesConfig.findUnique({ where: { association_id: associationId } });
+  if (config?.razorpay_key_id && config?.razorpay_key_secret) {
+    return {
+      client: new Razorpay({ key_id: config.razorpay_key_id, key_secret: config.razorpay_key_secret }),
+      keyId: config.razorpay_key_id,
+      keySecret: config.razorpay_key_secret,
+    };
+  }
+  return {
+    client: defaultRazorpay,
+    keyId: process.env.RAZORPAY_KEY_ID ?? '',
+    keySecret: process.env.RAZORPAY_KEY_SECRET ?? '',
+  };
+}
 
 export class DuesService {
   // ── Config ───────────────────────────────────────────────────────────────────
@@ -37,6 +54,28 @@ export class DuesService {
       create: { association_id: associationId, ...data },
     });
     return { data: config };
+  }
+
+  // ── Razorpay Config ──────────────────────────────────────────────────────────
+  async getRazorpayConfig(associationId: string) {
+    const config = await prisma.duesConfig.findUnique({ where: { association_id: associationId } });
+    // Never return the secret to the frontend — just indicate if it's set
+    return {
+      data: {
+        razorpay_key_id: config?.razorpay_key_id ?? null,
+        has_key_secret: !!(config?.razorpay_key_secret),
+      },
+    };
+  }
+
+  async saveRazorpayConfig(associationId: string, body: { razorpay_key_id: string; razorpay_key_secret: string }, updatedBy: string) {
+    const existing = await prisma.duesConfig.findUnique({ where: { association_id: associationId } });
+    if (!existing) throw new UnprocessableError('Please complete Fee Configuration before setting up Razorpay.');
+    const config = await prisma.duesConfig.update({
+      where: { association_id: associationId },
+      data: { razorpay_key_id: body.razorpay_key_id, razorpay_key_secret: body.razorpay_key_secret, updated_by: updatedBy },
+    });
+    return { data: { razorpay_key_id: config.razorpay_key_id, has_key_secret: true } };
   }
 
   // ── Bill Generation ──────────────────────────────────────────────────────────
@@ -182,8 +221,11 @@ export class DuesService {
     if (!bill) throw new NotFoundError('Bill');
     if (bill.status === BillStatus.PAID) throw new UnprocessableError('This bill has already been paid.');
 
+    const { client: rzp, keyId } = await getRazorpayForAssociation(associationId);
+    if (!keyId) throw new UnprocessableError('Payment gateway not configured. Please contact your association manager.');
+
     try {
-      const order = await razorpay.orders.create({
+      const order = await rzp.orders.create({
         amount: Math.round(Number(bill.total_amount) * 100),
         currency: 'INR',
         receipt: `bill_${bill.id}`,
@@ -194,7 +236,7 @@ export class DuesService {
         data: {
           order_id: order.id,
           amount: bill.total_amount,
-          key_id: process.env.RAZORPAY_KEY_ID,
+          key_id: keyId,
           bill: { id: bill.id, period_month: bill.period_month, period_year: bill.period_year },
         },
       };
@@ -209,9 +251,10 @@ export class DuesService {
     userId: string,
     body: { bill_id: string; razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string },
   ) {
+    const { keySecret } = await getRazorpayForAssociation(associationId);
     // Verify HMAC signature: sha256(order_id + "|" + payment_id)
     const expectedSig = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
+      .createHmac('sha256', keySecret)
       .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
       .digest('hex');
 

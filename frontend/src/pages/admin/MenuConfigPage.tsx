@@ -29,6 +29,7 @@ const MENU_STRUCTURE: MenuGroup[] = [
     label: 'Configuration',
     items: [
       { id: 'dues_config',         label: 'Fee Configuration',  roles: ['TREASURER'] },
+      { id: 'razorpay_config',     label: 'Razorpay',           roles: ['TREASURER'] },
       { id: 'expenses_categories', label: 'Expense Categories', roles: ['TREASURER', 'MANAGER'] },
       { id: 'admin_users',         label: 'Manage Users',       roles: ['MANAGER'] },
       { id: 'admin_units',         label: 'Manage Units',       roles: ['MANAGER'] },

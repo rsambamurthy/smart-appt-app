@@ -11,6 +11,7 @@ import TicketDetailPage from './pages/maintenance/TicketDetailPage';
 import DuesDashboardPage from './pages/dues/DuesDashboardPage';
 import DuesBillsPage from './pages/dues/DuesBillsPage';
 import DuesConfigPage from './pages/dues/DuesConfigPage';
+import RazorpayConfigPage from './pages/config/RazorpayConfigPage';
 import MyBillsPage from './pages/dues/MyBillsPage';
 import PaymentPage from './pages/dues/PaymentPage';
 import ExpenseListPage from './pages/expenses/ExpenseListPage';
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="/dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><DuesDashboardPage /></RoleRoute>} />
         <Route path="/dues/bills" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><DuesBillsPage /></RoleRoute>} />
         <Route path="/dues/config" element={<RoleRoute roles={['TREASURER']}><DuesConfigPage /></RoleRoute>} />
+        <Route path="/config/razorpay" element={<RoleRoute roles={['TREASURER']}><RazorpayConfigPage /></RoleRoute>} />
         <Route path="/dues/my-bills" element={<RoleRoute roles={['RESIDENT']}><MyBillsPage /></RoleRoute>} />
         <Route path="/dues/pay/:billId" element={<RoleRoute roles={['RESIDENT']}><PaymentPage /></RoleRoute>} />
         <Route path="/dues/one-time-dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OneTimeDuesPage /></RoleRoute>} />

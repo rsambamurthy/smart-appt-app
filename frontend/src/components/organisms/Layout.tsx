@@ -37,6 +37,7 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ['SUPER_USER', 'TREASURER', 'MANAGER'],
     items: [
       { id: 'dues_config',          label: 'Fee Configuration',   path: '/dues/config',           roles: ['SUPER_USER', 'TREASURER'],                              dot: '#a855f7', end: true },
+      { id: 'razorpay_config',      label: 'Razorpay',            path: '/config/razorpay',       roles: ['SUPER_USER', 'TREASURER'],                              dot: '#3395FF', end: true },
       { id: 'expenses_categories',  label: 'Expense Categories',  path: '/expenses/categories',   roles: ['SUPER_USER', 'TREASURER', 'MANAGER'],                   dot: '#f59e0b', end: true },
       { id: 'admin_users',          label: 'Manage Users',        path: '/admin/users',           roles: ['SUPER_USER', 'MANAGER'],                                dot: '#22c55e', end: true },
       { id: 'admin_units',          label: 'Manage Units',        path: '/admin/units',           roles: ['SUPER_USER', 'MANAGER'],                                dot: '#0095db', end: true },
