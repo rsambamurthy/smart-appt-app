@@ -87,23 +87,18 @@ const PinInput = ({ value, onChange, placeholder = '● ● ● ●', autoFocus 
 // ── Logo header ───────────────────────────────────────────────────────────────
 const LogoHeader = () => (
   <div style={{
-    background: '#1B2A4A',
-    padding: '32px 24px 28px',
+    background: T.cream,
+    padding: '28px 24px 20px',
     display: 'flex',
-    flexDirection: 'column',
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 14,
+    borderBottom: `1px solid ${T.creamBorder}`,
   }}>
     <img
       src="/smartappt-logo.png"
       alt="SmartAppt"
-      style={{ height: 90, width: 'auto' }}
+      style={{ height: 130, width: 'auto' }}
     />
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.05em' }}>
-        Effortless Apartment Management
-      </div>
-    </div>
   </div>
 );
 
