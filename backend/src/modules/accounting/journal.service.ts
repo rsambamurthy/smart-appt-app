@@ -487,6 +487,7 @@ class JournalService {
     if (drBill && crBill) {
       const bills = await prisma.bill.findMany({
         where: { association_id: associationId },
+        include: { unit: { select: { flat_number: true } } },
         orderBy: { created_at: 'asc' },
       });
       for (const bill of bills) {
@@ -494,7 +495,7 @@ class JournalService {
         try {
           await this.post(associationId, {
             entry_date:     new Date(bill.created_at),
-            narration:      bill.bill_label ?? `Bill ${bill.period_month}/${bill.period_year}`,
+            narration:      bill.bill_label ?? `Bill ${bill.period_month}/${bill.period_year} — Flat ${bill.unit?.flat_number ?? ''}`,
             reference_type: 'DUES_BILL',
             reference_id:   bill.id,
             type:           JournalEntryType.AUTO,
@@ -516,6 +517,7 @@ class JournalService {
     if (crPayment) {
       const payments = await prisma.payment.findMany({
         where: { association_id: associationId },
+        include: { unit: { select: { flat_number: true } } },
         orderBy: { payment_date: 'asc' },
       });
       for (const pmt of payments) {
@@ -525,7 +527,7 @@ class JournalService {
         try {
           await this.post(associationId, {
             entry_date:     new Date(pmt.payment_date),
-            narration:      'Payment received',
+            narration:      `Payment received — Flat ${pmt.unit?.flat_number ?? ''}`,
             reference_type: 'PAYMENT',
             reference_id:   pmt.id,
             type:           JournalEntryType.AUTO,
@@ -546,7 +548,7 @@ class JournalService {
     const expenseAccts = accounts.filter(a => a.type === AccountType.EXPENSE);
     const fallbackExp  = byCode('4008') ?? expenseAccts[0];
     const expenses = await prisma.expense.findMany({
-      where: { association_id: associationId, status: ExpenseStatus.APPROVED, deleted_at: null },
+      where: { association_id: associationId, status: { not: ExpenseStatus.REJECTED }, deleted_at: null },
       orderBy: { expense_date: 'asc' },
     });
     for (const exp of expenses) {

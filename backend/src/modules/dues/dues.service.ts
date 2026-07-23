@@ -292,7 +292,10 @@ export class DuesService {
     const existing = await prisma.payment.findFirst({ where: { gateway_txn_id: body.razorpay_payment_id } });
     if (existing) return { data: { status: 'already_processed', payment_id: existing.id } };
 
-    const bill = await prisma.bill.findFirst({ where: { id: body.bill_id, association_id: associationId } });
+    const bill = await prisma.bill.findFirst({
+      where: { id: body.bill_id, association_id: associationId },
+      include: { unit: { select: { flat_number: true } } },
+    });
     if (!bill) throw new NotFoundError('Bill');
     if (bill.status === BillStatus.PAID) return { data: { status: 'already_paid' } };
 
@@ -320,7 +323,7 @@ export class DuesService {
       payment.id,
       Number(bill.total_amount),
       'BANK',
-      `Online payment received — Bill ${body.bill_id.slice(0, 8)}`,
+      `Online payment received — Flat ${bill.unit?.flat_number ?? ''}`,
     );
 
     await notificationService.dispatch({
@@ -384,7 +387,10 @@ export class DuesService {
 
   // ── Offline Payment ──────────────────────────────────────────────────────────
   async recordOfflinePayment(associationId: string, body: OfflinePaymentBody, recordedBy: string) {
-    const bill = await prisma.bill.findFirst({ where: { id: body.bill_id, association_id: associationId } });
+    const bill = await prisma.bill.findFirst({
+      where: { id: body.bill_id, association_id: associationId },
+      include: { unit: { select: { flat_number: true } } },
+    });
     if (!bill) throw new NotFoundError('Bill');
 
     const payment = await prisma.payment.create({
@@ -417,7 +423,7 @@ export class DuesService {
       payment.id,
       body.amount,
       body.mode,
-      `Dues payment received — Bill ${body.bill_id.slice(0, 8)}`,
+      `Dues payment received — Flat ${bill.unit?.flat_number ?? ''}`,
     );
 
     return { data: payment };
