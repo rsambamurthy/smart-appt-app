@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, CSSProperties } from 'react';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import { useGetPnLQuery, PnLRow } from '../../store/api/accountingApi';
@@ -94,7 +94,7 @@ export default function PnLPage() {
     win.close();
   };
 
-  const fc: React.CSSProperties = {
+  const fc: CSSProperties = {
     padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6,
     fontSize: 13, color: '#1e293b', background: '#fff', outline: 'none',
   };
