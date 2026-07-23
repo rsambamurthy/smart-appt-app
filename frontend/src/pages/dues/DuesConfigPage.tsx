@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/organisms/Layout';
-import PageSubHeader from '../../components/molecules/PageSubHeader';
 import { useGetDuesConfigQuery, useUpdateDuesConfigMutation } from '../../store/api/duesApi';
 
 interface ConfigForm {
@@ -24,28 +24,23 @@ const EMPTY: ConfigForm = {
   auto_generate_bills: false, auto_generate_day: '1',
 };
 
-const s: Record<string, React.CSSProperties> = {
-  wrap:      { padding: '1.25rem 1.5rem 2rem', maxWidth: 860 },
-  section:   { border: '1px solid var(--color-border)', borderRadius: 10, overflow: 'hidden', marginBottom: 14, background: 'var(--color-bg-card)' },
-  secHdr:    { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg)' },
-  secIcon:   { width: 28, height: 28, borderRadius: 6, background: 'var(--theme-accent-light)', color: 'var(--theme-accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0 },
-  secTitle:  { fontSize: 11, fontWeight: 700, textTransform: 'uppercase' as const, letterSpacing: '0.06em', color: 'var(--theme-accent)' },
-  secBody:   { padding: '14px 16px' },
-  grid3:     { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px 16px' },
-  grid2:     { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 16px' },
-  fg:        { display: 'flex', flexDirection: 'column', gap: 4 },
-  fl:        { fontSize: 11, fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' },
-  fc:        { padding: '7px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: 13, color: 'var(--color-text)', background: 'var(--color-bg-card)', width: '100%', boxSizing: 'border-box' as const, outline: 'none' },
-  fcHint:    { fontSize: 11, color: 'var(--color-muted)', marginTop: 2 },
-  badge:     { marginLeft: 'auto', fontSize: 10.5, fontWeight: 600, padding: '2px 9px', borderRadius: 99, display: 'flex', alignItems: 'center', gap: 4 },
-  badgeDot:  { width: 5, height: 5, borderRadius: '50%' },
-  toggleRow: { display: 'flex', alignItems: 'flex-start', gap: 12 },
-  tLabel:    { fontSize: 13.5, fontWeight: 600, color: 'var(--color-text)' },
-  tHint:     { fontSize: 11.5, color: 'var(--color-muted)', marginTop: 3, lineHeight: 1.5 },
-  infoStrip: { fontSize: 11.5, color: 'var(--color-muted)', borderLeft: '2.5px solid var(--theme-accent)', padding: '7px 12px', borderRadius: '0 6px 6px 0', background: 'var(--color-bg)', marginTop: 12 },
+/* ── shared field styles ── */
+const fl: React.CSSProperties = {
+  fontSize: 10.5, fontWeight: 700, color: '#64748b',
+  textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, display: 'block',
 };
+const fc: React.CSSProperties = {
+  width: '100%', padding: '10px 14px',
+  border: '1px solid #e2e8f0', borderRadius: 8,
+  fontSize: 14, color: '#1e293b',
+  background: '#fff', outline: 'none', boxSizing: 'border-box',
+};
+const grid3: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 20px', marginTop: 18 };
+const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px', marginTop: 18 };
+const hint: React.CSSProperties = { fontSize: 11.5, color: '#94a3b8', marginTop: 5 };
 
 export default function DuesConfigPage() {
+  const navigate = useNavigate();
   const { data, isLoading } = useGetDuesConfigQuery();
   const [updateConfig, { isLoading: isSaving }] = useUpdateDuesConfigMutation();
   const [form, setForm] = useState<ConfigForm>(EMPTY);
@@ -95,177 +90,260 @@ export default function DuesConfigPage() {
     }
   };
 
-  const Field = ({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) => (
-    <div style={s.fg}>
-      <label style={s.fl}>{label}</label>
+  /* ── Card wrapper ── */
+  const Card = ({
+    icon, iconBg, iconColor, title, subtitle,
+    accent, children,
+  }: {
+    icon: string; iconBg: string; iconColor: string;
+    title: string; subtitle: string;
+    accent?: string;
+    children: React.ReactNode;
+  }) => (
+    <div style={{
+      background: '#fff',
+      border: `1px solid ${accent ? accent : '#e2e8f0'}`,
+      borderLeft: accent ? `4px solid ${accent}` : '1px solid #e2e8f0',
+      borderRadius: 12,
+      padding: '20px 24px',
+      marginBottom: 16,
+    }}>
+      {/* Card header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 4 }}>
+        <div style={{
+          width: 46, height: 46, borderRadius: 12, background: iconBg,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}>
+          <i className={`ti ${icon}`} style={{ fontSize: 22, color: iconColor }} aria-hidden="true" />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', lineHeight: 1.3 }}>{title}</div>
+          <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 3 }}>{subtitle}</div>
+        </div>
+        {accent && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            background: '#dcfce7', color: '#15803d',
+            border: '1px solid #86efac',
+            borderRadius: 99, padding: '4px 12px',
+            fontSize: 12, fontWeight: 600, flexShrink: 0,
+          }}>
+            <i className="ti ti-circle-check" style={{ fontSize: 14 }} aria-hidden="true" />
+            Enabled
+          </div>
+        )}
+      </div>
       {children}
-      {hint && <span style={s.fcHint}>{hint}</span>}
     </div>
   );
 
   return (
     <Layout>
-      <PageSubHeader
-        crumbs={[{ label: 'Configuration' }, { label: 'Fee Configuration' }]}
-        onSave={handleSave} saveLabel="Save configuration" saving={isSaving}
-      />
+      <div style={{ padding: '1.5rem 2rem 5rem', maxWidth: 860 }}>
 
-      {isLoading ? (
-        <div style={{ padding: '2rem', color: 'var(--color-muted)' }}>Loading…</div>
-      ) : (
-        <div style={s.wrap}>
+        {/* ── Page header ── */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: 14, background: '#eff6ff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <i className="ti ti-file-invoice" style={{ fontSize: 28, color: '#2563eb' }} aria-hidden="true" />
+          </div>
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1e293b', margin: 0 }}>Billing Configuration</h1>
+            <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 0' }}>
+              Configure billing, penalties, auto-generation and cash opening settings.
+            </p>
+          </div>
+        </div>
 
-          {error && <div style={{ marginBottom: 12, padding: '0.65rem 1rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#dc2626', fontSize: 13 }}>{error}</div>}
-          {success && <div style={{ marginBottom: 12, padding: '0.65rem 1rem', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, color: '#15803d', fontSize: 13 }}>✓ {success}</div>}
+        {error && <div style={{ marginBottom: 14, padding: '10px 14px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, color: '#dc2626', fontSize: 13 }}>{error}</div>}
+        {success && <div style={{ marginBottom: 14, padding: '10px 14px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, color: '#15803d', fontSize: 13 }}>✓ {success}</div>}
 
-          {/* ── Monthly Charge ── */}
-          <div style={s.section}>
-            <div style={s.secHdr}>
-              <div style={s.secIcon}><i className="ti ti-receipt" aria-hidden="true" /></div>
-              <span style={s.secTitle}>Monthly charge</span>
-            </div>
-            <div style={s.secBody}>
-              <div style={s.grid3}>
-                <Field label="Charge type">
-                  <select style={s.fc} value={form.charge_type} onChange={e => set('charge_type', e.target.value)}>
+        {isLoading ? (
+          <div style={{ color: '#94a3b8', padding: '2rem 0' }}>Loading…</div>
+        ) : (
+          <>
+            {/* ── Monthly Charge ── */}
+            <Card
+              icon="ti-calendar-stats" iconBg="#eff6ff" iconColor="#2563eb"
+              title="Monthly Charge"
+              subtitle="Define the fixed amount and due day for monthly billing."
+            >
+              <div style={grid3}>
+                <div>
+                  <label style={fl}>Charge type</label>
+                  <select style={fc} value={form.charge_type} onChange={e => set('charge_type', e.target.value)}>
                     <option value="FIXED">Fixed amount</option>
                     <option value="RATE_PER_SQFT">Rate per sq ft</option>
                   </select>
-                </Field>
-                {form.charge_type === 'FIXED' ? (
-                  <Field label="Monthly charge (₹)">
-                    <input style={s.fc} type="number" min="0" step="0.01"
-                      value={form.monthly_charge} placeholder="e.g. 2500"
-                      onChange={e => set('monthly_charge', e.target.value)} />
-                  </Field>
-                ) : (
-                  <Field label="Rate per sq ft (₹)">
-                    <input style={s.fc} type="number" min="0" step="0.01"
-                      value={form.rate_per_sqft} placeholder="e.g. 2.50"
-                      onChange={e => set('rate_per_sqft', e.target.value)} />
-                  </Field>
-                )}
-                <Field label="Due day of month" hint="Bills are due on this day each month">
-                  <input style={s.fc} type="number" min="1" max="28"
+                </div>
+                <div>
+                  {form.charge_type === 'FIXED' ? (
+                    <>
+                      <label style={fl}>Monthly charge (₹)</label>
+                      <input style={fc} type="number" min="0" step="0.01"
+                        value={form.monthly_charge} placeholder="e.g. 2500"
+                        onChange={e => set('monthly_charge', e.target.value)} />
+                    </>
+                  ) : (
+                    <>
+                      <label style={fl}>Rate per sq ft (₹)</label>
+                      <input style={fc} type="number" min="0" step="0.01"
+                        value={form.rate_per_sqft} placeholder="e.g. 2.50"
+                        onChange={e => set('rate_per_sqft', e.target.value)} />
+                    </>
+                  )}
+                </div>
+                <div>
+                  <label style={fl}>Due day of month</label>
+                  <input style={fc} type="number" min="1" max="28"
                     value={form.due_day} placeholder="1–28"
                     onChange={e => set('due_day', e.target.value)} />
-                </Field>
+                  <div style={hint}>Bills are due on this day each month.</div>
+                </div>
               </div>
-            </div>
-          </div>
+            </Card>
 
-          {/* ── Penalty ── */}
-          <div style={s.section}>
-            <div style={s.secHdr}>
-              <div style={s.secIcon}><i className="ti ti-alert-triangle" aria-hidden="true" /></div>
-              <span style={s.secTitle}>Penalty</span>
-            </div>
-            <div style={s.secBody}>
-              <div style={s.grid3}>
-                <Field label="Penalty type">
-                  <select style={s.fc} value={form.penalty_type} onChange={e => set('penalty_type', e.target.value)}>
+            {/* ── Penalty ── */}
+            <Card
+              icon="ti-percentage" iconBg="#f5f3ff" iconColor="#7c3aed"
+              title="Penalty"
+              subtitle="Set penalty amount and grace period for overdue bills."
+            >
+              <div style={grid3}>
+                <div>
+                  <label style={fl}>Penalty type</label>
+                  <select style={fc} value={form.penalty_type} onChange={e => set('penalty_type', e.target.value)}>
                     <option value="FLAT">Flat amount</option>
                     <option value="PERCENTAGE">Percentage</option>
                   </select>
-                </Field>
-                <Field label={form.penalty_type === 'PERCENTAGE' ? 'Penalty %' : 'Penalty amount (₹)'}>
-                  <input style={s.fc} type="number" min="0" step="0.01"
+                </div>
+                <div>
+                  <label style={fl}>{form.penalty_type === 'PERCENTAGE' ? 'Penalty %' : 'Penalty amount (₹)'}</label>
+                  <input style={fc} type="number" min="0" step="0.01"
                     value={form.penalty_value}
                     placeholder={form.penalty_type === 'PERCENTAGE' ? 'e.g. 2' : 'e.g. 50'}
                     onChange={e => set('penalty_value', e.target.value)} />
-                </Field>
-                <Field label="Grace period (days)" hint="No penalty within these days past due">
-                  <input style={s.fc} type="number" min="0"
+                </div>
+                <div>
+                  <label style={fl}>Grace period (days)</label>
+                  <input style={fc} type="number" min="0"
                     value={form.penalty_grace_days} placeholder="e.g. 5"
                     onChange={e => set('penalty_grace_days', e.target.value)} />
-                </Field>
+                  <div style={hint}>No penalty within these days past due.</div>
+                </div>
               </div>
-            </div>
-          </div>
+            </Card>
 
-          {/* ── Auto-generate ── */}
-          <div style={s.section}>
-            <div style={s.secHdr}>
-              <div style={s.secIcon}><i className="ti ti-calendar-event" aria-hidden="true" /></div>
-              <span style={s.secTitle}>Auto-generate bills</span>
-              <div style={{
-                ...s.badge,
-                background: form.auto_generate_bills ? '#dcfce7' : '#f1f5f9',
-                color: form.auto_generate_bills ? '#15803d' : '#64748b',
-              }}>
-                <span style={{ ...s.badgeDot, background: form.auto_generate_bills ? '#22c55e' : '#94a3b8' }} />
-                {form.auto_generate_bills ? 'Enabled' : 'Disabled'}
-              </div>
-            </div>
-            <div style={s.secBody}>
-              <div style={s.toggleRow}>
+            {/* ── Auto-Generate ── */}
+            <Card
+              icon="ti-refresh" iconBg="#f0fdf4" iconColor="#16a34a"
+              title="Auto-Generate Bills"
+              subtitle="Automatically generate bills on a specific day each month."
+              accent={form.auto_generate_bills ? '#22c55e' : undefined}
+            >
+              {/* Toggle row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
                 {/* Slide toggle */}
-                <div style={{ position: 'relative', width: 36, height: 20, flexShrink: 0, marginTop: 2 }}>
+                <div style={{ position: 'relative', width: 44, height: 24, flexShrink: 0 }}>
                   <input
-                    type="checkbox"
-                    id="auto_gen_chk"
+                    type="checkbox" id="auto_gen_chk"
                     checked={form.auto_generate_bills}
                     onChange={e => { setForm(f => ({ ...f, auto_generate_bills: e.target.checked })); setError(''); setSuccess(''); }}
                     style={{ opacity: 0, width: 0, height: 0, position: 'absolute' }}
                   />
                   <label htmlFor="auto_gen_chk" style={{
                     position: 'absolute', inset: 0,
-                    background: form.auto_generate_bills ? 'var(--theme-accent)' : '#d1d5db',
-                    borderRadius: 10, cursor: 'pointer', transition: 'background 0.2s',
+                    background: form.auto_generate_bills ? '#2563eb' : '#cbd5e1',
+                    borderRadius: 12, cursor: 'pointer', transition: 'background 0.2s',
+                    display: 'block',
                   }}>
                     <span style={{
                       position: 'absolute',
-                      width: 16, height: 16,
-                      left: form.auto_generate_bills ? 18 : 2, top: 2,
+                      width: 18, height: 18,
+                      left: form.auto_generate_bills ? 23 : 3, top: 3,
                       background: '#fff', borderRadius: '50%', transition: 'left 0.2s',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
                     }} />
                   </label>
                 </div>
                 <div>
-                  <div style={s.tLabel}>Automatically create bills each month</div>
-                  <div style={s.tHint}>Bills will be generated on the configured day without any manual action.</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>Automatically create bills each month</div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                    Bills will be generated on the configured day without any manual action.
+                  </div>
                 </div>
               </div>
 
               {form.auto_generate_bills && (
-                <div style={{ marginTop: 14, maxWidth: 220 }}>
-                  <Field label="Generate on day of month" hint="Must be between 1 and 28">
-                    <input style={s.fc} type="number" min="1" max="28"
-                      value={form.auto_generate_day} placeholder="1–28"
-                      onChange={e => set('auto_generate_day', e.target.value)} />
-                  </Field>
+                <div style={{ marginTop: 18, maxWidth: 260 }}>
+                  <label style={fl}>Generate on day of month</label>
+                  <input style={fc} type="number" min="1" max="28"
+                    value={form.auto_generate_day} placeholder="1–28"
+                    onChange={e => set('auto_generate_day', e.target.value)} />
+                  <div style={hint}>Must be between 1 and 28.</div>
                 </div>
               )}
-            </div>
-          </div>
+            </Card>
 
-          {/* ── Cash Opening Balance ── */}
-          <div style={s.section}>
-            <div style={s.secHdr}>
-              <div style={s.secIcon}><i className="ti ti-building-bank" aria-hidden="true" /></div>
-              <span style={s.secTitle}>Cash opening balance</span>
-            </div>
-            <div style={s.secBody}>
-              <div style={s.grid2}>
-                <Field label="Opening balance (₹)">
-                  <input style={s.fc} type="number" min="0" step="0.01"
+            {/* ── Cash Opening Balance ── */}
+            <Card
+              icon="ti-wallet" iconBg="#eff6ff" iconColor="#2563eb"
+              title="Cash Opening Balance"
+              subtitle="Set the opening balance and effective date."
+            >
+              <div style={grid2}>
+                <div>
+                  <label style={fl}>Opening balance (₹)</label>
+                  <input style={fc} type="number" min="0" step="0.01"
                     value={form.cash_balance} placeholder="e.g. 100000"
                     onChange={e => set('cash_balance', e.target.value)} />
-                </Field>
-                <Field label="As on date">
-                  <input style={s.fc} type="date"
+                </div>
+                <div>
+                  <label style={fl}>As on date</label>
+                  <input style={fc} type="date"
                     value={form.cash_balance_as_on}
                     onChange={e => set('cash_balance_as_on', e.target.value)} />
-                </Field>
+                </div>
               </div>
-              <div style={s.infoStrip}>
-                One-time entry used as the starting point for cash flow reports.
-              </div>
-            </div>
-          </div>
+            </Card>
 
-        </div>
-      )}
+            {/* ── Footer actions ── */}
+            <div style={{
+              display: 'flex', justifyContent: 'flex-end', gap: 10,
+              paddingTop: 8, marginTop: 4,
+            }}>
+              <button
+                onClick={() => navigate(-1)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '10px 22px', borderRadius: 8,
+                  border: '1px solid #e2e8f0', background: '#fff',
+                  color: '#475569', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                <i className="ti ti-x" style={{ fontSize: 15 }} aria-hidden="true" />
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '10px 22px', borderRadius: 8,
+                  border: 'none', background: '#2563eb',
+                  color: '#fff', fontSize: 14, fontWeight: 600, cursor: isSaving ? 'not-allowed' : 'pointer',
+                  opacity: isSaving ? 0.7 : 1,
+                }}
+              >
+                <i className="ti ti-device-floppy" style={{ fontSize: 15 }} aria-hidden="true" />
+                {isSaving ? 'Saving…' : 'Save Configuration'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </Layout>
   );
 }
