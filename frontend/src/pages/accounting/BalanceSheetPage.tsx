@@ -14,8 +14,26 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// ── Dr/Cr tag ─────────────────────────────────────────────────────────────────
+// normalBalance: the expected sign for a positive amount in this section
+function DrCrTag({ amount, normalBalance }: { amount: number; normalBalance: 'DR' | 'CR' }) {
+  if (amount === 0) return null;
+  // if amount is negative the balance is opposite to normal
+  const isDr = (amount > 0) === (normalBalance === 'DR');
+  return (
+    <span style={{
+      marginLeft: 7, fontSize: 10, fontWeight: 700, padding: '1px 5px',
+      borderRadius: 4,
+      background: isDr ? '#dbeafe' : '#dcfce7',
+      color:      isDr ? '#1d4ed8' : '#15803d',
+    }}>
+      {isDr ? 'Dr' : 'Cr'}
+    </span>
+  );
+}
+
 // ── Account row ───────────────────────────────────────────────────────────────
-function BsAccountRow({ row, color }: { row: BsRow; color: string }) {
+function BsAccountRow({ row, color, normalBalance }: { row: BsRow; color: string; normalBalance: 'DR' | 'CR' }) {
   return (
     <tr style={{ borderBottom: '1px solid #f8fafc' }}>
       <td style={{ padding: '8px 20px', color: '#475569', fontSize: 12.5 }}>
@@ -25,6 +43,7 @@ function BsAccountRow({ row, color }: { row: BsRow; color: string }) {
       </td>
       <td style={{ padding: '8px 24px', textAlign: 'right', fontSize: 13, fontWeight: row.amount !== 0 ? 600 : 400, color: row.amount !== 0 ? color : '#94a3b8' }}>
         {row.amount !== 0 ? fmtAmt(row.amount) : '—'}
+        <DrCrTag amount={row.amount} normalBalance={normalBalance} />
       </td>
     </tr>
   );
@@ -165,7 +184,7 @@ export default function BalanceSheetPage() {
                   <SectionHeader label="Assets" color="#1d4ed8" bg="#eff6ff" />
                   {bs.assets.length === 0
                     ? <tr><td colSpan={2} style={{ padding: '10px 20px', color: '#94a3b8', fontSize: 12.5 }}>No asset accounts.</td></tr>
-                    : bs.assets.map(r => <BsAccountRow key={r.id} row={r} color="#1d4ed8" />)
+                    : bs.assets.map(r => <BsAccountRow key={r.id} row={r} color="#1d4ed8" normalBalance="DR" />)
                   }
                   <TotalRow label="Total Assets" amount={bs.totalAssets} color="#1d4ed8" />
 
@@ -175,7 +194,7 @@ export default function BalanceSheetPage() {
                   <SectionHeader label="Liabilities" color="#c2410c" bg="#fff7ed" />
                   {bs.liabilities.length === 0
                     ? <tr><td colSpan={2} style={{ padding: '10px 20px', color: '#94a3b8', fontSize: 12.5 }}>No liability accounts.</td></tr>
-                    : bs.liabilities.map(r => <BsAccountRow key={r.id} row={r} color="#c2410c" />)
+                    : bs.liabilities.map(r => <BsAccountRow key={r.id} row={r} color="#c2410c" normalBalance="CR" />)
                   }
                   <TotalRow label="Total Liabilities" amount={bs.totalLiabilities} color="#c2410c" />
 
@@ -186,7 +205,7 @@ export default function BalanceSheetPage() {
                   {bs.equity.length === 0 && bs.netSurplus === 0
                     ? <tr><td colSpan={2} style={{ padding: '10px 20px', color: '#94a3b8', fontSize: 12.5 }}>No equity accounts.</td></tr>
                     : <>
-                        {bs.equity.map(r => <BsAccountRow key={r.id} row={r} color="#7c3aed" />)}
+                        {bs.equity.map(r => <BsAccountRow key={r.id} row={r} color="#7c3aed" normalBalance="CR" />)}
                         {/* Net Surplus from P&L */}
                         <tr style={{ borderBottom: '1px solid #f8fafc' }}>
                           <td style={{ padding: '8px 20px', color: '#475569', fontSize: 12.5, fontStyle: 'italic' }}>
@@ -195,6 +214,7 @@ export default function BalanceSheetPage() {
                           <td style={{ padding: '8px 24px', textAlign: 'right', fontSize: 13, fontWeight: 600,
                             color: bs.netSurplus >= 0 ? '#16a34a' : '#dc2626' }}>
                             {bs.netSurplus !== 0 ? fmtAmt(bs.netSurplus) : '—'}
+                            {bs.netSurplus !== 0 && <DrCrTag amount={bs.netSurplus} normalBalance="CR" />}
                             {bs.netSurplus < 0 && <span style={{ marginLeft: 4, fontSize: 11 }}>(Deficit)</span>}
                           </td>
                         </tr>
