@@ -9,7 +9,7 @@ import {
   InitiatePaymentBody, CreateLevyBody,
   OneTimeDueBody, UpdateOneTimeDueBody, GenerateOneTimeDueBillsBody,
 } from './dues.schema';
-import { BillStatus, OneTimeDueStatus, PaymentMode, UserRole } from '@prisma/client';
+import { BillStatus, ExpenseStatus, OneTimeDueStatus, PaymentMode, UserRole } from '@prisma/client';
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID!,
@@ -387,12 +387,22 @@ export class DuesService {
     const currentYear  = now.getFullYear();
     const monthStart   = new Date(currentYear, now.getMonth(), 1);
 
+    // Phase 1: fetch config first — needed to know balanceFrom date
+    const duesConfig = await prisma.duesConfig.findUnique({
+      where: { association_id: associationId },
+      select: { cash_balance: true, cash_balance_as_on: true },
+    });
+    // If no base date recorded, fall back to epoch (collects everything)
+    const balanceFrom = duesConfig?.cash_balance_as_on ?? new Date(0);
+
+    // Phase 2: all aggregates in parallel
     const [
       totalOutstanding, monthlyCollected, totalCollected, otherReceiptsTotal,
-      arrearsCount, duesConfig, ytdTrend,
+      arrearsCount, ytdTrend,
       monthBilled, totalBilled, monthArrears, monthOtherReceipts,
+      // opening balance components (from balanceFrom up to start of current month)
+      billingToMonthStart, otherReceiptsToMonthStart, expensesToMonthStart,
     ] = await Promise.all([
-      // existing
       prisma.bill.aggregate({
         where: { association_id: associationId, status: { in: [BillStatus.UNPAID, BillStatus.PARTIAL] } },
         _sum: { total_amount: true },
@@ -414,10 +424,6 @@ export class DuesService {
         select: { unit_id: true },
         distinct: ['unit_id'],
       }),
-      prisma.duesConfig.findUnique({
-        where: { association_id: associationId },
-        select: { cash_balance: true, cash_balance_as_on: true },
-      }),
       prisma.$queryRaw<{ month: number; year: number; collected: number }[]>`
         SELECT
           EXTRACT(MONTH FROM payment_date) AS month,
@@ -429,24 +435,40 @@ export class DuesService {
         GROUP BY month, year
         ORDER BY year, month
       `,
-      // new — month billed (all bills for current period, including paid)
       prisma.bill.aggregate({
         where: { association_id: associationId, period_month: currentMonth, period_year: currentYear },
         _sum: { total_amount: true },
       }),
-      // new — total billed ever
       prisma.bill.aggregate({
         where: { association_id: associationId },
         _sum: { total_amount: true },
       }),
-      // new — month arrears (unpaid/partial for current period)
       prisma.bill.aggregate({
         where: { association_id: associationId, period_month: currentMonth, period_year: currentYear, status: { in: [BillStatus.UNPAID, BillStatus.PARTIAL] } },
         _sum: { total_amount: true },
       }),
-      // new — other receipts this month
       prisma.otherReceipt.aggregate({
         where: { association_id: associationId, deleted_at: null, receipt_date: { gte: monthStart } },
+        _sum: { amount: true },
+      }),
+      // Opening balance: billing payments from balanceFrom to start of this month
+      prisma.payment.aggregate({
+        where: { association_id: associationId, payment_date: { gte: balanceFrom, lt: monthStart } },
+        _sum: { amount: true },
+      }),
+      // Opening balance: other receipts from balanceFrom to start of this month
+      prisma.otherReceipt.aggregate({
+        where: { association_id: associationId, deleted_at: null, receipt_date: { gte: balanceFrom, lt: monthStart } },
+        _sum: { amount: true },
+      }),
+      // Opening balance: expenses from balanceFrom to start of this month
+      prisma.expense.aggregate({
+        where: {
+          association_id: associationId,
+          deleted_at: null,
+          status: { in: [ExpenseStatus.APPROVED, ExpenseStatus.RECORDED] },
+          expense_date: { gte: balanceFrom, lt: monthStart },
+        },
         _sum: { amount: true },
       }),
     ]);
@@ -454,17 +476,25 @@ export class DuesService {
     const billingCollected = Number(totalCollected._sum.amount ?? 0);
     const otherCollected   = Number(otherReceiptsTotal._sum.amount ?? 0);
 
+    // Dynamic opening balance for current month
+    const month_opening_balance = duesConfig?.cash_balance != null
+      ? Number(duesConfig.cash_balance)
+        + Number(billingToMonthStart._sum.amount ?? 0)
+        + Number(otherReceiptsToMonthStart._sum.amount ?? 0)
+        - Number(expensesToMonthStart._sum.amount ?? 0)
+      : null;
+
     return {
       data: {
         // existing (kept for backward compat)
-        total_outstanding:  totalOutstanding._sum.total_amount ?? 0,
-        monthly_collected:  monthlyCollected._sum.amount ?? 0,
-        total_collected:    billingCollected + otherCollected,
-        arrears_count:      arrearsCount.length,
-        cash_balance:       duesConfig?.cash_balance ?? null,
-        cash_balance_as_on: duesConfig?.cash_balance_as_on ?? null,
-        ytd_trend:          ytdTrend,
-        // new
+        total_outstanding:   totalOutstanding._sum.total_amount ?? 0,
+        monthly_collected:   monthlyCollected._sum.amount ?? 0,
+        total_collected:     billingCollected + otherCollected,
+        arrears_count:       arrearsCount.length,
+        cash_balance:        duesConfig?.cash_balance ?? null,
+        cash_balance_as_on:  duesConfig?.cash_balance_as_on ?? null,
+        ytd_trend:           ytdTrend,
+        // dues dashboard tabs
         month_billed:            monthBilled._sum.total_amount ?? 0,
         month_collected:         monthlyCollected._sum.amount ?? 0,
         month_arrears:           monthArrears._sum.total_amount ?? 0,
@@ -472,6 +502,8 @@ export class DuesService {
         total_billed:            totalBilled._sum.total_amount ?? 0,
         total_billing_collected: billingCollected,
         total_arrears:           totalOutstanding._sum.total_amount ?? 0,
+        // opening balance for current month (rolling from base date)
+        month_opening_balance,
       },
     };
   }

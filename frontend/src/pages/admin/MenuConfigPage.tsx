@@ -37,18 +37,16 @@ const MENU_STRUCTURE: MenuGroup[] = [
   {
     label: 'Dues & Payments',
     items: [
-      { id: 'dues_overview',  label: 'Overview',         roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
-      { id: 'dues_bills',     label: 'Bills & Payments', roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
-      { id: 'dues_one_time',  label: 'One-Time Dues',    roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
+      { id: 'dues_bills',    label: 'Bills & Payments', roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
+      { id: 'dues_one_time', label: 'One-Time Dues',    roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
     ],
   },
   {
     label: 'Transactions',
     items: [
-      { id: 'transactions_dashboard', label: 'Dashboard',     roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
-      { id: 'expenses_list',          label: 'Expenses List', roles: ['TREASURER', 'COMMITTEE'] },
-      { id: 'dues_other_receipts',    label: 'Receipts',      roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
-      { id: 'transactions_reports',   label: 'Reports',       roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
+      { id: 'expenses_list',        label: 'Expenses List', roles: ['TREASURER', 'COMMITTEE'] },
+      { id: 'dues_other_receipts',  label: 'Receipts',      roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
+      { id: 'transactions_reports', label: 'Reports',       roles: ['TREASURER', 'COMMITTEE', 'MANAGER'] },
     ],
   },
   {

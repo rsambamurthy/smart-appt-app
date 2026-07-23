@@ -67,6 +67,8 @@ export default function TransactionsDashboardPage() {
   const exp  = expData?.data;
 
   const opening = dues?.cash_balance ?? null;
+  const monthOpening = (dues as Record<string, unknown> | undefined)?.month_opening_balance as number | null ?? null;
+
   const asOn = (dues as Record<string, unknown> | undefined)?.cash_balance_as_on
     ? new Date(String((dues as Record<string, unknown>).cash_balance_as_on)).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
     : null;
@@ -78,8 +80,8 @@ export default function TransactionsDashboardPage() {
       : null;
   const monthExpenses = exp?.month_expenses ?? null;
   const monthClosing =
-    opening != null && monthCollections != null && monthExpenses != null
-      ? Number(opening) + monthCollections - monthExpenses
+    monthOpening != null && monthCollections != null && monthExpenses != null
+      ? monthOpening + monthCollections - monthExpenses
       : null;
 
   // Overall
@@ -119,12 +121,13 @@ export default function TransactionsDashboardPage() {
     closing: number | null,
     collectionsSub: string,
     expensesSub: string,
+    openingSub: string,
   ) => (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
       <Card
         label="Opening Balance"
         value={fmt(ob)}
-        sub={asOn ? `As on ${asOn}` : 'From Fee Configuration'}
+        sub={openingSub}
         color="#0095db"
         bg="#e0f2fe"
         icon="🏦"
@@ -179,12 +182,13 @@ export default function TransactionsDashboardPage() {
             </div>
 
             {tab === 'month' && cards(
-              opening,
+              monthOpening,
               monthCollections,
               monthExpenses,
               monthClosing,
               'Bills + receipts this month',
               'Approved expenses this month',
+              `Balance as on 1 ${nowLabel()}`,
             )}
 
             {tab === 'overall' && cards(
@@ -194,6 +198,7 @@ export default function TransactionsDashboardPage() {
               totalClosing,
               'All bills + receipts',
               'All approved expenses',
+              asOn ? `As on ${asOn}` : 'From Fee Configuration',
             )}
           </>
         )}

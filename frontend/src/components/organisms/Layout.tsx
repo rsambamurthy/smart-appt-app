@@ -23,6 +23,7 @@ interface NavGroup {
   icon: string;
   roles: string[];
   items: NavItem[];
+  landingPath?: string; // if set, group header navigates here
 }
 
 // All roles including SUPER_USER (which sees everything)
@@ -64,10 +65,10 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Dues & Payments',
     icon: 'D',
     roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'],
+    landingPath: '/dues',
     items: [
-      { id: 'dues_overview',  label: 'Overview',         path: '/dues',              roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#22c55e', end: true },
-      { id: 'dues_bills',     label: 'Bills & Payments', path: '/dues/bills',        roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#0095db', end: true },
-      { id: 'dues_one_time',  label: 'One-Time Dues',    path: '/dues/one-time-dues',roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#ec4899', end: true },
+      { id: 'dues_bills',    label: 'Bills & Payments', path: '/dues/bills',         roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#0095db', end: true },
+      { id: 'dues_one_time', label: 'One-Time Dues',    path: '/dues/one-time-dues', roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#ec4899', end: true },
     ],
   },
   {
@@ -75,11 +76,11 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Transactions',
     icon: 'T',
     roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'],
+    landingPath: '/transactions/dashboard',
     items: [
-      { id: 'transactions_dashboard', label: 'Dashboard',     path: '/transactions/dashboard', roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#22c55e', end: true },
-      { id: 'expenses_list',          label: 'Expenses List', path: '/expenses',               roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE'],             dot: '#f59e0b', end: true },
-      { id: 'dues_other_receipts',    label: 'Receipts',      path: '/dues/other-receipts',    roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#14b8a6', end: true },
-      { id: 'transactions_reports',   label: 'Reports',       path: '/transactions/reports',   roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#a855f7', end: true },
+      { id: 'expenses_list',        label: 'Expenses List', path: '/expenses',            roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE'],             dot: '#f59e0b', end: true },
+      { id: 'dues_other_receipts',  label: 'Receipts',      path: '/dues/other-receipts', roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#14b8a6', end: true },
+      { id: 'transactions_reports', label: 'Reports',       path: '/transactions/reports',roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#a855f7', end: true },
     ],
   },
   {
@@ -313,21 +314,51 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           {/* Module accordion groups */}
           {visibleGroups.map((group) => (
             <div key={group.id} className="sa-mg">
-              <button
-                className={[
-                  'sa-mg-h',
-                  openGroups.has(group.id) ? 'open' : '',
-                  activeGroupId === group.id ? 'active-group' : '',
-                ].filter(Boolean).join(' ')}
-                onClick={() => toggleGroup(group.id)}
-              >
-                <div className="sa-mg-ic">{group.icon}</div>
-                <span className="sa-mg-t">{group.label}</span>
-                {/* Chevron down */}
-                <svg className="sa-mg-cv" viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
-                  <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </button>
+              {group.landingPath ? (
+                /* Navigable group header — label links, chevron toggles */
+                <div
+                  className={[
+                    'sa-mg-h',
+                    openGroups.has(group.id) ? 'open' : '',
+                    activeGroupId === group.id ? 'active-group' : '',
+                  ].filter(Boolean).join(' ')}
+                  style={{ display: 'flex', alignItems: 'center', padding: 0 }}
+                >
+                  <NavLink
+                    to={group.landingPath}
+                    onClick={() => setOpenGroups((prev) => new Set([...prev, group.id]))}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, padding: '0.55rem 0.75rem', textDecoration: 'none', color: 'inherit' }}
+                  >
+                    <div className="sa-mg-ic">{group.icon}</div>
+                    <span className="sa-mg-t">{group.label}</span>
+                  </NavLink>
+                  <button
+                    onClick={() => toggleGroup(group.id)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.55rem 0.6rem', display: 'flex', alignItems: 'center', color: 'inherit', opacity: 0.7 }}
+                    aria-label="Expand"
+                  >
+                    <svg className="sa-mg-cv" viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
+                      <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              ) : (
+                /* Toggle-only group header */
+                <button
+                  className={[
+                    'sa-mg-h',
+                    openGroups.has(group.id) ? 'open' : '',
+                    activeGroupId === group.id ? 'active-group' : '',
+                  ].filter(Boolean).join(' ')}
+                  onClick={() => toggleGroup(group.id)}
+                >
+                  <div className="sa-mg-ic">{group.icon}</div>
+                  <span className="sa-mg-t">{group.label}</span>
+                  <svg className="sa-mg-cv" viewBox="0 0 20 20" fill="currentColor" width="12" height="12">
+                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
 
               {openGroups.has(group.id) && (
                 <div className="sa-mi-list">
