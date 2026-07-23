@@ -63,7 +63,15 @@ export class DuesService {
       update: data,
       create: { association_id: associationId, ...data },
     });
-    return { data: config };
+    return {
+      data: {
+        ...config,
+        monthly_charge: config.monthly_charge.toNumber(),
+        rate_per_sqft: config.rate_per_sqft?.toNumber() ?? null,
+        penalty_value: config.penalty_value.toNumber(),
+        cash_balance: config.cash_balance?.toNumber() ?? null,
+      },
+    };
   }
 
   // ── Razorpay Config ──────────────────────────────────────────────────────────
