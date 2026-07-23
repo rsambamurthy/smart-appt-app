@@ -51,7 +51,7 @@ export const expensesApi = baseApi.injectEndpoints({
       query: () => '/expenses/dashboard',
       providesTags: ['Expense'],
     }),
-    getExpensesTotal: builder.query<{ data: { total_expenses: number } }, void>({
+    getExpensesTotal: builder.query<{ data: { total_expenses: number; month_expenses: number } }, void>({
       query: () => '/expenses/total',
       providesTags: ['Expense'],
     }),

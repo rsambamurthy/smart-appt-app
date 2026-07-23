@@ -201,15 +201,18 @@ export class ExpensesService {
   }
 
   async getTotal(associationId: string) {
-    const result = await prisma.expense.aggregate({
-      where: {
-        association_id: associationId,
-        deleted_at: null,
-        status: { in: [ExpenseStatus.APPROVED, ExpenseStatus.RECORDED] },
-      },
-      _sum: { amount: true },
-    });
-    return { data: { total_expenses: result._sum.amount ?? 0 } };
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const [total, month] = await Promise.all([
+      prisma.expense.aggregate({
+        where: { association_id: associationId, deleted_at: null, status: { in: [ExpenseStatus.APPROVED, ExpenseStatus.RECORDED] } },
+        _sum: { amount: true },
+      }),
+      prisma.expense.aggregate({
+        where: { association_id: associationId, deleted_at: null, status: { in: [ExpenseStatus.APPROVED, ExpenseStatus.RECORDED] }, expense_date: { gte: monthStart } },
+        _sum: { amount: true },
+      }),
+    ]);
+    return { data: { total_expenses: total._sum.amount ?? 0, month_expenses: month._sum.amount ?? 0 } };
   }
 
   async getTransparencyView(associationId: string) {
