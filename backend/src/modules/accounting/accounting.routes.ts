@@ -24,5 +24,7 @@ router.delete('/accounts/:id',         requireRoles(...managerRoles), accounting
 router.get ('/journal',         requireRoles(...viewRoles),    journalController.list);
 router.post('/journal',         requireRoles(...managerRoles), ...journalController.createManual);
 router.get ('/journal/ledger',  requireRoles(...viewRoles),    journalController.getLedger);
+router.get ('/journal/pnl',           requireRoles(...viewRoles), journalController.getPnL);
+router.get ('/journal/balance-sheet', requireRoles(...viewRoles), journalController.getBalanceSheet);
 
 export default router;

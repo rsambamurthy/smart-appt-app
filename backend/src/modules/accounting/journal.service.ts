@@ -240,6 +240,64 @@ class JournalService {
     return { data: entries, nextCursor };
   }
 
+  // ── P&L: Income & Expenditure statement for a period ─────────────────────────
+  async getPnL(associationId: string, query: { from: string; to: string }) {
+    // Sum journal lines grouped by account for INCOME + EXPENSE accounts in period
+    type Row = { id: string; code: string; name: string; sub_type: string | null; total_debit: bigint; total_credit: bigint };
+    const rows = await prisma.$queryRaw<Row[]>`
+      SELECT
+        a.id, a.code, a.name, a.sub_type,
+        COALESCE(SUM(jl.debit),  0)::bigint AS total_debit,
+        COALESCE(SUM(jl.credit), 0)::bigint AS total_credit
+      FROM accounts a
+      LEFT JOIN journal_lines jl ON jl.account_id = a.id
+      LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+        AND je.association_id = ${associationId}::uuid
+        AND je.entry_date BETWEEN ${new Date(query.from)} AND ${new Date(query.to)}
+      WHERE a.association_id = ${associationId}::uuid
+        AND a.type IN ('INCOME','EXPENSE')
+        AND a.is_active = true
+      GROUP BY a.id, a.code, a.name, a.sub_type, a.type, a.sort_order
+      ORDER BY a.type DESC, a.sort_order ASC, a.code ASC
+    `;
+
+    // Separate into typed structures
+    const accountRows = await prisma.account.findMany({
+      where: { association_id: associationId, type: { in: [AccountType.INCOME, AccountType.EXPENSE] }, is_active: true },
+      select: { id: true, type: true },
+    });
+    const typeMap = Object.fromEntries(accountRows.map(a => [a.id, a.type]));
+
+    const income:  { id: string; code: string; name: string; sub_type: string | null; amount: number }[] = [];
+    const expense: { id: string; code: string; name: string; sub_type: string | null; amount: number }[] = [];
+
+    for (const r of rows) {
+      const dr = Number(r.total_debit);
+      const cr = Number(r.total_credit);
+      const type = typeMap[r.id];
+      if (type === AccountType.INCOME) {
+        income.push({ id: r.id, code: r.code, name: r.name, sub_type: r.sub_type, amount: cr - dr });
+      } else if (type === AccountType.EXPENSE) {
+        expense.push({ id: r.id, code: r.code, name: r.name, sub_type: r.sub_type, amount: dr - cr });
+      }
+    }
+
+    const totalIncome  = income.reduce((s, r)  => s + r.amount, 0);
+    const totalExpense = expense.reduce((s, r) => s + r.amount, 0);
+    const netSurplus   = totalIncome - totalExpense;
+
+    return {
+      data: {
+        period:       { from: query.from, to: query.to },
+        income,
+        expense,
+        totalIncome,
+        totalExpense,
+        netSurplus,
+      },
+    };
+  }
+
   // ── LEDGER: all lines for one account with running balance ───────────────────
   async getLedger(
     associationId: string,
@@ -321,6 +379,74 @@ class JournalService {
         openingBalance,
         closingBalance: balance,
         rows,
+      },
+    };
+  }
+
+  // ── BALANCE SHEET: snapshot of ASSET / LIABILITY / EQUITY as of a date ──────
+  async getBalanceSheet(associationId: string, query: { asOf: string }) {
+    const asOfDate = new Date(query.asOf);
+
+    // Fetch all balance-sheet relevant accounts plus INCOME/EXPENSE for net-surplus
+    type Row = {
+      id: string; code: string; name: string;
+      sub_type: string | null; type: string;
+      total_debit: bigint; total_credit: bigint;
+    };
+
+    const rows = await prisma.$queryRaw<Row[]>`
+      SELECT
+        a.id, a.code, a.name, a.sub_type, a.type,
+        COALESCE(SUM(jl.debit),  0)::bigint AS total_debit,
+        COALESCE(SUM(jl.credit), 0)::bigint AS total_credit
+      FROM accounts a
+      LEFT JOIN journal_lines jl ON jl.account_id = a.id
+      LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+        AND je.association_id = ${associationId}::uuid
+        AND je.entry_date <= ${asOfDate}
+      WHERE a.association_id = ${associationId}::uuid
+        AND a.type IN ('ASSET','LIABILITY','EQUITY','INCOME','EXPENSE')
+        AND a.is_active = true
+      GROUP BY a.id, a.code, a.name, a.sub_type, a.type, a.sort_order
+      ORDER BY a.type, a.sort_order ASC, a.code ASC
+    `;
+
+    type BsRow = { id: string; code: string; name: string; sub_type: string | null; amount: number };
+    const assets:      BsRow[] = [];
+    const liabilities: BsRow[] = [];
+    const equity:      BsRow[] = [];
+    let incomeTotal  = 0;
+    let expenseTotal = 0;
+
+    for (const r of rows) {
+      const dr = Number(r.total_debit);
+      const cr = Number(r.total_credit);
+      switch (r.type) {
+        case 'ASSET':     assets     .push({ id: r.id, code: r.code, name: r.name, sub_type: r.sub_type, amount: dr - cr }); break;
+        case 'LIABILITY': liabilities.push({ id: r.id, code: r.code, name: r.name, sub_type: r.sub_type, amount: cr - dr }); break;
+        case 'EQUITY':    equity     .push({ id: r.id, code: r.code, name: r.name, sub_type: r.sub_type, amount: cr - dr }); break;
+        case 'INCOME':    incomeTotal  += (cr - dr); break;
+        case 'EXPENSE':   expenseTotal += (dr - cr); break;
+      }
+    }
+
+    const netSurplus               = incomeTotal - expenseTotal;
+    const totalAssets              = assets     .reduce((s, r) => s + r.amount, 0);
+    const totalLiabilities         = liabilities.reduce((s, r) => s + r.amount, 0);
+    const totalEquity              = equity     .reduce((s, r) => s + r.amount, 0);
+    const totalLiabilitiesAndEquity = totalLiabilities + totalEquity + netSurplus;
+
+    return {
+      data: {
+        asOf: query.asOf,
+        assets,
+        liabilities,
+        equity,
+        netSurplus,
+        totalAssets,
+        totalLiabilities,
+        totalEquity,
+        totalLiabilitiesAndEquity,
       },
     };
   }

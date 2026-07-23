@@ -73,6 +73,26 @@ export interface PnLResult {
   netSurplus:   number;
 }
 
+export interface BsRow {
+  id:       string;
+  code:     string;
+  name:     string;
+  sub_type: string | null;
+  amount:   number;
+}
+
+export interface BalanceSheetResult {
+  asOf:                    string;
+  assets:                  BsRow[];
+  liabilities:             BsRow[];
+  equity:                  BsRow[];
+  netSurplus:              number;
+  totalAssets:             number;
+  totalLiabilities:        number;
+  totalEquity:             number;
+  totalLiabilitiesAndEquity: number;
+}
+
 export interface LedgerResult {
   account:        { id: string; code: string; name: string; type: string; sub_type: string | null };
   isDebitNormal:  boolean;
@@ -131,6 +151,10 @@ const accountingApi = baseApi.injectEndpoints({
       query: ({ from, to }) => `/accounting/journal/pnl?from=${from}&to=${to}`,
       providesTags: ['Journal'],
     }),
+    getBalanceSheet: builder.query<{ data: BalanceSheetResult }, { asOf: string }>({
+      query: ({ asOf }) => `/accounting/journal/balance-sheet?asOf=${asOf}`,
+      providesTags: ['Journal'],
+    }),
     getLedger: builder.query<{ data: LedgerResult }, { account_id: string; from?: string; to?: string }>({
       query: ({ account_id, from, to }) => {
         const q = new URLSearchParams({ account_id });
@@ -152,6 +176,7 @@ export const {
   useDeleteAccountMutation,
   useListJournalEntriesQuery,
   useCreateJournalEntryMutation,
+  useGetBalanceSheetQuery,
   useGetLedgerQuery,
   useGetPnLQuery,
 } = accountingApi;

@@ -40,6 +40,7 @@ import ChartOfAccountsPage from './pages/accounting/ChartOfAccountsPage';
 import JournalEntriesPage from './pages/accounting/JournalEntriesPage';
 import LedgerPage from './pages/accounting/LedgerPage';
 import PnLPage from './pages/accounting/PnLPage';
+import BalanceSheetPage from './pages/accounting/BalanceSheetPage';
 
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
   const token = useSelector((s: RootState) => s.auth.access_token);
@@ -110,6 +111,7 @@ export default function App() {
         <Route path="/accounting/journal"            element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><JournalEntriesPage /></RoleRoute>} />
         <Route path="/accounting/ledger"             element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><LedgerPage /></RoleRoute>} />
         <Route path="/accounting/pnl"               element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><PnLPage /></RoleRoute>} />
+        <Route path="/accounting/balance-sheet"     element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><BalanceSheetPage /></RoleRoute>} />
 
         <Route path="/change-mpin" element={<ProtectedRoute><ChangeMpinPage /></ProtectedRoute>} />
         <Route path="*" element={<NotFoundPage />} />
