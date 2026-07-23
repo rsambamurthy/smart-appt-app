@@ -24,7 +24,8 @@ interface OneTimeDue {
   created_at: string;
 }
 
-interface Unit { id: string; flat_number: string; block?: string; }
+interface UnitUser { id: string; name: string; is_owner: boolean; }
+interface Unit { id: string; flat_number: string; block?: string; users?: UnitUser[]; }
 
 interface DueForm {
   title: string;
@@ -346,10 +347,10 @@ export default function OneTimeDuesPage() {
 
               {/* Unit targeting */}
               <div>
-                <label style={labelStyle}>Target Units</label>
-                <div style={{ display: 'flex', gap: '1.5rem', marginBottom: form.target_all ? 0 : '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>Target Units</span>
                   {([true, false] as const).map((v) => (
-                    <label key={String(v)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875rem', cursor: 'pointer' }}>
+                    <label key={String(v)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875rem', cursor: 'pointer', margin: 0 }}>
                       <input
                         type="radio"
                         checked={form.target_all === v}
@@ -360,26 +361,32 @@ export default function OneTimeDuesPage() {
                   ))}
                 </div>
                 {!form.target_all && (
-                  <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid var(--color-border)', borderRadius: 6, padding: '0.5rem 0.75rem' }}>
+                  <div style={{ marginTop: '0.5rem', maxHeight: 180, overflowY: 'auto', border: '1px solid var(--color-border)', borderRadius: 6, padding: '0.25rem 0' }}>
                     {units.length === 0 ? (
-                      <div style={{ color: 'var(--color-muted)', fontSize: '0.8rem' }}>No units found.</div>
-                    ) : units.map((u) => (
-                      <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: '0.875rem', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={form.target_unit_ids.includes(u.id)}
-                          onChange={(e) => {
-                            setForm((f) => ({
-                              ...f,
-                              target_unit_ids: e.target.checked
-                                ? [...f.target_unit_ids, u.id]
-                                : f.target_unit_ids.filter((x) => x !== u.id),
-                            }));
-                          }}
-                        />
-                        {u.block ? `${u.block} - ${u.flat_number}` : u.flat_number}
-                      </label>
-                    ))}
+                      <div style={{ padding: '0.75rem', color: 'var(--color-muted)', fontSize: '0.8rem' }}>No units found.</div>
+                    ) : units.map((u) => {
+                      const owner = u.users?.find((x) => x.is_owner) ?? u.users?.[0];
+                      const flatLabel = u.block ? `${u.block} - ${u.flat_number}` : u.flat_number;
+                      const occupantLabel = owner ? owner.name : 'Vacant';
+                      return (
+                        <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', fontSize: '0.875rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}>
+                          <input
+                            type="checkbox"
+                            checked={form.target_unit_ids.includes(u.id)}
+                            onChange={(e) => {
+                              setForm((f) => ({
+                                ...f,
+                                target_unit_ids: e.target.checked
+                                  ? [...f.target_unit_ids, u.id]
+                                  : f.target_unit_ids.filter((x) => x !== u.id),
+                              }));
+                            }}
+                          />
+                          <span style={{ fontWeight: 600, minWidth: 70 }}>{flatLabel}</span>
+                          <span style={{ color: 'var(--color-muted)', fontSize: '0.82rem' }}>{occupantLabel}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 )}
                 {!form.target_all && form.target_unit_ids.length === 0 && (
