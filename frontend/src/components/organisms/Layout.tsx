@@ -94,6 +94,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'chart_of_accounts', label: 'Chart of Accounts', path: '/accounting/chart-of-accounts', roles: ['SUPER_USER', 'MANAGER', 'TREASURER'], dot: '#2563eb', end: true },
       { id: 'journal_entries',   label: 'Journal Entries',   path: '/accounting/journal',            roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#7c3aed', end: true },
       { id: 'ledger',            label: 'Ledger',            path: '/accounting/ledger',             roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#16a34a', end: true },
+      { id: 'pnl',               label: 'Profit & Loss',     path: '/accounting/pnl',                roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#f59e0b', end: true },
     ],
   },
   {
