@@ -22,6 +22,8 @@ export class FeeConfigService {
       data: rows.map((r) => ({
         ...r,
         amount: r.amount.toNumber(),
+        // Return date as YYYY-MM-DD string so date inputs render correctly
+        as_on_date: r.as_on_date ? r.as_on_date.toISOString().split('T')[0] : null,
       })),
     };
   }

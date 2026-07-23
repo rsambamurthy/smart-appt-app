@@ -95,7 +95,14 @@ export default function DuesConfigPage() {
   const [success, setSuccess] = useState('');
 
   useEffect(() => {
-    if (data?.data) setRows(data.data);
+    if (data?.data) {
+      // Normalize as_on_date to YYYY-MM-DD so the date input renders correctly
+      setRows(data.data.map((r) => ({
+        ...r,
+        as_on_date: r.as_on_date ? (r.as_on_date as string).split('T')[0] : null,
+      })));
+      setError('');  // clear any stale error when fresh data loads
+    }
   }, [data]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
