@@ -12,6 +12,7 @@ import { httpServer } from './app';
 import prisma from './config/database';
 import redis from './config/redis';
 import logger from './utils/logger';
+import { initScheduler } from './services/scheduler.service';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
@@ -31,6 +32,9 @@ const start = async () => {
   } catch (err: any) {
     logger.error('Database connection failed', { error: err.message });
   }
+
+  // Initialize scheduled jobs
+  initScheduler();
 
   // Connect to Redis explicitly (lazyConnect: true means no auto-connect at import)
   try {

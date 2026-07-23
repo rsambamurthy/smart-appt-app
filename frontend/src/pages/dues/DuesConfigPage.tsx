@@ -38,12 +38,15 @@ interface ConfigForm {
   penalty_grace_days: string;
   cash_balance: string;
   cash_balance_as_on: string;
+  auto_generate_bills: boolean;
+  auto_generate_day: string;
 }
 
 const EMPTY: ConfigForm = {
   charge_type: 'FIXED', monthly_charge: '', rate_per_sqft: '', due_day: '5',
   penalty_type: 'FLAT', penalty_value: '', penalty_grace_days: '5',
   cash_balance: '', cash_balance_as_on: '',
+  auto_generate_bills: false, auto_generate_day: '1',
 };
 
 export default function DuesConfigPage() {
@@ -66,6 +69,8 @@ export default function DuesConfigPage() {
       penalty_grace_days: cfg.penalty_grace_days != null ? String(cfg.penalty_grace_days) : '5',
       cash_balance: cfg.cash_balance != null ? String(cfg.cash_balance) : '',
       cash_balance_as_on: cfg.cash_balance_as_on ? (cfg.cash_balance_as_on as string).split('T')[0] : '',
+      auto_generate_bills: cfg.auto_generate_bills === true,
+      auto_generate_day: cfg.auto_generate_day != null ? String(cfg.auto_generate_day) : '1',
     });
   }, [data]);
 
@@ -87,6 +92,8 @@ export default function DuesConfigPage() {
         penalty_grace_days: parseInt(form.penalty_grace_days, 10) || 0,
         cash_balance: form.cash_balance !== '' ? parseFloat(form.cash_balance) : null,
         cash_balance_as_on: form.cash_balance_as_on || null,
+        auto_generate_bills: form.auto_generate_bills,
+        auto_generate_day: parseInt(form.auto_generate_day, 10) || 1,
       }).unwrap();
       setSuccess('Fee configuration saved.');
     } catch (e: unknown) {
@@ -165,6 +172,38 @@ export default function DuesConfigPage() {
                   value={form.penalty_grace_days} placeholder="e.g. 5"
                   onChange={(e) => set('penalty_grace_days', e.target.value)} />
               </div>
+            </div>
+          </div>
+
+          <div style={card}>
+            <div style={sectionTitle}>Auto-Generate Bills</div>
+            <div style={rowGrid}>
+              <div style={fieldWrap}>
+                <label style={lbl}>Enable auto-generation</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 6 }}>
+                  <input
+                    type="checkbox"
+                    id="auto_gen_chk"
+                    checked={form.auto_generate_bills}
+                    onChange={(e) => { setForm(f => ({ ...f, auto_generate_bills: e.target.checked })); setError(''); setSuccess(''); }}
+                    style={{ width: 'auto', margin: 0, cursor: 'pointer', accentColor: 'var(--theme-accent)' }}
+                  />
+                  <label htmlFor="auto_gen_chk" style={{ margin: 0, fontSize: '0.875rem', cursor: 'pointer' }}>
+                    Automatically create bills each month
+                  </label>
+                </div>
+              </div>
+              {form.auto_generate_bills && (
+                <div style={fieldWrap}>
+                  <label style={lbl}>Generate on day of month</label>
+                  <input style={inputStyle} type="number" min="1" max="28"
+                    value={form.auto_generate_day} placeholder="1–28"
+                    onChange={(e) => set('auto_generate_day', e.target.value)} />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--color-muted)', marginTop: 2 }}>
+                    Bills will be created on this day every month
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

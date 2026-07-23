@@ -11,6 +11,8 @@ export const duesConfigSchema = z.object({
   penalty_grace_days: z.number().int().nonnegative(),
   cash_balance: z.number().nonnegative().optional().nullable(),
   cash_balance_as_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  auto_generate_bills: z.boolean().optional().default(false),
+  auto_generate_day: z.number().int().min(1).max(28).optional().default(1),
 });
 
 export const generateBillsSchema = z.object({

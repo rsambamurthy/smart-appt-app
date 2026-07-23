@@ -439,6 +439,8 @@ model DuesConfig {
   cash_balance_as_on  DateTime?   @db.Date
   razorpay_key_id     String?
   razorpay_key_secret String?
+  auto_generate_bills Boolean     @default(false)
+  auto_generate_day   Int         @default(1) @db.SmallInt
   updated_by          String      @db.Uuid
   updater             User        @relation(fields: [updated_by], references: [id])
   created_at          DateTime    @default(now()) @db.Timestamptz
