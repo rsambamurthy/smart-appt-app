@@ -9,12 +9,7 @@ import {
   initiatePaymentSchema, createLevySchema,
   oneTimeDueSchema, updateOneTimeDueSchema, generateOneTimeDueBillsSchema,
 } from './dues.schema';
-import feeConfigRoutes from './fee-config.routes';
-
 const router = Router();
-
-// ── Fee Config ───────────────────────────────────────────────────────────────
-router.use('/fee-configs', feeConfigRoutes);
 
 // Razorpay webhook — no auth, raw body
 router.post('/payments/webhook', (req, res, next) =>

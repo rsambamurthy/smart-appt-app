@@ -90,25 +90,13 @@ export class DuesService {
 
   // ── Bill Generation ──────────────────────────────────────────────────────────
   async generateBills(associationId: string, body: GenerateBillsBody) {
-    // Read active MONTHLY_CHARGE from FeeConfig (new model)
-    const feeConfig = await prisma.feeConfig.findFirst({
-      where: { association_id: associationId, fee_type: 'MONTHLY_CHARGE', is_active: true },
-    });
-
-    // Fall back to legacy DuesConfig if no FeeConfig exists yet
-    const legacyConfig = !feeConfig
-      ? await prisma.duesConfig.findUnique({ where: { association_id: associationId } })
-      : null;
-
-    if (!feeConfig && !legacyConfig) {
+    const duesConfig = await prisma.duesConfig.findUnique({ where: { association_id: associationId } });
+    if (!duesConfig) {
       throw new UnprocessableError('Monthly charge configuration not found. Please set up fee configuration first.');
     }
 
-    const isRatePerSqft = feeConfig
-      ? feeConfig.calc_method === 'RATE_PER_SQFT'
-      : legacyConfig!.charge_type === 'RATE_PER_SQFT';
-
-    const dueDay = feeConfig ? (feeConfig.due_day ?? 5) : legacyConfig!.due_day;
+    const isRatePerSqft = duesConfig.charge_type === 'RATE_PER_SQFT';
+    const dueDay = duesConfig.due_day;
 
     const units = body.unit_ids
       ? await prisma.unit.findMany({ where: { id: { in: body.unit_ids }, association_id: associationId } })
@@ -128,11 +116,10 @@ export class DuesService {
       let baseAmount: number;
       if (isRatePerSqft) {
         const sqft = Number(unit.area_sqft ?? 0);
-        if (!sqft) { skipped.push(unit.flat_number); continue; } // skip units with no area recorded
-        const rate = feeConfig ? feeConfig.amount.toNumber() : Number(legacyConfig!.rate_per_sqft ?? 0);
-        baseAmount = rate * sqft;
+        if (!sqft) { skipped.push(unit.flat_number); continue; }
+        baseAmount = Number(duesConfig.rate_per_sqft ?? 0) * sqft;
       } else {
-        baseAmount = feeConfig ? feeConfig.amount.toNumber() : Number(legacyConfig!.monthly_charge);
+        baseAmount = Number(duesConfig.monthly_charge);
       }
 
       const bill = await prisma.bill.create({
@@ -454,21 +441,14 @@ export class DuesService {
     const currentYear  = now.getFullYear();
     const monthStart   = new Date(currentYear, now.getMonth(), 1);
 
-    // Phase 1: fetch opening balance — prefer FeeConfig, fall back to legacy DuesConfig
-    const cashFeeConfig = await prisma.feeConfig.findFirst({
-      where: { association_id: associationId, fee_type: 'CASH_OPENING_BALANCE', is_active: true },
+    // Phase 1: fetch opening balance from DuesConfig
+    const duesConfigForBalance = await prisma.duesConfig.findUnique({
+      where: { association_id: associationId },
+      select: { cash_balance: true, cash_balance_as_on: true },
     });
-    const legacyDuesConfig = !cashFeeConfig
-      ? await prisma.duesConfig.findUnique({
-          where: { association_id: associationId },
-          select: { cash_balance: true, cash_balance_as_on: true },
-        })
-      : null;
 
-    const cashBalance = cashFeeConfig
-      ? cashFeeConfig.amount.toNumber()
-      : (legacyDuesConfig?.cash_balance ? Number(legacyDuesConfig.cash_balance) : null);
-    const cashBalanceAsOn = cashFeeConfig?.as_on_date ?? legacyDuesConfig?.cash_balance_as_on ?? null;
+    const cashBalance = duesConfigForBalance?.cash_balance ? Number(duesConfigForBalance.cash_balance) : null;
+    const cashBalanceAsOn = duesConfigForBalance?.cash_balance_as_on ?? null;
 
     // If no base date recorded, fall back to epoch (collects everything)
     const balanceFrom = cashBalanceAsOn ?? new Date(0);

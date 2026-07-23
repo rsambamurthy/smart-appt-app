@@ -1,199 +1,93 @@
 import { useState, useEffect } from 'react';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
-import {
-  useListFeeConfigsQuery,
-  useSaveFeeConfigsMutation,
-  useDeleteFeeConfigMutation,
-  type FeeConfigRow,
-  type FeeType,
-  type CalcMethod,
-} from '../../store/api/duesApi';
+import { useGetDuesConfigQuery, useUpdateDuesConfigMutation } from '../../store/api/duesApi';
 
-const FEE_TYPE_LABELS: Record<FeeType, string> = {
-  MONTHLY_CHARGE: 'Monthly charge',
-  PENALTY_AMOUNT: 'Penalty amount',
-  CASH_OPENING_BALANCE: 'Cash opening balance',
-};
-
-const CALC_METHOD_LABELS: Record<CalcMethod, string> = {
-  FIXED_AMOUNT: 'Fixed amount',
-  RATE_PER_SQFT: 'Rate per sq ft',
-};
-
-const FEE_TYPES: FeeType[] = ['MONTHLY_CHARGE', 'PENALTY_AMOUNT', 'CASH_OPENING_BALANCE'];
-const CALC_METHODS: CalcMethod[] = ['FIXED_AMOUNT', 'RATE_PER_SQFT'];
-
-const isCash = (t: FeeType) => t === 'CASH_OPENING_BALANCE';
-
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const th: React.CSSProperties = {
-  padding: '0.6rem 0.85rem',
-  textAlign: 'left',
-  fontSize: '0.72rem',
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-  color: 'var(--color-muted)',
-  borderBottom: '1px solid var(--color-border)',
-  whiteSpace: 'nowrap',
-};
-
-const td: React.CSSProperties = {
-  padding: '0.55rem 0.85rem',
-  borderBottom: '1px solid var(--color-border)',
-  verticalAlign: 'middle',
-};
-
-const inputStyle: React.CSSProperties = {
-  padding: '0.4rem 0.65rem',
-  border: '1px solid var(--color-border)',
-  borderRadius: 6,
-  fontSize: '0.875rem',
+const card: React.CSSProperties = {
   background: 'var(--color-bg-card)',
-  color: 'var(--color-text)',
-  outline: 'none',
-  width: '100%',
-  boxSizing: 'border-box',
+  border: '1px solid var(--color-border)',
+  borderRadius: 10,
+  padding: '1.5rem',
+  marginBottom: '1.25rem',
+};
+const sectionTitle: React.CSSProperties = {
+  fontSize: '0.78rem', fontWeight: 700, textTransform: 'uppercase',
+  letterSpacing: '0.06em', color: 'var(--color-muted)', marginBottom: '1rem',
+};
+const rowGrid: React.CSSProperties = {
+  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem',
+};
+const fieldWrap: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4 };
+const lbl: React.CSSProperties = {
+  fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-muted)',
+  textTransform: 'uppercase', letterSpacing: '0.04em',
+};
+const inputStyle: React.CSSProperties = {
+  padding: '0.45rem 0.7rem', border: '1px solid var(--color-border)', borderRadius: 6,
+  fontSize: '0.875rem', background: 'var(--color-bg-card)', color: 'var(--color-text)',
+  outline: 'none', width: '100%', boxSizing: 'border-box',
 };
 
-const selectStyle: React.CSSProperties = { ...inputStyle };
-
-// ── Toggle ────────────────────────────────────────────────────────────────────
-
-function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
-  return (
-    <button
-      role="switch"
-      aria-checked={on}
-      onClick={onChange}
-      style={{
-        width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer',
-        background: on ? '#22c55e' : '#cbd5e1',
-        position: 'relative', transition: 'background 0.18s', flexShrink: 0,
-      }}
-    >
-      <span style={{
-        position: 'absolute', top: 3, left: on ? 19 : 3,
-        width: 14, height: 14, borderRadius: '50%', background: '#fff',
-        transition: 'left 0.16s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-      }} />
-    </button>
-  );
+interface ConfigForm {
+  charge_type: 'FIXED' | 'RATE_PER_SQFT';
+  monthly_charge: string;
+  rate_per_sqft: string;
+  due_day: string;
+  penalty_type: 'FLAT' | 'PERCENTAGE';
+  penalty_value: string;
+  penalty_grace_days: string;
+  cash_balance: string;
+  cash_balance_as_on: string;
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+const EMPTY: ConfigForm = {
+  charge_type: 'FIXED', monthly_charge: '', rate_per_sqft: '', due_day: '5',
+  penalty_type: 'FLAT', penalty_value: '', penalty_grace_days: '5',
+  cash_balance: '', cash_balance_as_on: '',
+};
 
 export default function DuesConfigPage() {
-  const { data, isLoading } = useListFeeConfigsQuery();
-  const [saveConfigs, { isLoading: isSaving }] = useSaveFeeConfigsMutation();
-  const [deleteConfig] = useDeleteFeeConfigMutation();
-
-  const [rows, setRows] = useState<FeeConfigRow[]>([]);
+  const { data, isLoading } = useGetDuesConfigQuery();
+  const [updateConfig, { isLoading: isSaving }] = useUpdateDuesConfigMutation();
+  const [form, setForm] = useState<ConfigForm>(EMPTY);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   useEffect(() => {
-    if (data?.data) {
-      // Normalize as_on_date to YYYY-MM-DD so the date input renders correctly
-      setRows(data.data.map((r) => ({
-        ...r,
-        as_on_date: r.as_on_date ? (r.as_on_date as string).split('T')[0] : null,
-      })));
-      setError('');  // clear any stale error when fresh data loads
-    }
+    const cfg = (data as { data: Record<string, unknown> } | undefined)?.data;
+    if (!cfg) return;
+    setForm({
+      charge_type: (cfg.charge_type as string) === 'RATE_PER_SQFT' ? 'RATE_PER_SQFT' : 'FIXED',
+      monthly_charge: cfg.monthly_charge != null ? String(cfg.monthly_charge) : '',
+      rate_per_sqft: cfg.rate_per_sqft != null ? String(cfg.rate_per_sqft) : '',
+      due_day: cfg.due_day != null ? String(cfg.due_day) : '5',
+      penalty_type: (cfg.penalty_type as string) === 'PERCENTAGE' ? 'PERCENTAGE' : 'FLAT',
+      penalty_value: cfg.penalty_value != null ? String(cfg.penalty_value) : '',
+      penalty_grace_days: cfg.penalty_grace_days != null ? String(cfg.penalty_grace_days) : '5',
+      cash_balance: cfg.cash_balance != null ? String(cfg.cash_balance) : '',
+      cash_balance_as_on: cfg.cash_balance_as_on ? (cfg.cash_balance_as_on as string).split('T')[0] : '',
+    });
   }, [data]);
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-
-  const activeTypesExcluding = (excludeIdx: number) =>
-    rows
-      .filter((r, i) => i !== excludeIdx && r.is_active)
-      .map((r) => r.fee_type);
-
-  const handleAddRow = () => {
-    const activeFeeTypes = rows.filter((r) => r.is_active).map((r) => r.fee_type);
-    const available = FEE_TYPES.find((t) => !activeFeeTypes.includes(t));
-    if (!available) {
-      setError('All fee types already have an active configuration. Deactivate one before adding another of the same type.');
-      return;
-    }
-    setRows((prev) => [
-      ...prev,
-      { fee_type: available, calc_method: 'FIXED_AMOUNT', amount: 0, due_day: 5, as_on_date: null, is_active: true },
-    ]);
-    setError('');
-    setSuccess('');
-  };
-
-  const updateRow = (i: number, patch: Partial<FeeConfigRow>) => {
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
-    setError('');
-    setSuccess('');
-  };
-
-  const handleTypeChange = (i: number, newType: FeeType) => {
-    const blocked = activeTypesExcluding(i);
-    if (rows[i].is_active && blocked.includes(newType)) {
-      setError(`An active "${FEE_TYPE_LABELS[newType]}" config already exists. Deactivate it first.`);
-      return;
-    }
-    updateRow(i, {
-      fee_type: newType,
-      calc_method: isCash(newType) ? null : 'FIXED_AMOUNT',
-      due_day: isCash(newType) ? null : 5,
-      as_on_date: isCash(newType) ? (rows[i].as_on_date ?? '') : null,
-    });
-  };
-
-  const handleToggleActive = (i: number) => {
-    const row = rows[i];
-    if (!row.is_active) {
-      // Re-activating — check if another active row of same type exists
-      const blocked = activeTypesExcluding(i);
-      if (blocked.includes(row.fee_type)) {
-        setError(`An active "${FEE_TYPE_LABELS[row.fee_type]}" config already exists. Deactivate it first.`);
-        return;
-      }
-    }
-    updateRow(i, { is_active: !row.is_active });
-  };
-
-  const handleDelete = async (i: number) => {
-    const row = rows[i];
-    if (row.id) {
-      try {
-        await deleteConfig(row.id).unwrap();
-      } catch {
-        setError('Failed to delete row.');
-        return;
-      }
-    }
-    setRows((prev) => prev.filter((_, idx) => idx !== i));
+  const set = (k: keyof ConfigForm, v: string) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    setError(''); setSuccess('');
   };
 
   const handleSave = async () => {
-    setError('');
-    setSuccess('');
-
-    // Client-side duplicate-active check
-    const activeByType = new Map<FeeType, number>();
-    for (const row of rows) {
-      if (row.is_active) {
-        activeByType.set(row.fee_type, (activeByType.get(row.fee_type) ?? 0) + 1);
-      }
-    }
-    for (const [type, count] of activeByType) {
-      if (count > 1) {
-        setError(`Duplicate active config for "${FEE_TYPE_LABELS[type as FeeType]}". Deactivate one before saving.`);
-        return;
-      }
-    }
-
+    setError(''); setSuccess('');
     try {
-      const saved = await saveConfigs(rows).unwrap();
-      setRows(saved.data);
+      await updateConfig({
+        charge_type: form.charge_type,
+        monthly_charge: parseFloat(form.monthly_charge) || 0,
+        rate_per_sqft: form.charge_type === 'RATE_PER_SQFT' ? (parseFloat(form.rate_per_sqft) || null) : null,
+        due_day: parseInt(form.due_day, 10) || 5,
+        penalty_type: form.penalty_type,
+        penalty_value: parseFloat(form.penalty_value) || 0,
+        penalty_grace_days: parseInt(form.penalty_grace_days, 10) || 0,
+        cash_balance: form.cash_balance !== '' ? parseFloat(form.cash_balance) : null,
+        cash_balance_as_on: form.cash_balance_as_on || null,
+      }).unwrap();
       setSuccess('Fee configuration saved.');
     } catch (e: unknown) {
       const err = e as { data?: { message?: string; detail?: string } };
@@ -201,190 +95,95 @@ export default function DuesConfigPage() {
     }
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-
   return (
     <Layout>
       <PageSubHeader
         crumbs={[{ label: 'Configuration' }, { label: 'Fee Configuration' }]}
-        onSave={handleSave}
-        saveLabel="Save Configuration"
-        saving={isSaving}
+        onSave={handleSave} saveLabel="Save Configuration" saving={isSaving}
       />
-
       {isLoading ? (
         <div style={{ padding: '2rem', color: 'var(--color-muted)' }}>Loading…</div>
       ) : (
-        <div style={{ padding: '1.5rem 2rem' }}>
+        <div style={{ padding: '1.5rem 2rem', maxWidth: 900 }}>
+          {error && <div style={{ marginBottom: '1rem', padding: '0.65rem 1rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#dc2626', fontSize: '0.875rem' }}>{error}</div>}
+          {success && <div style={{ marginBottom: '1rem', padding: '0.65rem 1rem', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, color: '#15803d', fontSize: '0.875rem' }}>✓ {success}</div>}
 
-          {/* Header row */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <div style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
-              Each fee type can have at most one <strong>active</strong> configuration at a time.
+          <div style={card}>
+            <div style={sectionTitle}>Monthly Charge</div>
+            <div style={rowGrid}>
+              <div style={fieldWrap}>
+                <label style={lbl}>Charge type</label>
+                <select style={inputStyle} value={form.charge_type} onChange={(e) => set('charge_type', e.target.value)}>
+                  <option value="FIXED">Fixed amount</option>
+                  <option value="RATE_PER_SQFT">Rate per sq ft</option>
+                </select>
+              </div>
+              {form.charge_type === 'FIXED' ? (
+                <div style={fieldWrap}>
+                  <label style={lbl}>Monthly charge (₹)</label>
+                  <input style={inputStyle} type="number" min="0" step="0.01"
+                    value={form.monthly_charge} placeholder="e.g. 2500"
+                    onChange={(e) => set('monthly_charge', e.target.value)} />
+                </div>
+              ) : (
+                <div style={fieldWrap}>
+                  <label style={lbl}>Rate per sq ft (₹)</label>
+                  <input style={inputStyle} type="number" min="0" step="0.01"
+                    value={form.rate_per_sqft} placeholder="e.g. 2.50"
+                    onChange={(e) => set('rate_per_sqft', e.target.value)} />
+                </div>
+              )}
+              <div style={fieldWrap}>
+                <label style={lbl}>Due day of month</label>
+                <input style={inputStyle} type="number" min="1" max="28"
+                  value={form.due_day} placeholder="1–28"
+                  onChange={(e) => set('due_day', e.target.value)} />
+              </div>
             </div>
-            <button
-              onClick={handleAddRow}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '0.45rem 1rem',
-                border: '1px solid var(--color-border)',
-                borderRadius: 6, background: 'var(--color-bg-card)',
-                color: 'var(--color-text)', fontSize: '0.875rem',
-                cursor: 'pointer', fontWeight: 500,
-              }}
-            >
-              <span style={{ fontSize: '1.1rem', lineHeight: 1 }}>+</span> Add fee config
-            </button>
           </div>
 
-          {/* Error / success banners */}
-          {error && (
-            <div style={{ marginBottom: '0.75rem', padding: '0.65rem 1rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#dc2626', fontSize: '0.875rem' }}>
-              {error}
+          <div style={card}>
+            <div style={sectionTitle}>Penalty</div>
+            <div style={rowGrid}>
+              <div style={fieldWrap}>
+                <label style={lbl}>Penalty type</label>
+                <select style={inputStyle} value={form.penalty_type} onChange={(e) => set('penalty_type', e.target.value)}>
+                  <option value="FLAT">Flat amount</option>
+                  <option value="PERCENTAGE">Percentage</option>
+                </select>
+              </div>
+              <div style={fieldWrap}>
+                <label style={lbl}>{form.penalty_type === 'PERCENTAGE' ? 'Penalty %' : 'Penalty amount (₹)'}</label>
+                <input style={inputStyle} type="number" min="0" step="0.01"
+                  value={form.penalty_value}
+                  placeholder={form.penalty_type === 'PERCENTAGE' ? 'e.g. 2' : 'e.g. 50'}
+                  onChange={(e) => set('penalty_value', e.target.value)} />
+              </div>
+              <div style={fieldWrap}>
+                <label style={lbl}>Grace period (days)</label>
+                <input style={inputStyle} type="number" min="0"
+                  value={form.penalty_grace_days} placeholder="e.g. 5"
+                  onChange={(e) => set('penalty_grace_days', e.target.value)} />
+              </div>
             </div>
-          )}
-          {success && (
-            <div style={{ marginBottom: '0.75rem', padding: '0.65rem 1rem', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, color: '#15803d', fontSize: '0.875rem' }}>
-              ✓ {success}
+          </div>
+
+          <div style={card}>
+            <div style={sectionTitle}>Cash Opening Balance</div>
+            <div style={rowGrid}>
+              <div style={fieldWrap}>
+                <label style={lbl}>Opening balance (₹)</label>
+                <input style={inputStyle} type="number" min="0" step="0.01"
+                  value={form.cash_balance} placeholder="e.g. 100000"
+                  onChange={(e) => set('cash_balance', e.target.value)} />
+              </div>
+              <div style={fieldWrap}>
+                <label style={lbl}>As on date</label>
+                <input style={inputStyle} type="date"
+                  value={form.cash_balance_as_on}
+                  onChange={(e) => set('cash_balance_as_on', e.target.value)} />
+              </div>
             </div>
-          )}
-
-          {/* Table */}
-          <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem', minWidth: 780 }}>
-              <thead>
-                <tr>
-                  <th style={{ ...th, width: 190 }}>Fee type</th>
-                  <th style={{ ...th, width: 175 }}>Calculation method</th>
-                  <th style={{ ...th, width: 130 }}>Amount (₹)</th>
-                  <th style={{ ...th, width: 100 }}>Due day</th>
-                  <th style={{ ...th, width: 150 }}>As on date</th>
-                  <th style={{ ...th, width: 110 }}>Status</th>
-                  <th style={{ ...th, width: 48 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.length === 0 && (
-                  <tr>
-                    <td colSpan={7} style={{ ...td, textAlign: 'center', color: 'var(--color-muted)', padding: '2rem', borderBottom: 'none' }}>
-                      No fee configurations yet. Click "+ Add fee config" to get started.
-                    </td>
-                  </tr>
-                )}
-                {rows.map((row, i) => (
-                  <tr key={i} style={{ opacity: row.is_active ? 1 : 0.5 }}>
-
-                    {/* Fee type */}
-                    <td style={td}>
-                      <select
-                        style={selectStyle}
-                        value={row.fee_type}
-                        disabled={!row.is_active}
-                        onChange={(e) => handleTypeChange(i, e.target.value as FeeType)}
-                      >
-                        {FEE_TYPES.map((t) => (
-                          <option key={t} value={t}>{FEE_TYPE_LABELS[t]}</option>
-                        ))}
-                      </select>
-                    </td>
-
-                    {/* Calculation method */}
-                    <td style={td}>
-                      {isCash(row.fee_type) ? (
-                        <span style={{ fontSize: '0.78rem', color: 'var(--color-muted)', background: 'var(--color-bg)', borderRadius: 4, padding: '3px 8px' }}>N/A</span>
-                      ) : (
-                        <select
-                          style={selectStyle}
-                          value={row.calc_method ?? 'FIXED_AMOUNT'}
-                          disabled={!row.is_active}
-                          onChange={(e) => updateRow(i, { calc_method: e.target.value as CalcMethod })}
-                        >
-                          {CALC_METHODS.map((m) => (
-                            <option key={m} value={m}>{CALC_METHOD_LABELS[m]}</option>
-                          ))}
-                        </select>
-                      )}
-                    </td>
-
-                    {/* Amount */}
-                    <td style={td}>
-                      <input
-                        style={inputStyle}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={row.amount || ''}
-                        disabled={!row.is_active}
-                        placeholder="0"
-                        onChange={(e) => updateRow(i, { amount: parseFloat(e.target.value) || 0 })}
-                      />
-                    </td>
-
-                    {/* Due day */}
-                    <td style={td}>
-                      {isCash(row.fee_type) ? (
-                        <span style={{ fontSize: '0.78rem', color: 'var(--color-muted)', background: 'var(--color-bg)', borderRadius: 4, padding: '3px 8px' }}>N/A</span>
-                      ) : (
-                        <input
-                          style={inputStyle}
-                          type="number"
-                          min="1"
-                          max="28"
-                          value={row.due_day ?? ''}
-                          disabled={!row.is_active}
-                          placeholder="1–28"
-                          onChange={(e) => updateRow(i, { due_day: parseInt(e.target.value, 10) || null })}
-                        />
-                      )}
-                    </td>
-
-                    {/* As on date */}
-                    <td style={td}>
-                      {isCash(row.fee_type) ? (
-                        <input
-                          style={inputStyle}
-                          type="date"
-                          value={row.as_on_date ?? ''}
-                          disabled={!row.is_active}
-                          onChange={(e) => updateRow(i, { as_on_date: e.target.value || null })}
-                        />
-                      ) : (
-                        <span style={{ fontSize: '0.78rem', color: 'var(--color-muted)', background: 'var(--color-bg)', borderRadius: 4, padding: '3px 8px' }}>N/A</span>
-                      )}
-                    </td>
-
-                    {/* Status toggle */}
-                    <td style={td}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Toggle on={row.is_active} onChange={() => handleToggleActive(i)} />
-                        <span style={{
-                          fontSize: '0.75rem', fontWeight: 600, padding: '2px 7px', borderRadius: 4,
-                          background: row.is_active ? '#f0fdf4' : '#f1f5f9',
-                          color: row.is_active ? '#15803d' : '#64748b',
-                        }}>
-                          {row.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </div>
-                    </td>
-
-                    {/* Delete */}
-                    <td style={{ ...td, borderBottom: i === rows.length - 1 ? 'none' : td.borderBottom }}>
-                      <button
-                        onClick={() => handleDelete(i)}
-                        style={{
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          color: 'var(--color-muted)', fontSize: '1rem', padding: '4px 6px',
-                          borderRadius: 4,
-                        }}
-                        title="Delete row"
-                      >
-                        🗑
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
         </div>
       )}
