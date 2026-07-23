@@ -382,16 +382,23 @@ export class DuesService {
 
   // ── Dashboard ────────────────────────────────────────────────────────────────
   async getDashboard(associationId: string) {
-    const [totalOutstanding, monthlyCollected, totalCollected, otherReceiptsTotal, arrearsCount, duesConfig, ytdTrend] = await Promise.all([
+    const now = new Date();
+    const currentMonth = now.getMonth() + 1;
+    const currentYear  = now.getFullYear();
+    const monthStart   = new Date(currentYear, now.getMonth(), 1);
+
+    const [
+      totalOutstanding, monthlyCollected, totalCollected, otherReceiptsTotal,
+      arrearsCount, duesConfig, ytdTrend,
+      monthBilled, totalBilled, monthArrears,
+    ] = await Promise.all([
+      // existing
       prisma.bill.aggregate({
         where: { association_id: associationId, status: { in: [BillStatus.UNPAID, BillStatus.PARTIAL] } },
         _sum: { total_amount: true },
       }),
       prisma.payment.aggregate({
-        where: {
-          association_id: associationId,
-          payment_date: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) },
-        },
+        where: { association_id: associationId, payment_date: { gte: monthStart } },
         _sum: { amount: true },
       }),
       prisma.payment.aggregate({
@@ -403,7 +410,7 @@ export class DuesService {
         _sum: { amount: true },
       }),
       prisma.bill.findMany({
-        where: { association_id: associationId, status: { in: [BillStatus.UNPAID, BillStatus.PARTIAL] }, due_date: { lt: new Date() } },
+        where: { association_id: associationId, status: { in: [BillStatus.UNPAID, BillStatus.PARTIAL] }, due_date: { lt: now } },
         select: { unit_id: true },
         distinct: ['unit_id'],
       }),
@@ -422,6 +429,21 @@ export class DuesService {
         GROUP BY month, year
         ORDER BY year, month
       `,
+      // new — month billed (all bills for current period, including paid)
+      prisma.bill.aggregate({
+        where: { association_id: associationId, period_month: currentMonth, period_year: currentYear },
+        _sum: { total_amount: true },
+      }),
+      // new — total billed ever
+      prisma.bill.aggregate({
+        where: { association_id: associationId },
+        _sum: { total_amount: true },
+      }),
+      // new — month arrears (unpaid/partial for current period)
+      prisma.bill.aggregate({
+        where: { association_id: associationId, period_month: currentMonth, period_year: currentYear, status: { in: [BillStatus.UNPAID, BillStatus.PARTIAL] } },
+        _sum: { total_amount: true },
+      }),
     ]);
 
     const billingCollected = Number(totalCollected._sum.amount ?? 0);
@@ -429,13 +451,21 @@ export class DuesService {
 
     return {
       data: {
-        total_outstanding: totalOutstanding._sum.total_amount ?? 0,
-        monthly_collected: monthlyCollected._sum.amount ?? 0,
-        total_collected:   billingCollected + otherCollected,
-        arrears_count:     arrearsCount.length,
-        cash_balance:      duesConfig?.cash_balance ?? null,
+        // existing (kept for backward compat)
+        total_outstanding:  totalOutstanding._sum.total_amount ?? 0,
+        monthly_collected:  monthlyCollected._sum.amount ?? 0,
+        total_collected:    billingCollected + otherCollected,
+        arrears_count:      arrearsCount.length,
+        cash_balance:       duesConfig?.cash_balance ?? null,
         cash_balance_as_on: duesConfig?.cash_balance_as_on ?? null,
-        ytd_trend:         ytdTrend,
+        ytd_trend:          ytdTrend,
+        // new
+        month_billed:       monthBilled._sum.total_amount ?? 0,
+        month_collected:    monthlyCollected._sum.amount ?? 0,
+        month_arrears:      monthArrears._sum.total_amount ?? 0,
+        total_billed:       totalBilled._sum.total_amount ?? 0,
+        total_billing_collected: billingCollected,
+        total_arrears:      totalOutstanding._sum.total_amount ?? 0,
       },
     };
   }
