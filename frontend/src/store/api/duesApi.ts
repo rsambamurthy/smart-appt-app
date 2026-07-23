@@ -1,5 +1,18 @@
 import { baseApi } from './baseApi';
 
+export type FeeType = 'MONTHLY_CHARGE' | 'PENALTY_AMOUNT' | 'CASH_OPENING_BALANCE';
+export type CalcMethod = 'FIXED_AMOUNT' | 'RATE_PER_SQFT';
+
+export interface FeeConfigRow {
+  id?: string;
+  fee_type: FeeType;
+  calc_method?: CalcMethod | null;
+  amount: number;
+  due_day?: number | null;
+  as_on_date?: string | null;
+  is_active: boolean;
+}
+
 export const duesApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getDuesConfig: builder.query<{ data: unknown }, void>({ query: () => '/dues/config', providesTags: ['Bill'] }),
@@ -24,6 +37,10 @@ export const duesApi = baseApi.injectEndpoints({
     closeOneTimeDue: builder.mutation<{ data: unknown }, string>({ query: (id) => ({ url: `/dues/one-time-dues/${id}/close`, method: 'POST', body: {} }), invalidatesTags: ['Bill'] }),
     getRazorpayConfig: builder.query<{ data: { razorpay_key_id: string | null; has_key_secret: boolean } }, void>({ query: () => '/dues/razorpay-config', providesTags: ['Bill'] }),
     saveRazorpayConfig: builder.mutation<{ data: unknown }, { razorpay_key_id: string; razorpay_key_secret: string }>({ query: (body) => ({ url: '/dues/razorpay-config', method: 'PUT', body }), invalidatesTags: ['Bill'] }),
+    // Fee configs
+    listFeeConfigs: builder.query<{ data: FeeConfigRow[] }, void>({ query: () => '/dues/fee-configs', providesTags: ['Bill'] }),
+    saveFeeConfigs: builder.mutation<{ data: FeeConfigRow[] }, FeeConfigRow[]>({ query: (body) => ({ url: '/dues/fee-configs', method: 'PUT', body }), invalidatesTags: ['Bill'] }),
+    deleteFeeConfig: builder.mutation<{ data: unknown }, string>({ query: (id) => ({ url: `/dues/fee-configs/${id}`, method: 'DELETE' }), invalidatesTags: ['Bill'] }),
   }),
 });
 
@@ -35,4 +52,5 @@ export const {
   useListOneTimeDuesQuery, useCreateOneTimeDueMutation, useUpdateOneTimeDueMutation,
   useDeleteOneTimeDueMutation, useGenerateOneTimeDueBillsMutation, useDeleteOneTimeDueBillsMutation, useCloseOneTimeDueMutation,
   useGetRazorpayConfigQuery, useSaveRazorpayConfigMutation,
+  useListFeeConfigsQuery, useSaveFeeConfigsMutation, useDeleteFeeConfigMutation,
 } = duesApi;

@@ -90,18 +90,31 @@ export class DuesService {
 
   // ── Bill Generation ──────────────────────────────────────────────────────────
   async generateBills(associationId: string, body: GenerateBillsBody) {
-    const config = await prisma.duesConfig.findUnique({ where: { association_id: associationId } });
-    if (!config) throw new UnprocessableError('Dues configuration not found. Please set up dues config first.');
+    // Read active MONTHLY_CHARGE from FeeConfig (new model)
+    const feeConfig = await prisma.feeConfig.findFirst({
+      where: { association_id: associationId, fee_type: 'MONTHLY_CHARGE', is_active: true },
+    });
 
-    if (config.charge_type === 'RATE_PER_SQFT' && !config.rate_per_sqft) {
-      throw new UnprocessableError('Rate per sq ft is required when charge type is RATE_PER_SQFT.');
+    // Fall back to legacy DuesConfig if no FeeConfig exists yet
+    const legacyConfig = !feeConfig
+      ? await prisma.duesConfig.findUnique({ where: { association_id: associationId } })
+      : null;
+
+    if (!feeConfig && !legacyConfig) {
+      throw new UnprocessableError('Monthly charge configuration not found. Please set up fee configuration first.');
     }
+
+    const isRatePerSqft = feeConfig
+      ? feeConfig.calc_method === 'RATE_PER_SQFT'
+      : legacyConfig!.charge_type === 'RATE_PER_SQFT';
+
+    const dueDay = feeConfig ? (feeConfig.due_day ?? 5) : legacyConfig!.due_day;
 
     const units = body.unit_ids
       ? await prisma.unit.findMany({ where: { id: { in: body.unit_ids }, association_id: associationId } })
       : await prisma.unit.findMany({ where: { association_id: associationId } });
 
-    const dueDate = new Date(body.year, body.month - 1, config.due_day);
+    const dueDate = new Date(body.year, body.month - 1, dueDay);
     const created: string[] = [];
     const skipped: string[] = [];
 
@@ -113,12 +126,13 @@ export class DuesService {
 
       // Calculate base amount based on charge type
       let baseAmount: number;
-      if (config.charge_type === 'RATE_PER_SQFT') {
+      if (isRatePerSqft) {
         const sqft = Number(unit.area_sqft ?? 0);
         if (!sqft) { skipped.push(unit.flat_number); continue; } // skip units with no area recorded
-        baseAmount = Number(config.rate_per_sqft) * sqft;
+        const rate = feeConfig ? feeConfig.amount.toNumber() : Number(legacyConfig!.rate_per_sqft ?? 0);
+        baseAmount = rate * sqft;
       } else {
-        baseAmount = Number(config.monthly_charge);
+        baseAmount = feeConfig ? feeConfig.amount.toNumber() : Number(legacyConfig!.monthly_charge);
       }
 
       const bill = await prisma.bill.create({
@@ -440,13 +454,24 @@ export class DuesService {
     const currentYear  = now.getFullYear();
     const monthStart   = new Date(currentYear, now.getMonth(), 1);
 
-    // Phase 1: fetch config first — needed to know balanceFrom date
-    const duesConfig = await prisma.duesConfig.findUnique({
-      where: { association_id: associationId },
-      select: { cash_balance: true, cash_balance_as_on: true },
+    // Phase 1: fetch opening balance — prefer FeeConfig, fall back to legacy DuesConfig
+    const cashFeeConfig = await prisma.feeConfig.findFirst({
+      where: { association_id: associationId, fee_type: 'CASH_OPENING_BALANCE', is_active: true },
     });
+    const legacyDuesConfig = !cashFeeConfig
+      ? await prisma.duesConfig.findUnique({
+          where: { association_id: associationId },
+          select: { cash_balance: true, cash_balance_as_on: true },
+        })
+      : null;
+
+    const cashBalance = cashFeeConfig
+      ? cashFeeConfig.amount.toNumber()
+      : (legacyDuesConfig?.cash_balance ? Number(legacyDuesConfig.cash_balance) : null);
+    const cashBalanceAsOn = cashFeeConfig?.as_on_date ?? legacyDuesConfig?.cash_balance_as_on ?? null;
+
     // If no base date recorded, fall back to epoch (collects everything)
-    const balanceFrom = duesConfig?.cash_balance_as_on ?? new Date(0);
+    const balanceFrom = cashBalanceAsOn ?? new Date(0);
 
     // Phase 2: all aggregates in parallel
     const [
@@ -530,8 +555,8 @@ export class DuesService {
     const otherCollected   = Number(otherReceiptsTotal._sum.amount ?? 0);
 
     // Dynamic opening balance for current month
-    const month_opening_balance = duesConfig?.cash_balance != null
-      ? Number(duesConfig.cash_balance)
+    const month_opening_balance = cashBalance != null
+      ? cashBalance
         + Number(billingToMonthStart._sum.amount ?? 0)
         + Number(otherReceiptsToMonthStart._sum.amount ?? 0)
         - Number(expensesToMonthStart._sum.amount ?? 0)
@@ -544,8 +569,8 @@ export class DuesService {
         monthly_collected:   monthlyCollected._sum.amount ?? 0,
         total_collected:     billingCollected + otherCollected,
         arrears_count:       arrearsCount.length,
-        cash_balance:        duesConfig?.cash_balance ?? null,
-        cash_balance_as_on:  duesConfig?.cash_balance_as_on ?? null,
+        cash_balance:        cashBalance,
+        cash_balance_as_on:  cashBalanceAsOn,
         ytd_trend:           ytdTrend,
         // dues dashboard tabs
         month_billed:            monthBilled._sum.total_amount ?? 0,

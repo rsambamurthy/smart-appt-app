@@ -64,6 +64,17 @@ enum ChargeType {
   RATE_PER_SQFT
 }
 
+enum FeeType {
+  MONTHLY_CHARGE
+  PENALTY_AMOUNT
+  CASH_OPENING_BALANCE
+}
+
+enum CalcMethod {
+  FIXED_AMOUNT
+  RATE_PER_SQFT
+}
+
 enum OneTimeDueStatus {
   DRAFT
   BILLS_GENERATED
@@ -199,6 +210,7 @@ model Association {
   invites            UserInvite[]
   one_time_dues      OneTimeDue[]
   other_receipts     OtherReceipt[]
+  fee_configs        FeeConfig[]
 
   @@map("associations")
 }
@@ -296,6 +308,7 @@ model User {
   invites_sent        UserInvite[]        @relation("InvitedBy")
   invite_received     UserInvite?         @relation("InvitedUser")
   dues_config_updated   DuesConfig[]
+  fee_configs_updated   FeeConfig[]         @relation("FeeConfigUpdater")
   expense_budgets       ExpenseBudget[]
   recurring_expenses    RecurringExpense[]
   vendors_created       Vendor[]
@@ -444,6 +457,25 @@ model DuesConfig {
   updated_at          DateTime    @updatedAt @db.Timestamptz
 
   @@map("dues_config")
+}
+
+model FeeConfig {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  fee_type       FeeType
+  calc_method    CalcMethod?
+  amount         Decimal     @db.Decimal(12, 2)
+  due_day        Int?        @db.SmallInt
+  as_on_date     DateTime?   @db.Date
+  is_active      Boolean     @default(true)
+  updated_by     String      @db.Uuid
+  updater        User        @relation("FeeConfigUpdater", fields: [updated_by], references: [id])
+  created_at     DateTime    @default(now()) @db.Timestamptz
+  updated_at     DateTime    @updatedAt @db.Timestamptz
+
+  @@index([association_id, fee_type, is_active])
+  @@map("fee_configs")
 }
 
 model Bill {
