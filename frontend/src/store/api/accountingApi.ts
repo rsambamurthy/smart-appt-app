@@ -56,6 +56,23 @@ export interface LedgerRow {
   balance:        number;
 }
 
+export interface PnLRow {
+  id:       string;
+  code:     string;
+  name:     string;
+  sub_type: string | null;
+  amount:   number;
+}
+
+export interface PnLResult {
+  period:       { from: string; to: string };
+  income:       PnLRow[];
+  expense:      PnLRow[];
+  totalIncome:  number;
+  totalExpense: number;
+  netSurplus:   number;
+}
+
 export interface LedgerResult {
   account:        { id: string; code: string; name: string; type: string; sub_type: string | null };
   isDebitNormal:  boolean;
@@ -110,6 +127,10 @@ const accountingApi = baseApi.injectEndpoints({
       query: (body) => ({ url: '/accounting/journal', method: 'POST', body }),
       invalidatesTags: ['Journal'],
     }),
+    getPnL: builder.query<{ data: PnLResult }, { from: string; to: string }>({
+      query: ({ from, to }) => `/accounting/journal/pnl?from=${from}&to=${to}`,
+      providesTags: ['Journal'],
+    }),
     getLedger: builder.query<{ data: LedgerResult }, { account_id: string; from?: string; to?: string }>({
       query: ({ account_id, from, to }) => {
         const q = new URLSearchParams({ account_id });
@@ -132,4 +153,5 @@ export const {
   useListJournalEntriesQuery,
   useCreateJournalEntryMutation,
   useGetLedgerQuery,
+  useGetPnLQuery,
 } = accountingApi;
