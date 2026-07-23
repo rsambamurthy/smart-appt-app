@@ -32,8 +32,9 @@ const DEFAULT_ACCOUNTS: Omit<CreateAccountBody & { is_system: boolean }, 'sort_o
   { code: '4009', name: 'Audit Fees',            type: AccountType.EXPENSE,   sub_type: 'Administrative',    is_system: false },
   { code: '4010', name: 'Insurance',             type: AccountType.EXPENSE,   sub_type: 'Administrative',    is_system: false },
   // EQUITY
-  { code: '5001', name: 'Reserve Fund',          type: AccountType.EQUITY,    sub_type: 'Reserve',           is_system: false },
-  { code: '5002', name: 'Corpus Fund',           type: AccountType.EQUITY,    sub_type: 'Reserve',           is_system: false },
+  { code: '5001', name: 'Reserve Fund',              type: AccountType.EQUITY,    sub_type: 'Reserve',           is_system: false },
+  { code: '5002', name: 'Corpus Fund',               type: AccountType.EQUITY,    sub_type: 'Reserve',           is_system: false },
+  { code: '5003', name: 'Opening Balance Equity',    type: AccountType.EQUITY,    sub_type: 'Opening Balance',   is_system: true  },
 ];
 
 class AccountingService {

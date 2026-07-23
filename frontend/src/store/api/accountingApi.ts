@@ -155,6 +155,10 @@ const accountingApi = baseApi.injectEndpoints({
       query: (body) => ({ url: '/accounting/journal', method: 'POST', body }),
       invalidatesTags: ['Journal'],
     }),
+    updateJournalEntry: builder.mutation<{ data: JournalEntry }, { id: string; entry_date: string; narration: string; lines: JournalLineInput[] }>({
+      query: ({ id, ...body }) => ({ url: `/accounting/journal/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Journal'],
+    }),
     getPnL: builder.query<{ data: PnLResult }, { from: string; to: string }>({
       query: ({ from, to }) => `/accounting/journal/pnl?from=${from}&to=${to}`,
       providesTags: ['Journal'],
@@ -188,6 +192,7 @@ export const {
   useDeleteAccountMutation,
   useListJournalEntriesQuery,
   useCreateJournalEntryMutation,
+  useUpdateJournalEntryMutation,
   useBackfillTransactionsMutation,
   useGetBalanceSheetQuery,
   useGetLedgerQuery,

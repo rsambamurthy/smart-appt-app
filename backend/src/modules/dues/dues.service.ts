@@ -64,6 +64,14 @@ export class DuesService {
       update: data,
       create: { association_id: associationId, ...data },
     });
+
+    // Sync opening balance to accounting journal (fire-and-forget)
+    journalService.syncOpeningBalance(
+      associationId,
+      config.cash_balance ? Number(config.cash_balance) : null,
+      config.cash_balance_as_on ?? null,
+    ).catch(() => { /* silently ignore if accounts not seeded yet */ });
+
     return {
       data: {
         ...config,

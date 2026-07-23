@@ -451,6 +451,78 @@ class JournalService {
     };
   }
 
+  // ── SYNC OPENING BALANCE: DR 1001 Cash in Hand / CR 5003 Opening Balance Equity ──
+  async syncOpeningBalance(associationId: string, amount: number | null, asOnDate: Date | null) {
+    // Remove any existing opening balance entry (upsert pattern)
+    const existing = await prisma.journalEntry.findFirst({
+      where: { association_id: associationId, reference_type: 'OPENING_BALANCE' },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.journalLine.deleteMany({ where: { journal_entry_id: existing.id } });
+      await prisma.journalEntry.delete({ where: { id: existing.id } });
+    }
+
+    if (!amount || amount <= 0) return;
+
+    const [cashAcct, obAcct] = await Promise.all([
+      prisma.account.findUnique({ where: { association_id_code: { association_id: associationId, code: '1001' } } }),
+      prisma.account.findUnique({ where: { association_id_code: { association_id: associationId, code: '5003' } } }),
+    ]);
+    if (!cashAcct || !obAcct) return; // accounts not yet seeded — skip silently
+
+    await this.post(associationId, {
+      entry_date:     asOnDate ?? new Date(),
+      narration:      'Opening Balance — Cash in Hand',
+      reference_type: 'OPENING_BALANCE',
+      reference_id:   associationId,
+      type:           JournalEntryType.AUTO,
+      lines: [
+        { account_id: cashAcct.id, debit: amount, credit: 0 },
+        { account_id: obAcct.id,   debit: 0,      credit: amount },
+      ],
+    });
+  }
+
+  // ── UPDATE entry: replace narration, date and lines ────────────────────────
+  async updateEntry(id: string, associationId: string, body: CreateJournalEntryBody) {
+    const entry = await prisma.journalEntry.findFirst({
+      where: { id, association_id: associationId },
+    });
+    if (!entry) throw new NotFoundError('Journal entry not found.');
+
+    const totalDebit  = body.lines.reduce((s, l) => s + (l.debit  ?? 0), 0);
+    const totalCredit = body.lines.reduce((s, l) => s + (l.credit ?? 0), 0);
+    if (Math.abs(totalDebit - totalCredit) > 0.005) {
+      throw new UnprocessableError(
+        `Entry is unbalanced: debit ₹${totalDebit.toFixed(2)} ≠ credit ₹${totalCredit.toFixed(2)}`
+      );
+    }
+
+    await prisma.journalLine.deleteMany({ where: { journal_entry_id: id } });
+
+    const updated = await prisma.journalEntry.update({
+      where: { id },
+      data: {
+        entry_date: new Date(body.entry_date),
+        narration:  body.narration,
+        lines: {
+          create: body.lines.map(l => ({
+            account_id: l.account_id,
+            debit:      l.debit  ?? 0,
+            credit:     l.credit ?? 0,
+            narration:  l.narration,
+          })),
+        },
+      },
+      include: {
+        lines: { include: { account: { select: { code: true, name: true, type: true } } } },
+      },
+    });
+
+    return { data: updated };
+  }
+
   // ── BACKFILL: post all unposted historical transactions ───────────────────
   async backfillTransactions(associationId: string) {
     const accountCount = await prisma.account.count({ where: { association_id: associationId } });
@@ -466,6 +538,19 @@ class JournalService {
     const cashAcct = byCode('1001');
     const bankAcct = byCode('1002');
     const drOrCr   = (mode: string) => (mode === 'CASH' ? cashAcct : bankAcct) ?? bankAcct ?? cashAcct;
+
+    // ── Opening Balance: sync from DuesConfig cash_balance ───────────────────
+    const duesConfig = await prisma.duesConfig.findUnique({
+      where: { association_id: associationId },
+      select: { cash_balance: true, cash_balance_as_on: true },
+    });
+    if (duesConfig?.cash_balance && Number(duesConfig.cash_balance) > 0) {
+      await this.syncOpeningBalance(
+        associationId,
+        Number(duesConfig.cash_balance),
+        duesConfig.cash_balance_as_on ?? null,
+      );
+    }
 
     // Already-posted reference IDs (idempotency guard)
     const postedRefs = await prisma.journalEntry.findMany({

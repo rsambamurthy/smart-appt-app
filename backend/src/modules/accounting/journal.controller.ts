@@ -64,6 +64,17 @@ class JournalController {
       } catch (err) { next(err); }
     },
   ];
+
+  updateEntry = [
+    validate(createJournalEntrySchema),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+        const result = await journalService.updateEntry(req.params.id, associationId, req.body);
+        res.json(result);
+      } catch (err) { next(err); }
+    },
+  ];
 }
 
 export const journalController = new JournalController();

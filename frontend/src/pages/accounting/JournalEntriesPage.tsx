@@ -3,6 +3,7 @@ import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
   useListJournalEntriesQuery, useCreateJournalEntryMutation,
+  useUpdateJournalEntryMutation,
   useListAccountsQuery,
   JournalEntry, JournalLineInput,
 } from '../../store/api/accountingApi';
@@ -12,11 +13,12 @@ const fmt = (n: number) => n > 0 ? `₹${Number(n).toLocaleString('en-IN', { min
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
 const REF_LABELS: Record<string, string> = {
-  DUES_BILL:    'Dues Bill',
-  PAYMENT:      'Payment',
-  EXPENSE:      'Expense',
-  OTHER_RECEIPT:'Other Receipt',
-  MANUAL:       'Manual',
+  DUES_BILL:       'Dues Bill',
+  PAYMENT:         'Payment',
+  EXPENSE:         'Expense',
+  OTHER_RECEIPT:   'Other Receipt',
+  OPENING_BALANCE: 'Opening Balance',
+  MANUAL:          'Manual',
 };
 
 const TYPE_COLOR: Record<string, { bg: string; color: string; label: string }> = {
@@ -42,7 +44,8 @@ const fc: React.CSSProperties = {
 
 export default function JournalEntriesPage() {
   const [filter, setFilter] = useState<{ type: string; from: string; to: string }>({ type: '', from: '', to: '' });
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm]     = useState(false);
+  const [editTarget, setEditTarget] = useState<JournalEntry | null>(null);
 
   const { data, isLoading, refetch } = useListJournalEntriesQuery({
     type: filter.type || undefined,
@@ -50,22 +53,49 @@ export default function JournalEntriesPage() {
     to:   filter.to   || undefined,
   });
   const { data: accountsData } = useListAccountsQuery();
-  const [createEntry, { isLoading: isSaving }] = useCreateJournalEntryMutation();
+  const [createEntry, { isLoading: isCreating }] = useCreateJournalEntryMutation();
+  const [updateEntry, { isLoading: isUpdating }] = useUpdateJournalEntryMutation();
+  const isSaving = isCreating || isUpdating;
 
   const entries  = data?.data ?? [];
   const accounts = accountsData?.data ?? [];
 
-  // ── Manual entry form state ──────────────────────────────────────────────
-  const [entryDate, setEntryDate]   = useState(new Date().toISOString().slice(0, 10));
-  const [narration, setNarration]   = useState('');
-  const [lines, setLines]           = useState([emptyLine(), emptyLine()]);
-  const [formError, setFormError]   = useState('');
+  // ── Form state ───────────────────────────────────────────────────────────
+  const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
+  const [narration, setNarration] = useState('');
+  const [lines, setLines]         = useState([emptyLine(), emptyLine()]);
+  const [formError, setFormError] = useState('');
+
+  const openNewForm = () => {
+    setEditTarget(null);
+    setEntryDate(new Date().toISOString().slice(0, 10));
+    setNarration('');
+    setLines([emptyLine(), emptyLine()]);
+    setFormError('');
+    setShowForm(true);
+  };
+
+  const openEditForm = (entry: JournalEntry) => {
+    setEditTarget(entry);
+    setEntryDate(entry.entry_date.slice(0, 10));
+    setNarration(entry.narration);
+    setLines(entry.lines.map(l => ({
+      _key: Math.random(),
+      account_id: l.account_id,
+      debit:      Number(l.debit),
+      credit:     Number(l.credit),
+      narration:  l.narration ?? '',
+    })));
+    setFormError('');
+    setShowForm(true);
+  };
+
+  const closeForm = () => { setShowForm(false); setEditTarget(null); };
 
   const updateLine = (idx: number, field: string, value: string | number) => {
     setLines(ls => ls.map((l, i) => i === idx ? { ...l, [field]: value } : l));
   };
-
-  const addLine = () => setLines(ls => [...ls, emptyLine()]);
+  const addLine    = () => setLines(ls => [...ls, emptyLine()]);
   const removeLine = (idx: number) => setLines(ls => ls.filter((_, i) => i !== idx));
 
   const totalDebit  = lines.reduce((s, l) => s + (Number(l.debit)  || 0), 0);
@@ -79,20 +109,24 @@ export default function JournalEntriesPage() {
     if (!balanced) { setFormError(`Unbalanced: debit ₹${totalDebit.toFixed(2)} ≠ credit ₹${totalCredit.toFixed(2)}`); return; }
     if (totalDebit === 0) { setFormError('Entry amount cannot be zero.'); return; }
 
+    const payload = {
+      entry_date: entryDate,
+      narration,
+      lines: lines.map(({ account_id, debit, credit, narration: ln }) => ({
+        account_id,
+        debit:    Number(debit)  || 0,
+        credit:   Number(credit) || 0,
+        narration: ln || undefined,
+      })),
+    };
+
     try {
-      await createEntry({
-        entry_date: entryDate,
-        narration,
-        lines: lines.map(({ account_id, debit, credit, narration: ln }) => ({
-          account_id,
-          debit:    Number(debit)  || 0,
-          credit:   Number(credit) || 0,
-          narration: ln || undefined,
-        })),
-      }).unwrap();
-      setShowForm(false);
-      setNarration('');
-      setLines([emptyLine(), emptyLine()]);
+      if (editTarget) {
+        await updateEntry({ id: editTarget.id, ...payload }).unwrap();
+      } else {
+        await createEntry(payload).unwrap();
+      }
+      closeForm();
       refetch();
     } catch (e: unknown) {
       const err = e as { data?: { message?: string } };
@@ -123,10 +157,10 @@ export default function JournalEntriesPage() {
             <option value="AUTO">Auto-posted</option>
             <option value="MANUAL">Manual</option>
           </select>
-          <input type="date" style={{ ...fc, width: 145 }} value={filter.from} onChange={e => setFilter(f => ({ ...f, from: e.target.value }))} placeholder="From" />
-          <input type="date" style={{ ...fc, width: 145 }} value={filter.to}   onChange={e => setFilter(f => ({ ...f, to:   e.target.value }))} placeholder="To" />
+          <input type="date" style={{ ...fc, width: 145 }} value={filter.from} onChange={e => setFilter(f => ({ ...f, from: e.target.value }))} />
+          <input type="date" style={{ ...fc, width: 145 }} value={filter.to}   onChange={e => setFilter(f => ({ ...f, to:   e.target.value }))} />
           <div style={{ flex: 1, fontSize: 12.5, color: '#64748b' }}>{entries.length} entries</div>
-          <button onClick={() => { setShowForm(true); setFormError(''); }} style={{
+          <button onClick={openNewForm} style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '7px 14px', borderRadius: 7, border: 'none',
             background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer',
@@ -135,10 +169,12 @@ export default function JournalEntriesPage() {
           </button>
         </div>
 
-        {/* Manual entry form */}
+        {/* Entry form (new or edit) */}
         {showForm && (
           <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '18px 20px', marginBottom: 18 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>New Journal Entry</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>
+              {editTarget ? 'Edit Journal Entry' : 'New Journal Entry'}
+            </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '0 12px', marginBottom: 14 }}>
               <div>
@@ -225,9 +261,9 @@ export default function JournalEntriesPage() {
             {formError && <div style={{ fontSize: 12.5, color: '#dc2626', marginBottom: 10 }}>{formError}</div>}
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={handleSave} disabled={isSaving} style={{ padding: '7px 18px', borderRadius: 7, border: 'none', background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
-                {isSaving ? 'Saving…' : 'Post Entry'}
+                {isSaving ? 'Saving…' : editTarget ? 'Update Entry' : 'Post Entry'}
               </button>
-              <button onClick={() => setShowForm(false)} style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={closeForm} style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             </div>
           </div>
         )}
@@ -262,7 +298,16 @@ export default function JournalEntriesPage() {
                         </span>
                       )}
                       <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', flex: 1 }}>{entry.narration}</span>
-                      <span style={{ fontSize: 11.5, color: '#94a3b8' }}>{new Date(entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                        {new Date(entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {/* Edit button */}
+                      <button
+                        className="ent-ia ent-ia-edit"
+                        title="Edit entry"
+                        onClick={() => openEditForm(entry)}
+                        style={{ marginLeft: 4 }}
+                      />
                     </div>
 
                     {/* Lines */}
