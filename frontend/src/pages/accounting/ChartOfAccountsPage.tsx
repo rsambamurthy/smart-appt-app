@@ -283,8 +283,11 @@ export default function ChartOfAccountsPage() {
               <button onClick={() => { setDeleteTarget(null); setDeleteError(''); }} style={{ flex: 1, padding: '8px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
             </div>
           </div>
-        {/* ── Sync existing transactions ─────────────────────────────────── */}
-        {accounts.length > 0 && (
+        </>
+      )}
+
+      {/* ── Sync existing transactions ─────────────────────────────────── */}
+      {accounts.length > 0 && (
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginTop: 20 }}>
             <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
