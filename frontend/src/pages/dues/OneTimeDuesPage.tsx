@@ -350,7 +350,7 @@ export default function OneTimeDuesPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>Target Units</span>
                   {([true, false] as const).map((v) => (
-                    <label key={String(v)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875rem', cursor: 'pointer', margin: 0 }}>
+                    <label key={String(v)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875rem', cursor: 'pointer', margin: 0, whiteSpace: 'nowrap' }}>
                       <input
                         type="radio"
                         checked={form.target_all === v}

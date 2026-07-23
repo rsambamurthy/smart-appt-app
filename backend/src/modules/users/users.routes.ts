@@ -13,7 +13,7 @@ const router = Router();
 router.use(authenticate);
 
 // ── Units ─────────────────────────────────────────────────────────────────────
-router.get('/units', requireRoles(UserRole.MANAGER, UserRole.COMMITTEE), (req, res, next) =>
+router.get('/units', requireRoles(UserRole.MANAGER, UserRole.COMMITTEE, UserRole.TREASURER), (req, res, next) =>
   usersController.listUnits(req as never, res, next));
 
 router.post('/units', requireRoles(UserRole.MANAGER), validate(createUnitSchema), (req, res, next) =>
