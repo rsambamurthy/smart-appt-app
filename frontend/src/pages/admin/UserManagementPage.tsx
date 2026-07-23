@@ -5,13 +5,10 @@ import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
   useListUsersQuery, useCreateUserMutation, useUpdateUserMutation, useDeactivateUserMutation,
-  useListUnitsQuery, useCreateUnitMutation, useUpdateUnitMutation, useDeleteUnitMutation,
-  useBulkImportUsersMutation, useBulkImportUnitsMutation,
+  useListUnitsQuery, useBulkImportUsersMutation,
 } from '../../store/api/usersApi';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-type Tab = 'users' | 'units';
 
 const ROLES = ['SUPER_USER', 'MANAGER', 'RESIDENT', 'COMMITTEE', 'TREASURER', 'GATE_STAFF'] as const;
 
@@ -49,11 +46,6 @@ type UnitRecord = {
 type UserForm = {
   phone: string; name: string; email: string;
   role: string; unit_id: string; is_owner: boolean;
-};
-
-type UnitForm = {
-  flat_number: string; block: string; floor: string;
-  area_sqft: string; unit_type: string;
 };
 
 // ─── Shared UI ────────────────────────────────────────────────────────────────
@@ -611,188 +603,24 @@ function UsersTab() {
   );
 }
 
-// ─── Units Tab ────────────────────────────────────────────────────────────────
-
-const BLANK_UNIT: UnitForm = { flat_number: '', block: '', floor: '0', area_sqft: '', unit_type: '' };
-
-function UnitsTab() {
-  const [panel, setPanel] = useState<{ mode: 'add' | 'edit'; unit?: UnitRecord } | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [form, setForm] = useState<UnitForm>(BLANK_UNIT);
-  const [formError, setFormError] = useState('');
-  const [showBulkModal, setShowBulkModal] = useState(false);
-
-  const { data, isFetching, refetch } = useListUnitsQuery();
-  const [createUnit, { isLoading: creating }] = useCreateUnitMutation();
-  const [updateUnit, { isLoading: updating }] = useUpdateUnitMutation();
-  const [deleteUnit] = useDeleteUnitMutation();
-  const [bulkImportUnits] = useBulkImportUnitsMutation();
-
-  const units = (data?.data ?? []) as UnitRecord[];
-
-  const openAdd = () => { setForm(BLANK_UNIT); setFormError(''); setPanel({ mode: 'add' }); };
-  const openEdit = (u: UnitRecord) => {
-    setForm({ flat_number: u.flat_number, block: u.block ?? '', floor: String(u.floor), area_sqft: u.area_sqft ? String(u.area_sqft) : '', unit_type: u.unit_type ?? '' });
-    setFormError('');
-    setPanel({ mode: 'edit', unit: u });
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError('');
-    try {
-      const body = {
-        flat_number: form.flat_number, block: form.block || undefined,
-        floor: parseInt(form.floor, 10),
-        area_sqft: form.area_sqft ? parseFloat(form.area_sqft) : undefined,
-        unit_type: form.unit_type || undefined,
-      };
-      if (panel?.mode === 'add') { await createUnit(body).unwrap(); }
-      else if (panel?.unit) { await updateUnit({ id: panel.unit.id, body }).unwrap(); }
-      setPanel(null);
-      refetch();
-    } catch (err: unknown) {
-      setFormError((err as { data?: { detail?: string } })?.data?.detail ?? 'An error occurred.');
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!deleteConfirm) return;
-    try { await deleteUnit({ id: deleteConfirm }).unwrap(); } catch { /* ignore */ }
-    setDeleteConfirm(null);
-    refetch();
-  };
-
-  return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginBottom: 12 }}>
-        <button className="btn-secondary" style={{ fontSize: '0.85rem', padding: '6px 12px' }} onClick={() => downloadTemplate('units')}>⬇ Template</button>
-        <button className="btn-secondary" style={{ fontSize: '0.85rem', padding: '6px 12px' }} onClick={() => setShowBulkModal(true)}>📤 Bulk Upload</button>
-        <button className="ent-btn-add" onClick={openAdd}>+ Add Unit</button>
-      </div>
-
-      {isFetching ? (
-        <div className="skeleton" style={{ height: 240, borderRadius: 6 }} />
-      ) : units.length === 0 ? (
-        <div className="ent-page-table" style={{ padding: '3rem', textAlign: 'center', color: 'var(--color-muted)' }}>
-          No units found.{' '}
-          <button className="ent-btn-add" onClick={openAdd} style={{ marginLeft: '0.5rem' }}>Add the first unit</button>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {units.map((u) => (
-            <div key={u.id} className="ent-section" style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '1rem', alignItems: 'start', padding: '14px 16px', marginBottom: 0 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                  <Link
-                    to={`/admin/units/${u.id}`}
-                    style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--theme-accent)' }}
-                  >
-                    {u.block ? `${u.block}-` : ''}{u.flat_number}
-                  </Link>
-                  {u.unit_type && <span className="badge badge-blue">{u.unit_type}</span>}
-                  <span className="badge badge-gray">Floor {u.floor}</span>
-                  {u.area_sqft && <span style={{ color: 'var(--color-muted)', fontSize: '0.8rem' }}>{u.area_sqft} sqft</span>}
-                </div>
-                {u.users.length > 0 ? (
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {u.users.map((r) => (
-                      <span key={r.id} style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius)', padding: '2px 10px', fontSize: '0.8rem' }}>
-                        <strong>{r.name}</strong>
-                        <span style={{ color: 'var(--color-muted)', marginLeft: 4 }}>{r.is_owner ? 'Owner' : 'Tenant'}</span>
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <span style={{ color: 'var(--color-muted)', fontSize: '0.8rem' }}>Unoccupied</span>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <Link to={`/admin/units/${u.id}`} className="btn-secondary" style={{ padding: '4px 12px', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center' }}>
-                  View
-                </Link>
-                <button className="btn-secondary" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => openEdit(u)}>Edit</button>
-                <button className="btn-danger" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => setDeleteConfirm(u.id)} disabled={u.users.length > 0} title={u.users.length > 0 ? 'Remove residents before deleting' : 'Delete'}>Delete</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {panel && (
-        <SidePanel
-          title={panel.mode === 'add' ? 'Add Unit' : `Edit — ${panel.unit?.block ? panel.unit.block + '-' : ''}${panel.unit?.flat_number}`}
-          onClose={() => setPanel(null)}
-        >
-          {formError && <ErrorBox message={formError} />}
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            <div className="form-group"><label>Flat Number *</label><input type="text" value={form.flat_number} onChange={(e) => setForm({ ...form, flat_number: e.target.value })} required placeholder="e.g. 101" /></div>
-            <div className="form-group"><label>Block</label><input type="text" value={form.block} onChange={(e) => setForm({ ...form, block: e.target.value })} placeholder="e.g. A" /></div>
-            <div className="form-group"><label>Floor *</label><input type="number" value={form.floor} onChange={(e) => setForm({ ...form, floor: e.target.value })} required min={0} /></div>
-            <div className="form-group"><label>Unit Type</label><input type="text" value={form.unit_type} onChange={(e) => setForm({ ...form, unit_type: e.target.value })} placeholder="e.g. 2BHK, Studio" /></div>
-            <div className="form-group"><label>Area (sqft)</label><input type="number" value={form.area_sqft} onChange={(e) => setForm({ ...form, area_sqft: e.target.value })} min={0} step="0.01" placeholder="optional" /></div>
-            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
-              <button type="submit" className="btn-primary" style={{ flex: 1 }} disabled={creating || updating}>
-                {creating || updating ? 'Saving…' : panel.mode === 'add' ? 'Create Unit' : 'Save Changes'}
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setPanel(null)}>Cancel</button>
-            </div>
-          </form>
-        </SidePanel>
-      )}
-
-      {deleteConfirm && (
-        <ConfirmModal
-          message="Delete this unit permanently? This cannot be undone."
-          confirmLabel="Delete"
-          danger
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteConfirm(null)}
-        />
-      )}
-
-      {showBulkModal && (
-        <BulkImportModal
-          type="units"
-          units={units}
-          onClose={() => setShowBulkModal(false)}
-          onImport={async (records) => {
-            const res = await bulkImportUnits({ records }).unwrap();
-            refetch();
-            return res;
-          }}
-        />
-      )}
-    </>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function UserManagementPage() {
-  const [tab, setTab] = useState<Tab>('users');
-
   return (
     <Layout>
       <PageSubHeader
         crumbs={[
           { label: 'Admin', path: '/dashboard' },
-          { label: 'User Management' },
+          { label: 'Manage Users' },
         ]}
       />
 
       <div className="ent-page-hdr">
-        <h1>User Management</h1>
-        <p>Manage residents, staff, and apartment units for your association.</p>
+        <h1>Manage Users</h1>
+        <p>Manage residents and staff for your association.</p>
       </div>
 
-      {/* Tabs */}
-      <div className="ent-tabs">
-        <button className={`ent-tab${tab === 'users' ? ' active' : ''}`} onClick={() => setTab('users')}>Users</button>
-        <button className={`ent-tab${tab === 'units' ? ' active' : ''}`} onClick={() => setTab('units')}>Units / Flats</button>
-      </div>
-
-      {tab === 'users' ? <UsersTab /> : <UnitsTab />}
+      <UsersTab />
     </Layout>
   );
 }
