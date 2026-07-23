@@ -201,6 +201,7 @@ model Association {
   one_time_dues      OneTimeDue[]
   other_receipts     OtherReceipt[]
   accounts           Account[]
+  journal_entries    JournalEntry[]
 
   @@map("associations")
 }
@@ -865,10 +866,48 @@ model Account {
   created_at     DateTime    @default(now()) @db.Timestamptz
   updated_at     DateTime    @updatedAt @db.Timestamptz
 
-  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  association    Association  @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  journal_lines  JournalLine[]
 
   @@unique([association_id, code])
   @@map("accounts")
+}
+
+enum JournalEntryType {
+  AUTO
+  MANUAL
+}
+
+model JournalEntry {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String           @db.Uuid
+  entry_date     DateTime         @db.Date
+  narration      String           @db.VarChar(255)
+  reference_type String?          @db.VarChar(50)
+  reference_id   String?          @db.Uuid
+  type           JournalEntryType @default(MANUAL)
+  created_by     String?          @db.Uuid
+  created_at     DateTime         @default(now()) @db.Timestamptz
+
+  association    Association   @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  lines          JournalLine[]
+
+  @@index([association_id, entry_date(sort: Desc)])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  journal_entry_id String       @db.Uuid
+  account_id       String       @db.Uuid
+  debit            Decimal      @default(0) @db.Decimal(12, 2)
+  credit           Decimal      @default(0) @db.Decimal(12, 2)
+  narration        String?      @db.VarChar(255)
+
+  journal_entry    JournalEntry @relation(fields: [journal_entry_id], references: [id], onDelete: Cascade)
+  account          Account      @relation(fields: [account_id], references: [id])
+
+  @@map("journal_lines")
 }
 
 model MenuGroupConfig {

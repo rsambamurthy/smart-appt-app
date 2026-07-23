@@ -7,6 +7,7 @@ import {
   RecurringExpenseBody, CategoryConfigBody, UpdateCategoryConfigBody,
 } from './expenses.schema';
 import { ExpenseStatus, UserRole } from '@prisma/client';
+import { journalService } from '../accounting/journal.service';
 
 // Default categories seeded for every new association
 const DEFAULT_CATEGORIES = [
@@ -37,7 +38,7 @@ export class ExpensesService {
         payment_mode: body.payment_mode,
         description: body.description,
         invoice_s3_key: invoiceKey,
-        status: needsApproval ? ExpenseStatus.PENDING_APPROVAL : ExpenseStatus.RECORDED,
+        status:     needsApproval ? ExpenseStatus.PENDING_APPROVAL : ExpenseStatus.RECORDED,
         created_by: createdBy,
       },
     });
@@ -65,6 +66,18 @@ export class ExpensesService {
         new_value: body as never,
       },
     });
+
+    // Auto-post: DR Expense account / CR Cash or Bank (only if not pending approval)
+    if (!needsApproval) {
+      journalService.postExpense(
+        associationId,
+        expense.id,
+        body.amount,
+        body.payment_mode,
+        body.category,
+        body.description ?? body.category,
+      );
+    }
 
     return { data: expense };
   }

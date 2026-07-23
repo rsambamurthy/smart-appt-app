@@ -2,6 +2,7 @@ import prisma from '../../config/database';
 import { NotFoundError } from '../../utils/errors';
 import { paginatedResponse } from '../../utils/helpers';
 import { CreateReceiptBody } from './receipts.schema';
+import { journalService } from '../accounting/journal.service';
 
 export class ReceiptsService {
   async list(associationId: string, query: { cursor?: string; limit?: number }) {
@@ -28,6 +29,15 @@ export class ReceiptsService {
         recorded_by:    recordedBy,
       },
     });
+    // Auto-post: DR Cash/Bank / CR Other Receipts
+    journalService.postOtherReceipt(
+      associationId,
+      receipt.id,
+      body.amount,
+      body.payment_mode,
+      body.description ?? body.category,
+    );
+
     return { data: receipt };
   }
 

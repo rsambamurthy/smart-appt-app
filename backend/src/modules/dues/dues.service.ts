@@ -10,6 +10,7 @@ import {
   OneTimeDueBody, UpdateOneTimeDueBody, GenerateOneTimeDueBillsBody,
 } from './dues.schema';
 import { BillStatus, ExpenseStatus, OneTimeDueStatus, PaymentMode, UserRole } from '@prisma/client';
+import { journalService } from '../accounting/journal.service';
 
 // Default platform Razorpay instance (fallback if association has no own keys)
 const defaultRazorpay = new Razorpay({
@@ -145,6 +146,14 @@ export class DuesService {
         },
       });
       created.push(bill.id);
+
+      // Auto-post: DR Dues Receivable / CR Maintenance Income
+      journalService.postBillGenerated(
+        associationId,
+        bill.id,
+        baseAmount,
+        `Maintenance dues — ${unit.flat_number} (${body.month}/${body.year})`,
+      );
     }
 
     // Notify residents
@@ -305,6 +314,15 @@ export class DuesService {
 
     await prisma.bill.update({ where: { id: body.bill_id }, data: { status: BillStatus.PAID } });
 
+    // Auto-post: DR Bank Account / CR Dues Receivable (online = bank)
+    journalService.postPaymentReceived(
+      associationId,
+      payment.id,
+      Number(bill.total_amount),
+      'BANK',
+      `Online payment received — Bill ${body.bill_id.slice(0, 8)}`,
+    );
+
     await notificationService.dispatch({
       type: 'PAYMENT_RECEIVED',
       channels: ['PUSH', 'EMAIL'],
@@ -392,6 +410,15 @@ export class DuesService {
     const billTotal = Number(bill.total_amount);
     const newStatus = totalAmount >= billTotal ? BillStatus.PAID : BillStatus.PARTIAL;
     await prisma.bill.update({ where: { id: body.bill_id }, data: { status: newStatus } });
+
+    // Auto-post: DR Cash/Bank / CR Dues Receivable
+    journalService.postPaymentReceived(
+      associationId,
+      payment.id,
+      body.amount,
+      body.mode,
+      `Dues payment received — Bill ${body.bill_id.slice(0, 8)}`,
+    );
 
     return { data: payment };
   }

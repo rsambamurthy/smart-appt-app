@@ -92,6 +92,7 @@ const NAV_GROUPS: NavGroup[] = [
     landingPath: '/accounting/chart-of-accounts',
     items: [
       { id: 'chart_of_accounts', label: 'Chart of Accounts', path: '/accounting/chart-of-accounts', roles: ['SUPER_USER', 'MANAGER', 'TREASURER'], dot: '#2563eb', end: true },
+      { id: 'journal_entries',   label: 'Journal Entries',   path: '/accounting/journal',            roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#7c3aed', end: true },
     ],
   },
   {
