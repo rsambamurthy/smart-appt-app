@@ -79,7 +79,7 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'],
     landingPath: '/transactions/dashboard',
     items: [
-      { id: 'expenses_list',        label: 'Expenses List', path: '/expenses',            roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE'],             dot: '#f59e0b', end: true },
+      { id: 'expenses_list',        label: 'Expense', path: '/expenses',            roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE'],             dot: '#f59e0b', end: true },
       { id: 'dues_other_receipts',  label: 'Receipts',      path: '/dues/other-receipts', roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#14b8a6', end: true },
       { id: 'transactions_reports', label: 'Reports',       path: '/transactions/reports',roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#a855f7', end: true },
     ],
