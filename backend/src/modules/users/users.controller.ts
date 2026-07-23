@@ -107,6 +107,13 @@ export class UsersController {
       res.json(result);
     } catch (err) { next(err); }
   }
+
+  async bulkImportUnits(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await usersService.bulkImportUnits(req.user!.association_id, req.body.records);
+      res.json(result);
+    } catch (err) { next(err); }
+  }
 }
 
 export const usersController = new UsersController();

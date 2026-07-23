@@ -201,6 +201,22 @@ export class UsersService {
 
     return { data: results };
   }
+
+  async bulkImportUnits(associationId: string, records: CreateUnitBody[]) {
+    const results = { created: 0, skipped: 0, errors: [] as string[] };
+
+    for (const record of records) {
+      try {
+        await this.createUnit(associationId, record);
+        results.created++;
+      } catch (err) {
+        results.skipped++;
+        results.errors.push(`${record.flat_number}: ${(err as Error).message}`);
+      }
+    }
+
+    return { data: results };
+  }
 }
 
 export const usersService = new UsersService();

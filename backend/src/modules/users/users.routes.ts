@@ -49,4 +49,7 @@ router.post('/invites', requireRoles(UserRole.MANAGER), validate(inviteUserSchem
 router.post('/bulk-import', requireRoles(UserRole.MANAGER), (req, res, next) =>
   usersController.bulkImport(req as never, res, next));
 
+router.post('/units/bulk-import', requireRoles(UserRole.MANAGER), (req, res, next) =>
+  usersController.bulkImportUnits(req as never, res, next));
+
 export default router;

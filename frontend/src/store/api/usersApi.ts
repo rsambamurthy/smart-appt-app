@@ -45,6 +45,14 @@ export const usersApi = baseApi.injectEndpoints({
       query: ({ id, association_id }) => ({ url: `/users/units/${id}`, method: 'DELETE', params: association_id ? { association_id } : {} }),
       invalidatesTags: ['Unit'],
     }),
+    bulkImportUsers: builder.mutation<{ data: { created: number; skipped: number; errors: string[] } }, { records: object[] }>({
+      query: (body) => ({ url: '/users/bulk-import', method: 'POST', body }),
+      invalidatesTags: ['User', 'Unit'],
+    }),
+    bulkImportUnits: builder.mutation<{ data: { created: number; skipped: number; errors: string[] } }, { records: object[] }>({
+      query: (body) => ({ url: '/users/units/bulk-import', method: 'POST', body }),
+      invalidatesTags: ['Unit'],
+    }),
   }),
 });
 
@@ -59,4 +67,6 @@ export const {
   useCreateUnitMutation,
   useUpdateUnitMutation,
   useDeleteUnitMutation,
+  useBulkImportUsersMutation,
+  useBulkImportUnitsMutation,
 } = usersApi;
