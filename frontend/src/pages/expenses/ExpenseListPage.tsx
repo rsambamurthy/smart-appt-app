@@ -144,7 +144,7 @@ export default function ExpenseListPage() {
 
   return (
     <Layout>
-      <PageSubHeader crumbs={[{ label: 'Expenses', to: '/expenses' }, { label: 'Expense List' }]} />
+      <PageSubHeader crumbs={[{ label: 'Expenses', to: '/expenses' }, { label: 'Expense' }]} />
 
       <div style={{ padding: '1.5rem 2rem' }}>
 
