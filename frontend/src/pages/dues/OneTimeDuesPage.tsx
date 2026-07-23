@@ -9,6 +9,7 @@ import {
   useGenerateOneTimeDueBillsMutation,
   useCloseOneTimeDueMutation,
 } from '../../store/api/duesApi';
+import { useListUnitsQuery } from '../../store/api/usersApi';
 
 interface OneTimeDue {
   id: string;
@@ -19,8 +20,11 @@ interface OneTimeDue {
   due_date: string;
   status: 'DRAFT' | 'BILLS_GENERATED' | 'CLOSED';
   bills_count: number;
+  target_unit_ids: string[];
   created_at: string;
 }
+
+interface Unit { id: string; flat_number: string; block?: string; }
 
 interface DueForm {
   title: string;
@@ -28,10 +32,13 @@ interface DueForm {
   charge_type: 'FIXED' | 'RATE_PER_SQFT';
   amount: string;
   due_date: string;
+  target_all: boolean;
+  target_unit_ids: string[];
 }
 
 const emptyForm = (): DueForm => ({
   title: '', description: '', charge_type: 'FIXED', amount: '', due_date: '',
+  target_all: true, target_unit_ids: [],
 });
 
 const STATUS_META: Record<string, { label: string; bg: string; color: string }> = {
@@ -43,6 +50,9 @@ const STATUS_META: Record<string, { label: string; bg: string; color: string }> 
 export default function OneTimeDuesPage() {
   const { data, isLoading } = useListOneTimeDuesQuery();
   const dues = (data?.data ?? []) as OneTimeDue[];
+
+  const { data: unitsData } = useListUnitsQuery();
+  const units = (unitsData?.data ?? []) as Unit[];
 
   const [createOneTimeDue] = useCreateOneTimeDueMutation();
   const [updateOneTimeDue] = useUpdateOneTimeDueMutation();
@@ -83,12 +93,15 @@ export default function OneTimeDuesPage() {
 
   const openEdit = (d: OneTimeDue) => {
     setEditingId(d.id);
+    const ids = d.target_unit_ids ?? [];
     setForm({
-      title:       d.title,
-      description: d.description ?? '',
-      charge_type: d.charge_type,
-      amount:      d.amount,
-      due_date:    d.due_date.slice(0, 10),
+      title:           d.title,
+      description:     d.description ?? '',
+      charge_type:     d.charge_type,
+      amount:          d.amount,
+      due_date:        d.due_date.slice(0, 10),
+      target_all:      ids.length === 0,
+      target_unit_ids: ids,
     });
     setFormError('');
     setShowForm(true);
@@ -100,16 +113,20 @@ export default function OneTimeDuesPage() {
     if (!form.due_date)       { setFormError('Due date is required.'); return; }
     const amt = parseFloat(form.amount);
     if (isNaN(amt) || amt <= 0) { setFormError('Amount must be a positive number.'); return; }
+    if (!form.target_all && form.target_unit_ids.length === 0) {
+      setFormError('Please select at least one unit, or switch to "All Units".'); return;
+    }
 
     setSaving(true);
     setFormError('');
     try {
       const payload = {
-        title:       form.title.trim(),
-        description: form.description.trim() || undefined,
-        charge_type: form.charge_type,
-        amount:      amt,
-        due_date:    form.due_date,
+        title:           form.title.trim(),
+        description:     form.description.trim() || undefined,
+        charge_type:     form.charge_type,
+        amount:          amt,
+        due_date:        form.due_date,
+        target_unit_ids: form.target_all ? [] : form.target_unit_ids,
       };
       if (editingId) {
         await updateOneTimeDue({ id: editingId, body: payload }).unwrap();
@@ -219,6 +236,17 @@ export default function OneTimeDuesPage() {
                         <td>
                           <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{d.title}</div>
                           {d.description && <div style={{ fontSize: '0.78rem', color: 'var(--color-muted)', marginTop: 2 }}>{d.description}</div>}
+                          <div style={{ marginTop: 4 }}>
+                            {(d.target_unit_ids ?? []).length === 0 ? (
+                              <span style={{ fontSize: '0.7rem', padding: '1px 7px', borderRadius: 3, background: '#f0f9ff', color: '#0284c7', border: '1px solid #bae6fd' }}>
+                                All Units
+                              </span>
+                            ) : (
+                              <span style={{ fontSize: '0.7rem', padding: '1px 7px', borderRadius: 3, background: '#fef9c3', color: '#854d0e', border: '1px solid #fde68a' }}>
+                                {(d.target_unit_ids ?? []).length} unit{(d.target_unit_ids ?? []).length !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td style={{ fontWeight: 600, fontSize: '0.875rem' }}>
                           {fmtAmount(d)}
@@ -314,6 +342,51 @@ export default function OneTimeDuesPage() {
               <div>
                 <label style={labelStyle}>Due Date *</label>
                 <input style={inputStyle} type="date" value={form.due_date} onChange={setF('due_date')} />
+              </div>
+
+              {/* Unit targeting */}
+              <div>
+                <label style={labelStyle}>Target Units</label>
+                <div style={{ display: 'flex', gap: '1.5rem', marginBottom: form.target_all ? 0 : '0.5rem' }}>
+                  {([true, false] as const).map((v) => (
+                    <label key={String(v)} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.875rem', cursor: 'pointer' }}>
+                      <input
+                        type="radio"
+                        checked={form.target_all === v}
+                        onChange={() => setForm((f) => ({ ...f, target_all: v, target_unit_ids: [] }))}
+                      />
+                      {v ? 'All Units' : 'Specific Units'}
+                    </label>
+                  ))}
+                </div>
+                {!form.target_all && (
+                  <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid var(--color-border)', borderRadius: 6, padding: '0.5rem 0.75rem' }}>
+                    {units.length === 0 ? (
+                      <div style={{ color: 'var(--color-muted)', fontSize: '0.8rem' }}>No units found.</div>
+                    ) : units.map((u) => (
+                      <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: '0.875rem', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={form.target_unit_ids.includes(u.id)}
+                          onChange={(e) => {
+                            setForm((f) => ({
+                              ...f,
+                              target_unit_ids: e.target.checked
+                                ? [...f.target_unit_ids, u.id]
+                                : f.target_unit_ids.filter((x) => x !== u.id),
+                            }));
+                          }}
+                        />
+                        {u.block ? `${u.block} - ${u.flat_number}` : u.flat_number}
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {!form.target_all && form.target_unit_ids.length === 0 && (
+                  <div style={{ fontSize: '0.75rem', color: '#b45309', marginTop: 4 }}>
+                    Select at least one unit, or switch to "All Units".
+                  </div>
+                )}
               </div>
             </div>
 

@@ -30,6 +30,7 @@ import RegisterAssociationPage from './pages/RegisterAssociationPage';
 import AssociationManagementPage from './pages/admin/AssociationManagementPage';
 import AssociationDetailPage from './pages/admin/AssociationDetailPage';
 import OneTimeDuesPage from './pages/dues/OneTimeDuesPage';
+import OtherReceiptsPage from './pages/receipts/OtherReceiptsPage';
 import MenuConfigPage from './pages/admin/MenuConfigPage';
 import ChangeMpinPage from './pages/ChangeMpinPage';
 
@@ -67,6 +68,7 @@ export default function App() {
         <Route path="/dues/my-bills" element={<RoleRoute roles={['RESIDENT']}><MyBillsPage /></RoleRoute>} />
         <Route path="/dues/pay/:billId" element={<RoleRoute roles={['RESIDENT']}><PaymentPage /></RoleRoute>} />
         <Route path="/dues/one-time-dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OneTimeDuesPage /></RoleRoute>} />
+        <Route path="/dues/other-receipts" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OtherReceiptsPage /></RoleRoute>} />
 
         {/* Expenses */}
         <Route path="/expenses" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseListPage /></RoleRoute>} />

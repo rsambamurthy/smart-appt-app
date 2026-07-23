@@ -198,6 +198,7 @@ model Association {
   audit_logs         AuditLog[]
   invites            UserInvite[]
   one_time_dues      OneTimeDue[]
+  other_receipts     OtherReceipt[]
 
   @@map("associations")
 }
@@ -299,6 +300,7 @@ model User {
   recurring_expenses    RecurringExpense[]
   vendors_created       Vendor[]
   one_time_dues_created OneTimeDue[] @relation("OneTimeDueCreator")
+  other_receipts        OtherReceipt[]
 
   @@unique([association_id, phone])
   @@index([phone])
@@ -482,10 +484,11 @@ model OneTimeDue {
   charge_type    ChargeType       @default(FIXED)
   amount         Decimal          @db.Decimal(10, 2)
   due_date       DateTime         @db.Date
-  status         OneTimeDueStatus @default(DRAFT)
-  bills_count    Int              @default(0)
-  created_by     String           @db.Uuid
-  creator        User             @relation("OneTimeDueCreator", fields: [created_by], references: [id])
+  status          OneTimeDueStatus @default(DRAFT)
+  bills_count     Int              @default(0)
+  target_unit_ids String[]
+  created_by      String           @db.Uuid
+  creator         User             @relation("OneTimeDueCreator", fields: [created_by], references: [id])
   bills          Bill[]
   created_at     DateTime         @default(now()) @db.Timestamptz
   updated_at     DateTime         @updatedAt @db.Timestamptz
@@ -518,6 +521,27 @@ model Payment {
   @@index([unit_id])
   @@index([payment_date])
   @@map("payments")
+}
+
+model OtherReceipt {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  receipt_date   DateTime    @db.Date
+  amount         Decimal     @db.Decimal(10, 2)
+  category       String      @db.VarChar(100)
+  description    String?     @db.Text
+  received_from  String?     @db.VarChar(255)
+  payment_mode   PaymentMode
+  recorded_by    String      @db.Uuid
+  recorder       User        @relation(fields: [recorded_by], references: [id])
+  created_at     DateTime    @default(now()) @db.Timestamptz
+  updated_at     DateTime    @updatedAt @db.Timestamptz
+  deleted_at     DateTime?   @db.Timestamptz
+
+  @@index([association_id])
+  @@index([receipt_date])
+  @@map("other_receipts")
 }
 
 model Vendor {

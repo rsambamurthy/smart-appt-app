@@ -382,7 +382,7 @@ export class DuesService {
 
   // ── Dashboard ────────────────────────────────────────────────────────────────
   async getDashboard(associationId: string) {
-    const [totalOutstanding, monthlyCollected, totalCollected, arrearsCount, duesConfig, ytdTrend] = await Promise.all([
+    const [totalOutstanding, monthlyCollected, totalCollected, otherReceiptsTotal, arrearsCount, duesConfig, ytdTrend] = await Promise.all([
       prisma.bill.aggregate({
         where: { association_id: associationId, status: { in: [BillStatus.UNPAID, BillStatus.PARTIAL] } },
         _sum: { total_amount: true },
@@ -396,6 +396,10 @@ export class DuesService {
       }),
       prisma.payment.aggregate({
         where: { association_id: associationId },
+        _sum: { amount: true },
+      }),
+      prisma.otherReceipt.aggregate({
+        where: { association_id: associationId, deleted_at: null },
         _sum: { amount: true },
       }),
       prisma.bill.findMany({
@@ -420,15 +424,18 @@ export class DuesService {
       `,
     ]);
 
+    const billingCollected = Number(totalCollected._sum.amount ?? 0);
+    const otherCollected   = Number(otherReceiptsTotal._sum.amount ?? 0);
+
     return {
       data: {
         total_outstanding: totalOutstanding._sum.total_amount ?? 0,
         monthly_collected: monthlyCollected._sum.amount ?? 0,
-        total_collected: totalCollected._sum.amount ?? 0,
-        arrears_count: arrearsCount.length,
-        cash_balance: duesConfig?.cash_balance ?? null,
+        total_collected:   billingCollected + otherCollected,
+        arrears_count:     arrearsCount.length,
+        cash_balance:      duesConfig?.cash_balance ?? null,
         cash_balance_as_on: duesConfig?.cash_balance_as_on ?? null,
-        ytd_trend: ytdTrend,
+        ytd_trend:         ytdTrend,
       },
     };
   }
@@ -437,13 +444,14 @@ export class DuesService {
   async createOneTimeDue(associationId: string, body: OneTimeDueBody, createdBy: string) {
     const due = await prisma.oneTimeDue.create({
       data: {
-        association_id: associationId,
-        title:          body.title,
-        description:    body.description,
-        charge_type:    body.charge_type ?? 'FIXED',
-        amount:         body.amount,
-        due_date:       new Date(body.due_date),
-        created_by:     createdBy,
+        association_id:  associationId,
+        title:           body.title,
+        description:     body.description,
+        charge_type:     body.charge_type ?? 'FIXED',
+        amount:          body.amount,
+        due_date:        new Date(body.due_date),
+        target_unit_ids: body.target_unit_ids ?? [],
+        created_by:      createdBy,
       },
     });
     return { data: due };
@@ -472,11 +480,12 @@ export class DuesService {
     const updated = await prisma.oneTimeDue.update({
       where: { id },
       data: {
-        title:       body.title,
-        description: body.description,
-        charge_type: body.charge_type,
-        amount:      body.amount,
-        due_date:    body.due_date ? new Date(body.due_date) : undefined,
+        title:           body.title,
+        description:     body.description,
+        charge_type:     body.charge_type,
+        amount:          body.amount,
+        due_date:        body.due_date ? new Date(body.due_date) : undefined,
+        target_unit_ids: body.target_unit_ids,
       },
     });
     return { data: updated };
@@ -499,8 +508,13 @@ export class DuesService {
       throw new UnprocessableError('Bills have already been generated for this one-time due.');
     }
 
-    const units = body.unit_ids
-      ? await prisma.unit.findMany({ where: { id: { in: body.unit_ids }, association_id: associationId } })
+    // Precedence: body.unit_ids (explicit override) → due.target_unit_ids (set at creation) → all units
+    const resolvedUnitIds: string[] | null =
+      body.unit_ids && body.unit_ids.length > 0 ? body.unit_ids :
+      due.target_unit_ids.length > 0 ? due.target_unit_ids : null;
+
+    const units = resolvedUnitIds
+      ? await prisma.unit.findMany({ where: { id: { in: resolvedUnitIds }, association_id: associationId } })
       : await prisma.unit.findMany({ where: { association_id: associationId } });
 
     const dueDate = due.due_date;

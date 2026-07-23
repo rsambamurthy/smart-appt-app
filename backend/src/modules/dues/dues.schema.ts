@@ -44,11 +44,12 @@ export const createLevySchema = z.object({
 });
 
 export const oneTimeDueSchema = z.object({
-  title:       z.string().min(2).max(255),
-  description: z.string().max(1000).optional(),
-  charge_type: z.nativeEnum(ChargeType).default('FIXED'),
-  amount:      z.number().positive(),
-  due_date:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'due_date must be YYYY-MM-DD'),
+  title:           z.string().min(2).max(255),
+  description:     z.string().max(1000).optional(),
+  charge_type:     z.nativeEnum(ChargeType).default('FIXED'),
+  amount:          z.number().positive(),
+  due_date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'due_date must be YYYY-MM-DD'),
+  target_unit_ids: z.array(z.string().uuid()).optional().default([]),
 });
 
 export const updateOneTimeDueSchema = oneTimeDueSchema.partial();

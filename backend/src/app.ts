@@ -22,6 +22,7 @@ import visitorsRouter from './modules/visitors/visitors.routes';
 import adminRouter from './modules/admin/admin.routes';
 import associationsRouter from './modules/associations/associations.routes';
 import systemRouter from './modules/system/system.routes';
+import receiptsRouter from './modules/receipts/receipts.routes';
 import { associationsController } from './modules/associations/associations.controller';
 import { validate } from './middleware/validate';
 import { registerAssociationSchema } from './modules/associations/associations.schema';
@@ -101,6 +102,7 @@ app.post(`${API}/associations/register`, validate(registerAssociationSchema), (r
   associationsController.register(req, res, next));
 app.use(`${API}/associations`, associationsRouter);
 app.use(`${API}/system`, systemRouter);
+app.use(`${API}/receipts`, receiptsRouter);
 
 // ── Error handling ────────────────────────────────────────────────────────────
 app.use(notFoundHandler);

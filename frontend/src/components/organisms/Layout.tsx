@@ -78,6 +78,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'dues_config', label: 'Fee Configuration', path: '/dues/config', roles: ['SUPER_USER', 'TREASURER'], dot: '#a855f7', end: true },
       { id: 'dues_my_bills', label: 'My Bills', path: '/dues/my-bills', roles: ['SUPER_USER', 'RESIDENT'], dot: '#f59e0b', end: true },
       { id: 'dues_one_time', label: 'One-Time Dues', path: '/dues/one-time-dues', roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#ec4899', end: true },
+      { id: 'dues_other_receipts', label: 'Other Receipts', path: '/dues/other-receipts', roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#14b8a6', end: true },
     ],
   },
   {
