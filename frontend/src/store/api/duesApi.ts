@@ -20,6 +20,7 @@ export const duesApi = baseApi.injectEndpoints({
     updateOneTimeDue: builder.mutation<{ data: unknown }, { id: string; body: object }>({ query: ({ id, body }) => ({ url: `/dues/one-time-dues/${id}`, method: 'PATCH', body }), invalidatesTags: ['Bill'] }),
     deleteOneTimeDue: builder.mutation<{ data: null }, string>({ query: (id) => ({ url: `/dues/one-time-dues/${id}`, method: 'DELETE' }), invalidatesTags: ['Bill'] }),
     generateOneTimeDueBills: builder.mutation<{ data: { created: number; skipped: number } }, { id: string; body: object }>({ query: ({ id, body }) => ({ url: `/dues/one-time-dues/${id}/generate-bills`, method: 'POST', body }), invalidatesTags: ['Bill'] }),
+    deleteOneTimeDueBills: builder.mutation<{ data: { deleted: boolean } }, string>({ query: (id) => ({ url: `/dues/one-time-dues/${id}/bills`, method: 'DELETE' }), invalidatesTags: ['Bill'] }),
     closeOneTimeDue: builder.mutation<{ data: unknown }, string>({ query: (id) => ({ url: `/dues/one-time-dues/${id}/close`, method: 'POST', body: {} }), invalidatesTags: ['Bill'] }),
   }),
 });
@@ -30,5 +31,5 @@ export const {
   useVerifyPaymentMutation,
   useRecordOfflinePaymentMutation, useGetArrearsQuery, useCreateLevyMutation, useGetDuesDashboardQuery,
   useListOneTimeDuesQuery, useCreateOneTimeDueMutation, useUpdateOneTimeDueMutation,
-  useDeleteOneTimeDueMutation, useGenerateOneTimeDueBillsMutation, useCloseOneTimeDueMutation,
+  useDeleteOneTimeDueMutation, useGenerateOneTimeDueBillsMutation, useDeleteOneTimeDueBillsMutation, useCloseOneTimeDueMutation,
 } = duesApi;

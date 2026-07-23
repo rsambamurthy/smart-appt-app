@@ -77,6 +77,9 @@ router.delete('/one-time-dues/:id', treasurerOrManager, (req, res, next) =>
 router.post('/one-time-dues/:id/generate-bills', treasurerOrManager, validate(generateOneTimeDueBillsSchema), (req, res, next) =>
   duesController.generateOneTimeDueBills(req as never, res, next));
 
+router.delete('/one-time-dues/:id/bills', requireRoles(UserRole.TREASURER), (req, res, next) =>
+  duesController.deleteOneTimeDueBills(req as never, res, next));
+
 router.post('/one-time-dues/:id/close', treasurerOrManager, (req, res, next) =>
   duesController.closeOneTimeDue(req as never, res, next));
 

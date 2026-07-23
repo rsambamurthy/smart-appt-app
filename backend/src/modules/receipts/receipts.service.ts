@@ -34,7 +34,7 @@ export class ReceiptsService {
   async remove(associationId: string, id: string) {
     const receipt = await prisma.otherReceipt.findFirst({ where: { id, association_id: associationId, deleted_at: null } });
     if (!receipt) throw new NotFoundError('Receipt');
-    await prisma.otherReceipt.update({ where: { id }, data: { deleted_at: new Date() } });
+    await prisma.otherReceipt.delete({ where: { id } });
     return { data: null };
   }
 }

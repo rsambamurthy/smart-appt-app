@@ -112,6 +112,11 @@ export class DuesController {
     catch (err) { next(err); }
   }
 
+  async deleteOneTimeDueBills(req: AuthRequest, res: Response, next: NextFunction) {
+    try { res.json(await duesService.deleteOneTimeDueBills(req.user!.association_id, req.params.id)); }
+    catch (err) { next(err); }
+  }
+
   async generateOneTimeDueBills(req: AuthRequest, res: Response, next: NextFunction) {
     try { res.json(await duesService.generateOneTimeDueBills(req.user!.association_id, req.params.id, req.body)); }
     catch (err) { next(err); }

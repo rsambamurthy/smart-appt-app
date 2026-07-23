@@ -7,6 +7,7 @@ import {
   useUpdateOneTimeDueMutation,
   useDeleteOneTimeDueMutation,
   useGenerateOneTimeDueBillsMutation,
+  useDeleteOneTimeDueBillsMutation,
   useCloseOneTimeDueMutation,
 } from '../../store/api/duesApi';
 import { useListUnitsQuery } from '../../store/api/usersApi';
@@ -38,7 +39,8 @@ interface DueForm {
 }
 
 const emptyForm = (): DueForm => ({
-  title: '', description: '', charge_type: 'FIXED', amount: '', due_date: '',
+  title: '', description: '', charge_type: 'FIXED', amount: '',
+  due_date: new Date().toISOString().slice(0, 10),
   target_all: true, target_unit_ids: [],
 });
 
@@ -55,11 +57,12 @@ export default function OneTimeDuesPage() {
   const { data: unitsData } = useListUnitsQuery();
   const units = (unitsData?.data ?? []) as Unit[];
 
-  const [createOneTimeDue] = useCreateOneTimeDueMutation();
-  const [updateOneTimeDue] = useUpdateOneTimeDueMutation();
-  const [deleteOneTimeDue] = useDeleteOneTimeDueMutation();
-  const [generateBills]    = useGenerateOneTimeDueBillsMutation();
-  const [closeOneTimeDue]  = useCloseOneTimeDueMutation();
+  const [createOneTimeDue]    = useCreateOneTimeDueMutation();
+  const [updateOneTimeDue]    = useUpdateOneTimeDueMutation();
+  const [deleteOneTimeDue]    = useDeleteOneTimeDueMutation();
+  const [generateBills]       = useGenerateOneTimeDueBillsMutation();
+  const [deleteOneTimeDueBills] = useDeleteOneTimeDueBillsMutation();
+  const [closeOneTimeDue]     = useCloseOneTimeDueMutation();
 
   // Create / Edit form state
   const [showForm, setShowForm]     = useState(false);
@@ -81,6 +84,11 @@ export default function OneTimeDuesPage() {
 
   // Close confirm modal
   const [closeTarget, setCloseTarget] = useState<OneTimeDue | null>(null);
+
+  // Delete bills confirm modal
+  const [deleteBillsTarget, setDeleteBillsTarget] = useState<OneTimeDue | null>(null);
+  const [deletingBills, setDeletingBills]         = useState(false);
+  const [deleteBillsError, setDeleteBillsError]   = useState('');
 
   const setF = (k: keyof DueForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -174,6 +182,19 @@ export default function OneTimeDuesPage() {
       await closeOneTimeDue(closeTarget.id).unwrap();
       setCloseTarget(null);
     } catch { /* ignore */ }
+  };
+
+  const handleDeleteBills = async () => {
+    if (!deleteBillsTarget) return;
+    setDeletingBills(true);
+    setDeleteBillsError('');
+    try {
+      await deleteOneTimeDueBills(deleteBillsTarget.id).unwrap();
+      setDeleteBillsTarget(null);
+    } catch (e: unknown) {
+      const err = e as { data?: { detail?: string; title?: string } };
+      setDeleteBillsError(err?.data?.detail ?? err?.data?.title ?? 'Delete failed.');
+    } finally { setDeletingBills(false); }
   };
 
   const fmtAmount = (d: OneTimeDue) =>
@@ -277,13 +298,22 @@ export default function OneTimeDuesPage() {
                             </>
                           )}
                           {d.status === 'BILLS_GENERATED' && (
-                            <button
-                              title="Close this one-time due"
-                              onClick={() => setCloseTarget(d)}
-                              style={{ padding: '3px 8px', fontSize: '0.75rem', borderRadius: 4, cursor: 'pointer', border: '1px solid var(--color-border)', background: '#f9fafb', color: 'var(--color-muted)', fontWeight: 600 }}
-                            >
-                              Close
-                            </button>
+                            <>
+                              <button
+                                title="Hard-delete all generated bills (resets to Draft)"
+                                onClick={() => { setDeleteBillsTarget(d); setDeleteBillsError(''); }}
+                                style={{ marginRight: 4, padding: '3px 8px', fontSize: '0.75rem', borderRadius: 4, cursor: 'pointer', border: '1px solid #fca5a5', background: '#fef2f2', color: '#dc2626', fontWeight: 600 }}
+                              >
+                                Delete Bills
+                              </button>
+                              <button
+                                title="Close this one-time due"
+                                onClick={() => setCloseTarget(d)}
+                                style={{ padding: '3px 8px', fontSize: '0.75rem', borderRadius: 4, cursor: 'pointer', border: '1px solid var(--color-border)', background: '#f9fafb', color: 'var(--color-muted)', fontWeight: 600 }}
+                              >
+                                Close
+                              </button>
+                            </>
                           )}
                           {d.status === 'CLOSED' && (
                             <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>—</span>
@@ -366,12 +396,13 @@ export default function OneTimeDuesPage() {
                       <div style={{ padding: '0.75rem', color: 'var(--color-muted)', fontSize: '0.8rem' }}>No units found.</div>
                     ) : units.map((u) => {
                       const owner = u.users?.find((x) => x.is_owner) ?? u.users?.[0];
-                      const flatLabel = u.block ? `${u.block} - ${u.flat_number}` : u.flat_number;
+                      const flatLabel = u.block ? `${u.block}-${u.flat_number}` : u.flat_number;
                       const occupantLabel = owner ? owner.name : 'Vacant';
                       return (
-                        <label key={u.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', fontSize: '0.875rem', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}>
+                        <label key={u.id} style={{ display: 'grid', gridTemplateColumns: '20px 100px 1fr', alignItems: 'center', gap: 10, padding: '6px 12px', cursor: 'pointer', borderBottom: '1px solid #f1f5f9' }}>
                           <input
                             type="checkbox"
+                            style={{ margin: 0 }}
                             checked={form.target_unit_ids.includes(u.id)}
                             onChange={(e) => {
                               setForm((f) => ({
@@ -382,8 +413,8 @@ export default function OneTimeDuesPage() {
                               }));
                             }}
                           />
-                          <span style={{ fontWeight: 600, minWidth: 70 }}>{flatLabel}</span>
-                          <span style={{ color: 'var(--color-muted)', fontSize: '0.82rem' }}>{occupantLabel}</span>
+                          <span style={{ fontWeight: 600, fontSize: '0.875rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{flatLabel}</span>
+                          <span style={{ color: 'var(--color-muted)', fontSize: '0.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{occupantLabel}</span>
                         </label>
                       );
                     })}
@@ -483,6 +514,33 @@ export default function OneTimeDuesPage() {
             <div style={{ display: 'flex', gap: '0.6rem' }}>
               <button className="ent-btn-submit" style={{ flex: 1 }} onClick={handleClose}>Close Due</button>
               <button className="ent-btn-cancel" style={{ flex: 1 }} onClick={() => setCloseTarget(null)}>Cancel</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Delete Bills confirm modal ──────────────────────────────────────── */}
+      {deleteBillsTarget && (
+        <>
+          <div onClick={() => !deletingBills && setDeleteBillsTarget(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 200 }} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', borderRadius: 8, padding: '1.5rem', width: 440, boxShadow: '0 8px 32px rgba(0,0,0,0.2)', zIndex: 201 }}>
+            <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>Delete Generated Bills?</div>
+            <div style={{ fontSize: '0.875rem', color: 'var(--color-muted)', marginBottom: '0.75rem' }}>
+              This will <strong>permanently delete all {deleteBillsTarget.bills_count} bills</strong> generated for <strong>{deleteBillsTarget.title}</strong> and reset it back to Draft. This cannot be undone.
+            </div>
+            <div style={{ padding: '0.6rem 0.75rem', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 6, fontSize: '0.82rem', color: '#92400e', marginBottom: '1rem' }}>
+              ⚠ Bills with existing payments cannot be deleted. Remove payments first.
+            </div>
+            {deleteBillsError && (
+              <div style={{ padding: '0.5rem 0.75rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#dc2626', fontSize: '0.85rem', marginBottom: '1rem' }}>
+                {deleteBillsError}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '0.6rem' }}>
+              <button className="ent-btn-submit" style={{ background: '#dc2626', flex: 1 }} onClick={handleDeleteBills} disabled={deletingBills}>
+                {deletingBills ? 'Deleting…' : 'Delete All Bills'}
+              </button>
+              <button className="ent-btn-cancel" style={{ flex: 1 }} onClick={() => setDeleteBillsTarget(null)}>Cancel</button>
             </div>
           </div>
         </>

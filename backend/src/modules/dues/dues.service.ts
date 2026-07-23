@@ -501,6 +501,18 @@ export class DuesService {
     return { data: null };
   }
 
+  async deleteOneTimeDueBills(associationId: string, id: string) {
+    const due = await prisma.oneTimeDue.findFirst({ where: { id, association_id: associationId } });
+    if (!due) throw new NotFoundError('One-time due');
+    if (due.status !== OneTimeDueStatus.BILLS_GENERATED) {
+      throw new UnprocessableError('No generated bills to delete for this one-time due.');
+    }
+    // Hard-delete all bills linked to this one-time due (payments cascade if no payments exist)
+    await prisma.bill.deleteMany({ where: { one_time_due_id: id, association_id: associationId } });
+    await prisma.oneTimeDue.update({ where: { id }, data: { status: OneTimeDueStatus.DRAFT, bills_count: 0 } });
+    return { data: { deleted: true } };
+  }
+
   async generateOneTimeDueBills(associationId: string, id: string, body: GenerateOneTimeDueBillsBody) {
     const due = await prisma.oneTimeDue.findFirst({ where: { id, association_id: associationId } });
     if (!due) throw new NotFoundError('One-time due');
