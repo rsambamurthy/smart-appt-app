@@ -223,19 +223,16 @@ export default function ChartOfAccountsPage() {
                                     {a.is_active ? 'Active' : 'Inactive'}
                                   </span>
                                 </td>
-                                <td style={{ padding: '10px 14px' }}>
-                                  <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                                    <button title="Edit" onClick={() => startEdit(a)} style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: '#fff', color: '#2563eb', cursor: 'pointer', fontSize: 13 }}>
-                                      <i className="ti ti-edit" aria-hidden="true" />
-                                    </button>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                    <button className="ent-ia ent-ia-edit" title="Edit" onClick={() => startEdit(a)}>✎</button>
                                     {!a.is_system && (
                                       <>
-                                        <button title={a.is_active ? 'Deactivate' : 'Activate'} onClick={() => toggleAccount(a.id)} style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', cursor: 'pointer', fontSize: 11, fontWeight: 500 }}>
-                                          {a.is_active ? 'Deactivate' : 'Activate'}
-                                        </button>
-                                        <button title="Delete" onClick={() => { setDeleteTarget(a); setDeleteError(''); }} style={{ padding: '4px 8px', borderRadius: 5, border: '1px solid #e2e8f0', background: '#fff', color: '#dc2626', cursor: 'pointer', fontSize: 13 }}>
-                                          <i className="ti ti-trash" aria-hidden="true" />
-                                        </button>
+                                        {a.is_active
+                                          ? <button className="ent-ia ent-ia-del" title="Deactivate" onClick={() => toggleAccount(a.id)}>⊗</button>
+                                          : <button className="ent-ia ent-ia-edit" title="Activate" onClick={() => toggleAccount(a.id)}>↺</button>
+                                        }
+                                        <button className="ent-ia ent-ia-del" title="Delete" onClick={() => { setDeleteTarget(a); setDeleteError(''); }}>🗑</button>
                                       </>
                                     )}
                                   </div>
