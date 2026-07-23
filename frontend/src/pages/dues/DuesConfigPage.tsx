@@ -92,10 +92,10 @@ export default function DuesConfigPage() {
 
   /* ── Card wrapper ── */
   const Card = ({
-    icon, iconBg, iconColor, title, subtitle,
+    icon, iconColor, title, subtitle,
     accent, children,
   }: {
-    icon: string; iconBg: string; iconColor: string;
+    icon: string; iconColor: string;
     title: string; subtitle: string;
     accent?: string;
     children: React.ReactNode;
@@ -109,16 +109,11 @@ export default function DuesConfigPage() {
       marginBottom: 16,
     }}>
       {/* Card header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, marginBottom: 4 }}>
-        <div style={{
-          width: 46, height: 46, borderRadius: 12, background: iconBg,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-        }}>
-          <i className={`ti ${icon}`} style={{ fontSize: 22, color: iconColor }} aria-hidden="true" />
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <i className={`ti ${icon}`} style={{ fontSize: 18, color: iconColor }} aria-hidden="true" />
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', lineHeight: 1.3 }}>{title}</div>
-          <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 3 }}>{subtitle}</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{title}</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{subtitle}</div>
         </div>
         {accent && (
           <div style={{
@@ -141,22 +136,6 @@ export default function DuesConfigPage() {
     <Layout>
       <div style={{ padding: '1.5rem 2rem 5rem', maxWidth: 860 }}>
 
-        {/* ── Page header ── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
-          <div style={{
-            width: 56, height: 56, borderRadius: 14, background: '#eff6ff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <i className="ti ti-file-invoice" style={{ fontSize: 28, color: '#2563eb' }} aria-hidden="true" />
-          </div>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1e293b', margin: 0 }}>Billing Configuration</h1>
-            <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 0' }}>
-              Configure billing, penalties, auto-generation and cash opening settings.
-            </p>
-          </div>
-        </div>
-
         {error && <div style={{ marginBottom: 14, padding: '10px 14px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 8, color: '#dc2626', fontSize: 13 }}>{error}</div>}
         {success && <div style={{ marginBottom: 14, padding: '10px 14px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, color: '#15803d', fontSize: 13 }}>✓ {success}</div>}
 
@@ -166,7 +145,7 @@ export default function DuesConfigPage() {
           <>
             {/* ── Monthly Charge ── */}
             <Card
-              icon="ti-calendar-stats" iconBg="#eff6ff" iconColor="#2563eb"
+              icon="ti-calendar-stats" iconColor="#2563eb"
               title="Monthly Charge"
               subtitle="Define the fixed amount and due day for monthly billing."
             >
@@ -207,7 +186,7 @@ export default function DuesConfigPage() {
 
             {/* ── Penalty ── */}
             <Card
-              icon="ti-percentage" iconBg="#f5f3ff" iconColor="#7c3aed"
+              icon="ti-percentage" iconColor="#7c3aed"
               title="Penalty"
               subtitle="Set penalty amount and grace period for overdue bills."
             >
@@ -238,7 +217,7 @@ export default function DuesConfigPage() {
 
             {/* ── Auto-Generate ── */}
             <Card
-              icon="ti-refresh" iconBg="#f0fdf4" iconColor="#16a34a"
+              icon="ti-refresh" iconColor="#16a34a"
               title="Auto-Generate Bills"
               subtitle="Automatically generate bills on a specific day each month."
               accent={form.auto_generate_bills ? '#22c55e' : undefined}
@@ -289,7 +268,7 @@ export default function DuesConfigPage() {
 
             {/* ── Cash Opening Balance ── */}
             <Card
-              icon="ti-wallet" iconBg="#eff6ff" iconColor="#2563eb"
+              icon="ti-wallet" iconColor="#2563eb"
               title="Cash Opening Balance"
               subtitle="Set the opening balance and effective date."
             >
