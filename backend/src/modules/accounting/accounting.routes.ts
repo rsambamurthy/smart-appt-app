@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { accountingController } from './accounting.controller';
-import { authenticate } from '../../middleware/authenticate';
-import { requireRoles } from '../../middleware/requireRoles';
+import { authenticate } from '../../middleware/auth';
+import { requireRoles } from '../../middleware/rbac';
 import { UserRole } from '@prisma/client';
 
 const router = Router();
