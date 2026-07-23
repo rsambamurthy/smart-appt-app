@@ -362,8 +362,6 @@ export default function ChartOfAccountsPage() {
           </div>
         )}
 
-      </>
-      )}
     </Layout>
   );
 }
