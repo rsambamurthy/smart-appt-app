@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
@@ -7,6 +8,7 @@ import {
   useCreateUnitMutation,
   useUpdateUnitMutation,
   useDeleteUnitMutation,
+  useBulkImportUnitsMutation,
 } from '../../store/api/usersApi';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -77,6 +79,189 @@ function ConfirmModal({ message, onConfirm, onCancel, confirmLabel = 'Confirm' }
   );
 }
 
+// ─── Bulk Import ─────────────────────────────────────────────────────────────
+
+interface ParsedRow {
+  _rowNum: number;
+  _error: string | null;
+  _data: Record<string, unknown>;
+  [key: string]: unknown;
+}
+interface ImportResult { created: number; skipped: number; errors: string[] }
+const UNIT_COLS = ['flat_number', 'block', 'floor', 'unit_type', 'area_sqft'];
+
+function downloadTemplate() {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([
+    UNIT_COLS,
+    ['101', 'A', 1, '2BHK', 850],
+    ['102', 'B', 2, '3BHK', 1200],
+  ]);
+  XLSX.utils.book_append_sheet(wb, ws, 'Units');
+  XLSX.writeFile(wb, 'units_template.xlsx');
+}
+
+function validateRow(row: Record<string, unknown>): string | null {
+  if (!String(row['flat_number'] ?? '').trim()) return 'flat_number is required';
+  const floorRaw = row['floor'];
+  if (floorRaw === '' || floorRaw == null) return 'floor is required';
+  const floor = Number(floorRaw);
+  if (isNaN(floor) || !Number.isInteger(floor) || floor < 0) return 'floor must be a whole number ≥ 0';
+  const area = row['area_sqft'];
+  if (area !== '' && area != null) {
+    const a = Number(area);
+    if (isNaN(a) || a <= 0) return 'area_sqft must be a positive number';
+  }
+  return null;
+}
+
+function BulkImportModal({ onClose, onImport }: {
+  onClose: () => void;
+  onImport: (records: object[]) => Promise<{ data: ImportResult }>;
+}) {
+  const [step, setStep] = useState<'upload' | 'preview' | 'result'>('upload');
+  const [rows, setRows] = useState<ParsedRow[]>([]);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [parseError, setParseError] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+  const validRows = rows.filter(r => !r._error);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setParseError('');
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = new Uint8Array(ev.target!.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' });
+        if (!jsonRows.length) { setParseError('No data rows found.'); return; }
+        setRows(jsonRows.map((row, i) => ({
+          _rowNum: i + 2,
+          _error: validateRow(row),
+          _data: {
+            flat_number: String(row['flat_number']).trim(),
+            block: String(row['block'] ?? '').trim() || undefined,
+            floor: Number(row['floor']),
+            unit_type: String(row['unit_type'] ?? '').trim() || undefined,
+            area_sqft: row['area_sqft'] ? Number(row['area_sqft']) : undefined,
+          },
+          ...row,
+        })));
+        setStep('preview');
+      } catch { setParseError('Could not parse the file. Use a valid .xlsx or .csv file.'); }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const handleImport = async () => {
+    setImporting(true);
+    try {
+      const res = await onImport(validRows.map(r => r._data));
+      setResult(res.data);
+      setStep('result');
+    } catch {
+      setResult({ created: 0, skipped: validRows.length, errors: ['Import failed. Please try again.'] });
+      setStep('result');
+    } finally { setImporting(false); }
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 60 }} />
+      <div style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+        background: 'var(--color-surface)', borderRadius: 'var(--radius)', padding: '1.75rem',
+        zIndex: 70, width: step === 'preview' ? 680 : 420, maxWidth: '95vw',
+        maxHeight: '85vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 700 }}>
+            {step === 'upload' && 'Bulk Import Units'}
+            {step === 'preview' && `Preview — ${rows.length} rows (${validRows.length} valid, ${rows.length - validRows.length} errors)`}
+            {step === 'result' && 'Import Complete'}
+          </h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--color-muted)', lineHeight: 1 }}>×</button>
+        </div>
+
+        {step === 'upload' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6 }}>
+              Download the template, fill in your data, then upload. Supported: <strong>.xlsx</strong> and <strong>.csv</strong>
+            </p>
+            <button className="btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={downloadTemplate}>⬇ Download Template</button>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label>Upload File</label>
+              <input ref={fileRef} type="file" accept=".xlsx,.csv" onChange={handleFile} style={{ padding: '0.4rem' }} />
+            </div>
+            {parseError && <div style={{ background: '#fee2e2', color: '#991b1b', padding: '0.65rem', borderRadius: 6, fontSize: '0.85rem' }}>{parseError}</div>}
+          </div>
+        )}
+
+        {step === 'preview' && (
+          <div>
+            <div style={{ overflowX: 'auto', maxHeight: '52vh', overflowY: 'auto', marginBottom: '1rem', border: '1px solid var(--color-border)', borderRadius: 6 }}>
+              <table style={{ fontSize: '0.8rem', width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--color-bg)' }}>
+                    <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid var(--color-border)', position: 'sticky', top: 0, background: 'var(--color-bg)' }}>#</th>
+                    {UNIT_COLS.map(c => <th key={c} style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid var(--color-border)', position: 'sticky', top: 0, background: 'var(--color-bg)', whiteSpace: 'nowrap' }}>{c}</th>)}
+                    <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '1px solid var(--color-border)', position: 'sticky', top: 0, background: 'var(--color-bg)' }}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(row => (
+                    <tr key={row._rowNum} style={{ background: row._error ? '#fff7f7' : undefined }}>
+                      <td style={{ padding: '5px 10px', color: 'var(--color-muted)', borderBottom: '1px solid var(--color-border)' }}>{row._rowNum}</td>
+                      {UNIT_COLS.map(c => <td key={c} style={{ padding: '5px 10px', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}>{String(row[c] ?? '')}</td>)}
+                      <td style={{ padding: '5px 10px', borderBottom: '1px solid var(--color-border)', whiteSpace: 'nowrap' }}>
+                        {row._error ? <span style={{ color: '#dc2626', fontSize: '0.75rem' }}>✗ {row._error}</span> : <span style={{ color: '#16a34a', fontWeight: 600 }}>✓ OK</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+              <button className="btn-secondary" onClick={() => { setStep('upload'); if (fileRef.current) fileRef.current.value = ''; }}>← Back</button>
+              <button className="btn-primary" disabled={!validRows.length || importing} onClick={handleImport}>
+                {importing ? 'Importing…' : `Import ${validRows.length} valid row${validRows.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 'result' && result && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div style={{ display: 'flex', gap: '2rem' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '2rem', fontWeight: 700, color: '#16a34a' }}>{result.created}</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>Created</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '2rem', fontWeight: 700, color: '#d97706' }}>{result.skipped}</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-muted)' }}>Skipped</div>
+              </div>
+            </div>
+            {result.errors.length > 0 && (
+              <div>
+                <p style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>Errors ({result.errors.length}):</p>
+                <div style={{ background: '#fff7f7', borderRadius: 6, padding: '0.75rem', maxHeight: 180, overflowY: 'auto' }}>
+                  {result.errors.map((e, i) => <div key={i} style={{ fontSize: '0.8rem', color: '#dc2626', marginBottom: 4 }}>• {e}</div>)}
+                </div>
+              </div>
+            )}
+            <button className="btn-primary" style={{ alignSelf: 'flex-end' }} onClick={onClose}>Close</button>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function UnitManagementPage() {
@@ -86,8 +271,10 @@ export default function UnitManagementPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<UnitRecord | null>(null);
   const [form, setForm] = useState<UnitForm>(BLANK);
   const [formError, setFormError] = useState('');
+  const [showBulkModal, setShowBulkModal] = useState(false);
 
   const { data, isFetching, refetch } = useListUnitsQuery();
+  const [bulkImportUnits] = useBulkImportUnitsMutation();
   const [createUnit, { isLoading: creating }] = useCreateUnitMutation();
   const [updateUnit, { isLoading: updating }] = useUpdateUnitMutation();
   const [deleteUnit, { isLoading: deleting }] = useDeleteUnitMutation();
@@ -212,7 +399,11 @@ export default function UnitManagementPage() {
       <div className="ent-section">
         <div className="ent-section-hdr">
           <span className="ent-section-title">All Units</span>
-          <button className="ent-btn-add" onClick={openAdd}>+ Add Unit</button>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <button className="btn-secondary" style={{ fontSize: '0.85rem', padding: '6px 12px' }} onClick={downloadTemplate}>⬇ Template</button>
+            <button className="btn-secondary" style={{ fontSize: '0.85rem', padding: '6px 12px' }} onClick={() => setShowBulkModal(true)}>📤 Bulk Upload</button>
+            <button className="ent-btn-add" onClick={openAdd}>+ Add Unit</button>
+          </div>
         </div>
 
         {/* Toolbar */}
@@ -484,6 +675,17 @@ export default function UnitManagementPage() {
           confirmLabel={deleting ? 'Deleting…' : 'Delete'}
           onConfirm={handleDelete}
           onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+
+      {showBulkModal && (
+        <BulkImportModal
+          onClose={() => setShowBulkModal(false)}
+          onImport={async (records) => {
+            const res = await bulkImportUnits({ records }).unwrap();
+            refetch();
+            return res;
+          }}
         />
       )}
     </Layout>
