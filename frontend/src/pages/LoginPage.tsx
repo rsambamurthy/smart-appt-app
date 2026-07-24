@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
+import { IS_NATIVE } from '../hooks/usePlatform';
 import {
   useRequestOtpMutation, useVerifyOtpMutation,
   useVerifyMpinMutation, useSetMpinMutation, useResetMpinMutation,
@@ -167,7 +168,7 @@ export default function LoginPage() {
       dispatch(baseApi.util.resetApiState());
       dispatch(setCredentials(pendingTokens as never));
       await setMpinMutation({ mpin: newMpin }).unwrap();
-      navigate('/dashboard');
+      navigate(IS_NATIVE ? '/mobile/home' : '/dashboard');
     } catch (err: unknown) { setError(extractError(err, 'Failed to set M-PIN.')); }
   };
 
@@ -184,7 +185,7 @@ export default function LoginPage() {
   const loginSuccess = (tokens: { access_token: string; refresh_token: string; user: object }) => {
     dispatch(baseApi.util.resetApiState());
     dispatch(setCredentials(tokens as never));
-    navigate('/dashboard');
+    navigate(IS_NATIVE ? '/mobile/home' : '/dashboard');
   };
 
   const extractError = (err: unknown, fallback: string) =>

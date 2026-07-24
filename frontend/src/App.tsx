@@ -86,57 +86,59 @@ export default function App() {
             <Route path="*" element={<Navigate to="/mobile/home" replace />} />
           </Route>
         )}
-        <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
-        <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+
+        {/* ── Web-only routes — not present on native mobile ── */}
+        {!IS_NATIVE && <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />}
 
         {/* Maintenance */}
-        <Route path="/maintenance" element={<ProtectedRoute><TicketListPage /></ProtectedRoute>} />
-        <Route path="/maintenance/new" element={<ProtectedRoute><RaiseTicketPage /></ProtectedRoute>} />
-        <Route path="/maintenance/:id" element={<ProtectedRoute><TicketDetailPage /></ProtectedRoute>} />
+        {!IS_NATIVE && <Route path="/maintenance" element={<ProtectedRoute><TicketListPage /></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/maintenance/new" element={<ProtectedRoute><RaiseTicketPage /></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/maintenance/:id" element={<ProtectedRoute><TicketDetailPage /></ProtectedRoute>} />}
 
         {/* Dues */}
-        <Route path="/dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><DuesDashboardPage /></RoleRoute>} />
-        <Route path="/dues/bills" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><DuesBillsPage /></RoleRoute>} />
-        <Route path="/dues/config" element={<RoleRoute roles={['TREASURER']}><DuesConfigPage /></RoleRoute>} />
-        <Route path="/config/razorpay" element={<RoleRoute roles={['TREASURER']}><RazorpayConfigPage /></RoleRoute>} />
-        <Route path="/dues/my-bills" element={<RoleRoute roles={['RESIDENT']}><MyBillsPage /></RoleRoute>} />
-        <Route path="/dues/pay/:billId" element={<RoleRoute roles={['RESIDENT']}><PaymentPage /></RoleRoute>} />
-        <Route path="/dues/one-time-dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OneTimeDuesPage /></RoleRoute>} />
-        <Route path="/dues/other-receipts" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OtherReceiptsPage /></RoleRoute>} />
+        {!IS_NATIVE && <Route path="/dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><DuesDashboardPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/bills" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><DuesBillsPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/config" element={<RoleRoute roles={['TREASURER']}><DuesConfigPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/config/razorpay" element={<RoleRoute roles={['TREASURER']}><RazorpayConfigPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/my-bills" element={<RoleRoute roles={['RESIDENT']}><MyBillsPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/pay/:billId" element={<RoleRoute roles={['RESIDENT']}><PaymentPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/one-time-dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OneTimeDuesPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/other-receipts" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OtherReceiptsPage /></RoleRoute>} />}
 
         {/* Expenses */}
-        <Route path="/expenses" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseListPage /></RoleRoute>} />
-        <Route path="/expenses/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseDashboardPage /></RoleRoute>} />
-        <Route path="/expenses/categories" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><ExpenseCategoriesPage /></RoleRoute>} />
-        <Route path="/expenses/transparency" element={<ProtectedRoute><TransparencyPage /></ProtectedRoute>} />
+        {!IS_NATIVE && <Route path="/expenses" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseListPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/expenses/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseDashboardPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/expenses/categories" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><ExpenseCategoriesPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/expenses/transparency" element={<ProtectedRoute><TransparencyPage /></ProtectedRoute>} />}
 
         {/* Announcements */}
-        <Route path="/announcements" element={<ProtectedRoute><AnnouncementFeedPage /></ProtectedRoute>} />
+        {!IS_NATIVE && <Route path="/announcements" element={<ProtectedRoute><AnnouncementFeedPage /></ProtectedRoute>} />}
         <Route path="/documents" element={<ProtectedRoute><DocumentRepositoryPage /></ProtectedRoute>} />
 
         {/* Visitors */}
-        <Route path="/visitors" element={<RoleRoute roles={['MANAGER', 'GATE_STAFF']}><VisitorLogPage /></RoleRoute>} />
-        <Route path="/visitors/preapprove" element={<RoleRoute roles={['RESIDENT']}><PreApproveVisitorPage /></RoleRoute>} />
-        <Route path="/gate" element={<RoleRoute roles={['GATE_STAFF']}><GateDashboardPage /></RoleRoute>} />
+        {!IS_NATIVE && <Route path="/visitors" element={<RoleRoute roles={['MANAGER', 'GATE_STAFF']}><VisitorLogPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/visitors/preapprove" element={<RoleRoute roles={['RESIDENT']}><PreApproveVisitorPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/gate" element={<RoleRoute roles={['GATE_STAFF']}><GateDashboardPage /></RoleRoute>} />}
 
         {/* Admin */}
-        <Route path="/admin/units" element={<RoleRoute roles={['MANAGER']}><UnitManagementPage /></RoleRoute>} />
-        <Route path="/admin/units/:id" element={<RoleRoute roles={['MANAGER']}><UnitDetailPage /></RoleRoute>} />
-        <Route path="/admin/users" element={<RoleRoute roles={['MANAGER']}><UserManagementPage /></RoleRoute>} />
-        <Route path="/admin/associations" element={<RoleRoute roles={['SUPER_USER']}><AssociationManagementPage /></RoleRoute>} />
-        <Route path="/admin/associations/:id" element={<RoleRoute roles={['SUPER_USER']}><AssociationDetailPage /></RoleRoute>} />
-        <Route path="/admin/menu-config" element={<RoleRoute roles={['SUPER_USER']}><MenuConfigPage /></RoleRoute>} />
+        {!IS_NATIVE && <Route path="/admin/units" element={<RoleRoute roles={['MANAGER']}><UnitManagementPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/units/:id" element={<RoleRoute roles={['MANAGER']}><UnitDetailPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/users" element={<RoleRoute roles={['MANAGER']}><UserManagementPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/associations" element={<RoleRoute roles={['SUPER_USER']}><AssociationManagementPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/associations/:id" element={<RoleRoute roles={['SUPER_USER']}><AssociationDetailPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/menu-config" element={<RoleRoute roles={['SUPER_USER']}><MenuConfigPage /></RoleRoute>} />}
 
         {/* Transactions */}
-        <Route path="/transactions/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><TransactionsDashboardPage /></RoleRoute>} />
-        <Route path="/transactions/reports"   element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ReportsPage /></RoleRoute>} />
+        {!IS_NATIVE && <Route path="/transactions/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><TransactionsDashboardPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/transactions/reports"   element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ReportsPage /></RoleRoute>} />}
 
         {/* Accounting */}
-        <Route path="/accounting/chart-of-accounts" element={<RoleRoute roles={['MANAGER', 'TREASURER']}><ChartOfAccountsPage /></RoleRoute>} />
-        <Route path="/accounting/journal"            element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><JournalEntriesPage /></RoleRoute>} />
-        <Route path="/accounting/ledger"             element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><LedgerPage /></RoleRoute>} />
-        <Route path="/accounting/pnl"               element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><PnLPage /></RoleRoute>} />
-        <Route path="/accounting/balance-sheet"     element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><BalanceSheetPage /></RoleRoute>} />
+        {!IS_NATIVE && <Route path="/accounting/chart-of-accounts" element={<RoleRoute roles={['MANAGER', 'TREASURER']}><ChartOfAccountsPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/journal"            element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><JournalEntriesPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/ledger"             element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><LedgerPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/pnl"               element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><PnLPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/balance-sheet"     element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><BalanceSheetPage /></RoleRoute>} />}
 
         {/* change-mpin is available on web; mobile version is inside the MobileLayout block above */}
         {!IS_NATIVE && <Route path="/change-mpin" element={<ProtectedRoute><ChangeMpinPage /></ProtectedRoute>} />}
