@@ -4,7 +4,7 @@ import type { RootState } from '../../store';
 import { useMobileConfig } from '../../contexts/MobileConfigContext';
 import { useListMyBillsQuery } from '../../store/api/duesApi';
 import { useListAnnouncementsQuery } from '../../store/api/announcementsApi';
-import { useListTicketsQuery } from '../../store/api/maintenanceApi';
+import { useListMyTicketsQuery } from '../../store/api/maintenanceApi';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ export default function MobileHomePage() {
   // Data — no role filtering; feature flags from MobileConfig control what's fetched
   const { data: billsData } = useListMyBillsQuery({ limit: 10 }, { skip: !config.feature_bills });
   const { data: announcementsData } = useListAnnouncementsQuery({ limit: 3 }, { skip: !config.feature_announcements });
-  const { data: ticketsData } = useListTicketsQuery({ limit: 10 }, { skip: !config.feature_complaints });
+  const { data: ticketsData } = useListMyTicketsQuery({ limit: 10 }, { skip: !config.feature_complaints });
 
   type Bill = { id: string; status: string; total_amount: number; period_month: number; period_year: number };
   type Announcement = { id: string; title: string; created_at: string; type?: string };

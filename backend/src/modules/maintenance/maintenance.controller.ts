@@ -38,7 +38,7 @@ export class MaintenanceController {
       const { cursor, limit } = parsePagination(req.query as { cursor?: string; limit?: string });
       const result = await maintenanceService.listTickets(req.user!.association_id, {
         cursor, limit,
-        unit_id: req.user!.unit_id ?? undefined,
+        raised_by: req.user!.id,  // only tickets raised BY this user
       });
       res.json(result);
     } catch (err) { next(err); }

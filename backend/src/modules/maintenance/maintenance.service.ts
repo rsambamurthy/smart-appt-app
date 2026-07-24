@@ -61,7 +61,7 @@ export class MaintenanceService {
     associationId: string,
     query: {
       cursor?: string; limit: number; status?: string; category?: string;
-      priority?: string; unit_id?: string; assigned_to?: string;
+      priority?: string; unit_id?: string; raised_by?: string; assigned_to?: string;
       date_from?: string; date_to?: string;
     },
   ) {
@@ -70,6 +70,7 @@ export class MaintenanceService {
     if (query.category) where['category'] = query.category;
     if (query.priority) where['priority'] = query.priority;
     if (query.unit_id) where['unit_id'] = query.unit_id;
+    if (query.raised_by) where['raised_by'] = query.raised_by;
     if (query.assigned_to) where['assigned_to'] = query.assigned_to;
     if (query.date_from || query.date_to) {
       where['created_at'] = {};
