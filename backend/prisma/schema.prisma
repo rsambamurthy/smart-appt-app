@@ -202,6 +202,7 @@ model Association {
   other_receipts     OtherReceipt[]
   accounts           Account[]
   journal_entries    JournalEntry[]
+  mobile_config      MobileConfig?
 
   @@map("associations")
 }
@@ -920,4 +921,36 @@ model MenuGroupConfig {
 
   @@unique([group_id, role])
   @@map("menu_group_config")
+}
+
+model MobileConfig {
+  id                    String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id        String      @unique @db.Uuid
+  association           Association @relation(fields: [association_id], references: [id])
+
+  // Feature flags — which screens appear in the mobile app
+  feature_bills         Boolean     @default(true)
+  feature_announcements Boolean     @default(true)
+  feature_complaints    Boolean     @default(true)
+  feature_visitors      Boolean     @default(true)
+
+  // Push notification categories
+  push_dues_reminder    Boolean     @default(true)
+  push_announcements    Boolean     @default(true)
+  push_visitor_alerts   Boolean     @default(true)
+
+  // Login options
+  login_mpin_enabled    Boolean     @default(true)
+  login_biometric       Boolean     @default(false)
+  login_otp_only        Boolean     @default(false)
+
+  // Branding
+  app_name              String?     @db.VarChar(100)
+  theme_color           String?     @db.VarChar(7)
+  logo_url              String?     @db.Text
+
+  created_at            DateTime    @default(now()) @db.Timestamptz
+  updated_at            DateTime    @updatedAt @db.Timestamptz
+
+  @@map("mobile_config")
 }

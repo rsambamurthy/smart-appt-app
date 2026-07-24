@@ -1,10 +1,14 @@
 import { useState, useEffect } from 'react';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
-import { useGetMenuConfigQuery, useSaveMenuConfigMutation } from '../../store/api/systemApi';
+import {
+  useGetMenuConfigQuery, useSaveMenuConfigMutation,
+  useGetMobileConfigQuery, useSaveMobileConfigMutation,
+  MobileConfig,
+} from '../../store/api/systemApi';
+import { useListAssociationsQuery } from '../../store/api/associationsApi';
 
-// ── Menu structure — mirrors Layout.tsx NAV_GROUPS ────────────────────────────
-// Only includes configurable roles (not SUPER_USER)
+// ── Web menu structure ────────────────────────────────────────────────────────
 
 const ROLES = [
   { id: 'MANAGER',    label: 'Manager',    color: '#0095db' },
@@ -14,15 +18,8 @@ const ROLES = [
   { id: 'GATE_STAFF', label: 'Gate Staff', color: '#ec4899' },
 ];
 
-interface MenuItem {
-  id: string;
-  label: string;
-  roles: string[];  // roles that can see this item by default
-}
-interface MenuGroup {
-  label: string;
-  items: MenuItem[];
-}
+interface MenuItem { id: string; label: string; roles: string[] }
+interface MenuGroup { label: string; items: MenuItem[] }
 
 const MENU_STRUCTURE: MenuGroup[] = [
   {
@@ -86,7 +83,7 @@ const MENU_STRUCTURE: MenuGroup[] = [
   },
 ];
 
-// ── Toggle switch ─────────────────────────────────────────────────────────────
+// ── Shared UI ─────────────────────────────────────────────────────────────────
 
 function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
   return (
@@ -109,162 +106,328 @@ function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
   );
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
+function SectionCard({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) {
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
+      <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 16 }}>{icon}</span>
+        <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{title}</span>
+      </div>
+      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
 
-export default function MenuConfigPage() {
+function ToggleRow({ label, description, on, onChange }: { label: string; description: string; on: boolean; onChange: () => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: '#1e293b' }}>{label}</div>
+        <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 1 }}>{description}</div>
+      </div>
+      <Toggle on={on} onChange={onChange} />
+    </div>
+  );
+}
+
+// ── Web Menu tab ──────────────────────────────────────────────────────────────
+
+function WebMenuTab() {
   const { data, isLoading } = useGetMenuConfigQuery();
   const [saveConfig, { isLoading: isSaving }] = useSaveMenuConfigMutation();
-
   const [config, setConfig] = useState<Record<string, Record<string, boolean>>>({});
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (data?.data) setConfig(data.data);
-  }, [data]);
+  useEffect(() => { if (data?.data) setConfig(data.data); }, [data]);
 
   const toggle = (role: string, itemId: string) => {
-    // Find the item's default access for this role
     const item = MENU_STRUCTURE.flatMap((g) => g.items).find((i) => i.id === itemId);
     const defaultOn = item ? item.roles.includes(role) : false;
-    setConfig((prev) => ({
-      ...prev,
-      [role]: { ...(prev[role] ?? {}), [itemId]: !(prev[role]?.[itemId] ?? defaultOn) },
-    }));
-    setSuccess(false);
-    setError('');
+    setConfig((prev) => ({ ...prev, [role]: { ...(prev[role] ?? {}), [itemId]: !(prev[role]?.[itemId] ?? defaultOn) } }));
+    setSuccess(false); setError('');
   };
 
   const handleSave = async () => {
-    setSuccess(false);
-    setError('');
-    // Save ALL role × item combinations (Super User controls everything)
+    setSuccess(false); setError('');
     const items: Array<{ group_id: string; role: string; enabled: boolean }> = [];
-    for (const group of MENU_STRUCTURE) {
-      for (const item of group.items) {
-        for (const role of ROLES) {
-          items.push({
-            group_id: item.id,
-            role: role.id,
-            // default: enabled if role is in the item's coded role list
-            enabled: config[role.id]?.[item.id] ?? item.roles.includes(role.id),
-          });
-        }
-      }
-    }
-    try {
-      await saveConfig(items).unwrap();
-      setSuccess(true);
-    } catch {
-      setError('Failed to save configuration.');
-    }
+    for (const group of MENU_STRUCTURE)
+      for (const item of group.items)
+        for (const role of ROLES)
+          items.push({ group_id: item.id, role: role.id, enabled: config[role.id]?.[item.id] ?? item.roles.includes(role.id) });
+    try { await saveConfig(items).unwrap(); setSuccess(true); }
+    catch { setError('Failed to save configuration.'); }
   };
 
   const thStyle: React.CSSProperties = {
-    padding: '0.7rem 0.75rem',
-    textAlign: 'center',
-    borderBottom: '2px solid var(--color-border)',
-    fontWeight: 700,
-    fontSize: '0.75rem',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.04em',
-    whiteSpace: 'nowrap' as const,
-    minWidth: 90,
+    padding: '0.7rem 0.75rem', textAlign: 'center', borderBottom: '2px solid var(--color-border)',
+    fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em',
+    whiteSpace: 'nowrap', minWidth: 90,
   };
 
   return (
+    <div>
+      <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: '1.5rem' }}>
+        Toggle individual menu items on or off per role. SUPER_USER always sees everything and is not configurable here.
+      </p>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'flex-end' }}>
+        <button className="btn-primary" onClick={handleSave} disabled={isSaving || isLoading}>
+          {isSaving ? 'Saving…' : 'Save Web Menu Config'}
+        </button>
+      </div>
+      {isLoading ? <p style={{ color: 'var(--color-muted)' }}>Loading…</p> : (
+        <div className="card" style={{ padding: 0, overflow: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+            <thead>
+              <tr style={{ background: 'var(--color-bg-card)' }}>
+                <th style={{ ...thStyle, textAlign: 'left', width: 220, color: 'var(--color-text-secondary)' }}>Menu Item</th>
+                {ROLES.map((r) => <th key={r.id} style={thStyle}><span style={{ color: r.color }}>{r.label}</span></th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {MENU_STRUCTURE.map((group) => (
+                <>
+                  <tr key={`grp_${group.label}`} style={{ background: 'var(--color-bg-subtle, rgba(0,0,0,0.03))' }}>
+                    <td colSpan={ROLES.length + 1} style={{ padding: '0.45rem 1rem', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-primary)', borderTop: '1px solid var(--color-border)', borderBottom: '1px solid var(--color-border)' }}>
+                      {group.label}
+                    </td>
+                  </tr>
+                  {group.items.map((item) => (
+                    <tr key={item.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                      <td style={{ padding: '0.65rem 1rem 0.65rem 1.5rem', color: 'var(--color-text)' }}>{item.label}</td>
+                      {ROLES.map((role) => {
+                        const enabled = config[role.id]?.[item.id] ?? item.roles.includes(role.id);
+                        return (
+                          <td key={role.id} style={{ textAlign: 'center', padding: '0.5rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'center' }}>
+                              <Toggle on={enabled} onChange={() => toggle(role.id, item.id)} />
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {error && <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#dc2626', fontSize: '0.875rem' }}>{error}</div>}
+      {success && <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, color: '#15803d', fontSize: '0.875rem' }}>✓ Web menu configuration saved.</div>}
+    </div>
+  );
+}
+
+// ── Mobile App tab ────────────────────────────────────────────────────────────
+
+const MOBILE_DEFAULTS: MobileConfig = {
+  feature_bills: true, feature_announcements: true, feature_complaints: true, feature_visitors: true,
+  push_dues_reminder: true, push_announcements: true, push_visitor_alerts: true,
+  login_mpin_enabled: true, login_biometric: false, login_otp_only: false,
+  app_name: null, theme_color: null, logo_url: null,
+};
+
+function MobileAppTab() {
+  const { data: assocData } = useListAssociationsQuery();
+  const associations = (assocData?.data ?? []) as { id: string; name: string }[];
+
+  const [selectedId, setSelectedId] = useState('');
+  const [form, setForm] = useState<MobileConfig>(MOBILE_DEFAULTS);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
+
+  const { data: cfgData, isFetching } = useGetMobileConfigQuery(selectedId, { skip: !selectedId });
+  const [saveMobileConfig, { isLoading: isSaving }] = useSaveMobileConfigMutation();
+
+  useEffect(() => {
+    if (cfgData?.data) setForm({ ...MOBILE_DEFAULTS, ...cfgData.data });
+  }, [cfgData]);
+
+  const set = <K extends keyof MobileConfig>(key: K, value: MobileConfig[K]) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setSuccess(false); setError('');
+  };
+
+  const handleSave = async () => {
+    if (!selectedId) return;
+    setSuccess(false); setError('');
+    try {
+      await saveMobileConfig({ associationId: selectedId, body: form }).unwrap();
+      setSuccess(true);
+    } catch { setError('Failed to save mobile configuration.'); }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6,
+    fontSize: 13, color: '#1e293b', background: '#fff', outline: 'none', width: '100%',
+  };
+
+  return (
+    <div>
+      <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: '1.25rem' }}>
+        Configure mobile app settings per association. These settings are read by the SmartAppt mobile app at login.
+      </p>
+
+      {/* Association picker */}
+      <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <label style={{ fontSize: 13, fontWeight: 600, color: '#475569', whiteSpace: 'nowrap' }}>Select Association</label>
+        <select
+          value={selectedId}
+          onChange={(e) => { setSelectedId(e.target.value); setSuccess(false); setError(''); }}
+          style={{ ...inputStyle, maxWidth: 340 }}
+        >
+          <option value="">— Choose an association —</option>
+          {associations.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+        {isFetching && <span style={{ fontSize: 12, color: '#94a3b8' }}>Loading…</span>}
+      </div>
+
+      {!selectedId ? (
+        <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontSize: 13, background: '#f8fafc', borderRadius: 10, border: '1px dashed #e2e8f0' }}>
+          Select an association above to configure its mobile app settings.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+
+          {/* Left column */}
+          <div>
+            {/* Features */}
+            <SectionCard title="App Features" icon="📱">
+              <ToggleRow label="My Bills & Payments" description="Residents can view and pay dues" on={form.feature_bills} onChange={() => set('feature_bills', !form.feature_bills)} />
+              <ToggleRow label="Announcements & Feed" description="Community notices, polls, and posts" on={form.feature_announcements} onChange={() => set('feature_announcements', !form.feature_announcements)} />
+              <ToggleRow label="Complaints & Maintenance" description="Raise and track service requests" on={form.feature_complaints} onChange={() => set('feature_complaints', !form.feature_complaints)} />
+              <ToggleRow label="Visitor Management" description="Approve and log gate visitors" on={form.feature_visitors} onChange={() => set('feature_visitors', !form.feature_visitors)} />
+            </SectionCard>
+
+            {/* Push Notifications */}
+            <SectionCard title="Push Notifications" icon="🔔">
+              <ToggleRow label="Dues Reminders" description="Notify residents before and after due dates" on={form.push_dues_reminder} onChange={() => set('push_dues_reminder', !form.push_dues_reminder)} />
+              <ToggleRow label="Announcements" description="Push when new announcements are posted" on={form.push_announcements} onChange={() => set('push_announcements', !form.push_announcements)} />
+              <ToggleRow label="Visitor Alerts" description="Notify residents when a visitor arrives at the gate" on={form.push_visitor_alerts} onChange={() => set('push_visitor_alerts', !form.push_visitor_alerts)} />
+            </SectionCard>
+          </div>
+
+          {/* Right column */}
+          <div>
+            {/* Login Options */}
+            <SectionCard title="Login Options" icon="🔐">
+              <ToggleRow label="M-PIN Login" description="Allow residents to set and use a 6-digit M-PIN" on={form.login_mpin_enabled} onChange={() => set('login_mpin_enabled', !form.login_mpin_enabled)} />
+              <ToggleRow label="Biometric Login" description="Enable fingerprint / face ID login (device must support it)" on={form.login_biometric} onChange={() => set('login_biometric', !form.login_biometric)} />
+              <ToggleRow
+                label="OTP Only Mode"
+                description="Disable all other login methods — only OTP via SMS"
+                on={form.login_otp_only}
+                onChange={() => set('login_otp_only', !form.login_otp_only)}
+              />
+              {form.login_otp_only && (
+                <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 6, padding: '8px 10px', fontSize: 11.5, color: '#854d0e' }}>
+                  ⚠ OTP Only mode disables M-PIN and Biometric login for this association.
+                </div>
+              )}
+            </SectionCard>
+
+            {/* Branding */}
+            <SectionCard title="App Branding" icon="🎨">
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>App Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Vishranthi Residents"
+                  value={form.app_name ?? ''}
+                  onChange={(e) => set('app_name', e.target.value || null)}
+                  style={inputStyle}
+                  maxLength={100}
+                />
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>Shown on the mobile app home screen and splash screen.</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>Theme Color</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="color"
+                    value={form.theme_color ?? '#0095db'}
+                    onChange={(e) => set('theme_color', e.target.value)}
+                    style={{ width: 40, height: 34, border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', padding: 2 }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="#0095db"
+                    value={form.theme_color ?? ''}
+                    onChange={(e) => set('theme_color', e.target.value || null)}
+                    style={{ ...inputStyle, width: 100 }}
+                    maxLength={7}
+                  />
+                  <span style={{ fontSize: 11, color: '#94a3b8' }}>Primary colour for buttons, header, icons.</span>
+                </div>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>Logo URL</label>
+                <input
+                  type="url"
+                  placeholder="https://cdn.example.com/logo.png"
+                  value={form.logo_url ?? ''}
+                  onChange={(e) => set('logo_url', e.target.value || null)}
+                  style={inputStyle}
+                />
+                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>PNG or SVG, shown on the splash and login screens.</div>
+                {form.logo_url && (
+                  <img src={form.logo_url} alt="Logo preview" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    style={{ marginTop: 8, height: 48, objectFit: 'contain', borderRadius: 6, border: '1px solid #e2e8f0', padding: 4 }}
+                  />
+                )}
+              </div>
+            </SectionCard>
+          </div>
+        </div>
+      )}
+
+      {selectedId && (
+        <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button className="btn-primary" onClick={handleSave} disabled={isSaving || isFetching}>
+            {isSaving ? 'Saving…' : 'Save Mobile Config'}
+          </button>
+          {success && <span style={{ fontSize: 13, color: '#15803d', fontWeight: 500 }}>✓ Saved successfully</span>}
+          {error && <span style={{ fontSize: 13, color: '#dc2626' }}>{error}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+type Tab = 'web' | 'mobile';
+
+export default function MenuConfigPage() {
+  const [activeTab, setActiveTab] = useState<Tab>('web');
+
+  const tabBtn = (tab: Tab, label: string, icon: string): React.CSSProperties => ({
+    padding: '8px 20px', border: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 600,
+    borderRadius: '8px 8px 0 0', marginRight: 4, display: 'flex', alignItems: 'center', gap: 6,
+    background: activeTab === tab ? '#fff' : 'transparent',
+    color: activeTab === tab ? '#1e293b' : '#64748b',
+    borderBottom: activeTab === tab ? '2px solid var(--color-primary)' : '2px solid transparent',
+  });
+
+  return (
     <Layout>
-      <PageSubHeader
-        crumbs={[{ label: 'System Settings' }, { label: 'Menu Configuration' }]}
-        onSave={handleSave}
-        saveLabel="Save Configuration"
-        saving={isSaving}
-      />
+      <PageSubHeader crumbs={[{ label: 'System Settings' }, { label: 'App Configuration' }]} />
 
       <div style={{ padding: '1.5rem 2rem' }}>
-        <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: '1.5rem' }}>
-          Toggle individual menu items on or off per role. A cell shows <strong>—</strong> when that role never had access to the item.
-          SUPER_USER always sees everything and is not configurable here.
-        </p>
+        {/* Tab bar */}
+        <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: 24 }}>
+          <button style={tabBtn('web', 'Web Menu', '🖥️')} onClick={() => setActiveTab('web')}>
+            🖥️ Web Menu
+          </button>
+          <button style={tabBtn('mobile', 'Mobile App', '📱')} onClick={() => setActiveTab('mobile')}>
+            📱 Mobile App
+          </button>
+        </div>
 
-        {isLoading ? (
-          <p style={{ color: 'var(--color-muted)' }}>Loading…</p>
-        ) : (
-          <div className="card" style={{ padding: 0, overflow: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-              <thead>
-                <tr style={{ background: 'var(--color-bg-card)' }}>
-                  <th style={{ ...thStyle, textAlign: 'left', width: 220, borderBottom: '2px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
-                    Menu Item
-                  </th>
-                  {ROLES.map((r) => (
-                    <th key={r.id} style={thStyle}>
-                      <span style={{ color: r.color }}>{r.label}</span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {MENU_STRUCTURE.map((group) => (
-                  <>
-                    {/* Group header row */}
-                    <tr key={`grp_${group.label}`} style={{ background: 'var(--color-bg-subtle, rgba(0,0,0,0.03))' }}>
-                      <td
-                        colSpan={ROLES.length + 1}
-                        style={{
-                          padding: '0.45rem 1rem',
-                          fontWeight: 700,
-                          fontSize: '0.75rem',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.05em',
-                          color: 'var(--color-primary)',
-                          borderTop: '1px solid var(--color-border)',
-                          borderBottom: '1px solid var(--color-border)',
-                        }}
-                      >
-                        {group.label}
-                      </td>
-                    </tr>
-
-                    {/* Item rows */}
-                    {group.items.map((item) => (
-                      <tr key={item.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                        <td style={{ padding: '0.65rem 1rem 0.65rem 1.5rem', color: 'var(--color-text)' }}>
-                          {item.label}
-                        </td>
-                        {ROLES.map((role) => {
-                          // Default on = role is in the item's coded role list
-                          const enabled = config[role.id]?.[item.id] ?? item.roles.includes(role.id);
-                          return (
-                            <td key={role.id} style={{ textAlign: 'center', padding: '0.5rem' }}>
-                              <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                <Toggle
-                                  on={enabled}
-                                  onChange={() => toggle(role.id, item.id)}
-                                />
-                              </div>
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {error && (
-          <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#dc2626', fontSize: '0.875rem' }}>
-            {error}
-          </div>
-        )}
-        {success && (
-          <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, color: '#15803d', fontSize: '0.875rem' }}>
-            ✓ Menu configuration saved. Users will see the updated menus on their next page load.
-          </div>
-        )}
+        {activeTab === 'web' ? <WebMenuTab /> : <MobileAppTab />}
       </div>
     </Layout>
   );

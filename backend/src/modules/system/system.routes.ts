@@ -15,4 +15,16 @@ router.get('/menu-config', (req, res, next) =>
 router.put('/menu-config', requireRoles(UserRole.SUPER_USER), (req, res, next) =>
   systemController.saveMenuConfig(req as never, res, next));
 
+// ── Mobile Config ─────────────────────────────────────────────────────────────
+// Any authenticated user can read their own association's config (mobile app)
+router.get('/mobile-config', (req, res, next) =>
+  systemController.getMyMobileConfig(req as never, res, next));
+
+// SUPER_USER can read/write any association's mobile config (admin)
+router.get('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER), (req, res, next) =>
+  systemController.getMobileConfigById(req as never, res, next));
+
+router.put('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER), (req, res, next) =>
+  systemController.saveMobileConfig(req as never, res, next));
+
 export default router;
