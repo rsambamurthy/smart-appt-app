@@ -23,10 +23,9 @@ const upload = multer({
   },
 });
 
-// POST /maintenance
+// POST /maintenance — all authenticated users can raise a service request (mobile: no role difference)
 router.post(
   '/',
-  requireRoles(UserRole.RESIDENT),
   upload.array('files', 3),
   validate(createTicketSchema),
   (req, res, next) => maintenanceController.create(req as never, res, next),
@@ -36,8 +35,8 @@ router.post(
 router.get('/dashboard', requireRoles(UserRole.MANAGER, UserRole.COMMITTEE), (req, res, next) =>
   maintenanceController.dashboard(req as never, res, next));
 
-// GET /maintenance/my
-router.get('/my', requireRoles(UserRole.RESIDENT), (req, res, next) =>
+// GET /maintenance/my — all authenticated users can view their own tickets
+router.get('/my', (req, res, next) =>
   maintenanceController.listMine(req as never, res, next));
 
 // GET /maintenance
@@ -68,10 +67,9 @@ router.patch(
   (req, res, next) => maintenanceController.updateStatus(req as never, res, next),
 );
 
-// POST /maintenance/:id/feedback
+// POST /maintenance/:id/feedback — all authenticated users can submit feedback
 router.post(
   '/:id/feedback',
-  requireRoles(UserRole.RESIDENT),
   validate(feedbackSchema),
   (req, res, next) => maintenanceController.feedback(req as never, res, next),
 );

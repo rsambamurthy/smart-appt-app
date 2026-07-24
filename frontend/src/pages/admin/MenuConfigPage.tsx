@@ -60,7 +60,7 @@ const MENU_STRUCTURE: MenuGroup[] = [
   {
     label: 'Residents',
     items: [
-      { id: 'dues_my_bills',         label: 'My Bills',         roles: ['RESIDENT'] },
+      { id: 'dues_my_bills',         label: 'My Bills',         roles: ['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER'] },
       { id: 'maintenance_list',      label: 'Service Requests', roles: ['MANAGER', 'RESIDENT', 'COMMITTEE', 'TREASURER', 'GATE_STAFF'] },
       { id: 'maintenance_new',       label: 'Raise Request',    roles: ['MANAGER', 'RESIDENT', 'COMMITTEE', 'TREASURER', 'GATE_STAFF'] },
       { id: 'announcements_feed',    label: 'Announcements',    roles: ['MANAGER', 'TREASURER', 'COMMITTEE', 'RESIDENT', 'GATE_STAFF'] },
@@ -77,7 +77,7 @@ const MENU_STRUCTURE: MenuGroup[] = [
     label: 'Visitors',
     items: [
       { id: 'visitors_log',        label: 'Visitor Log',    roles: ['MANAGER', 'GATE_STAFF'] },
-      { id: 'visitors_preapprove', label: 'Pre-Approve',    roles: ['RESIDENT'] },
+      { id: 'visitors_preapprove', label: 'Pre-Approve',    roles: ['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER'] },
       { id: 'visitors_gate',       label: 'Gate Dashboard', roles: ['GATE_STAFF'] },
     ],
   },

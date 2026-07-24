@@ -4,12 +4,14 @@ import type { RootState } from '../store';
 import Layout from '../components/organisms/Layout';
 import { useGetDashboardQuery } from '../store/api/maintenanceApi';
 import { useGetDuesDashboardQuery } from '../store/api/duesApi';
+import { isResidentRole } from '../constants/roles';
 
 export default function DashboardPage() {
   const user = useSelector((s: RootState) => s.auth.user);
   const isManager = user?.role === 'MANAGER';
   const isTreasurer = user?.role === 'TREASURER' || user?.role === 'COMMITTEE';
-  const isResident = user?.role === 'RESIDENT';
+  // MANAGER/COMMITTEE/TREASURER are also residents — show resident quick-links
+  const isResident = isResidentRole(user?.role);
 
   const { data: maintDash } = useGetDashboardQuery(undefined, { skip: !isManager });
   const { data: duesDash } = useGetDuesDashboardQuery(undefined, { skip: !isTreasurer });

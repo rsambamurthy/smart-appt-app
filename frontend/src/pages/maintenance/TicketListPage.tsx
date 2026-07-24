@@ -4,6 +4,7 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import Layout from '../../components/organisms/Layout';
 import { IS_NATIVE } from '../../hooks/usePlatform';
+import { isResidentRole } from '../../constants/roles';
 import { useListTicketsQuery, useListMyTicketsQuery } from '../../store/api/maintenanceApi';
 
 const STATUS_BADGE: Record<string, string> = {
@@ -17,8 +18,9 @@ const PRIORITY_BADGE: Record<string, string> = {
 
 export default function TicketListPage() {
   const user = useSelector((s: RootState) => s.auth.user);
-  const isResident = user?.role === 'RESIDENT';
-  // On mobile: all roles see their own tickets and can raise requests
+  // MANAGER/COMMITTEE/TREASURER are also residents — they see their own tickets and can raise requests
+  const isResident = isResidentRole(user?.role);
+  // On mobile all roles use the resident view; on web resident-equivalent roles do too
   const useMyView = IS_NATIVE || isResident;
   const [status, setStatus] = useState('');
 

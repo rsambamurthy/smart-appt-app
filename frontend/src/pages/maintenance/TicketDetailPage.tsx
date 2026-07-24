@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import Layout from '../../components/organisms/Layout';
+import { isResidentRole } from '../../constants/roles';
 import { useGetTicketQuery, useUpdateStatusMutation, useSubmitFeedbackMutation, useAssignTicketMutation } from '../../store/api/maintenanceApi';
 import type { RootState } from '../../store';
 import { useState } from 'react';
@@ -21,7 +22,7 @@ export default function TicketDetailPage() {
   if (!ticket) return <Layout><div className="card">Ticket not found.</div></Layout>;
 
   const canChangeStatus = ['MANAGER', 'GATE_STAFF'].includes(user?.role ?? '');
-  const canFeedback = user?.role === 'RESIDENT' && ticket['status'] === 'RESOLVED' && !ticket['rating'];
+  const canFeedback = isResidentRole(user?.role) && ticket['status'] === 'RESOLVED' && !ticket['rating'];
 
   return (
     <Layout>
