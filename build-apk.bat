@@ -50,28 +50,48 @@ if "%ANDROID_HOME%"=="" (
 )
 echo  OK - ANDROID_HOME = %ANDROID_HOME%
 
-:: ── 3. Prompt for ngrok URL ────────────────────────────────────
+:: ── 3. Backend API URL ──────────────────────────────────────────
 echo.
 echo [3/6] Backend API URL setup
 echo.
-echo  Your backend is running locally. You need ngrok to expose it.
-echo  Steps:
-echo    a) Open a NEW terminal window
-echo    b) Run: ngrok http 3000
-echo    c) Copy the https URL shown (e.g. https://abc123.ngrok-free.app)
-echo.
-set /p NGROK_URL="  Enter your ngrok URL (or press Enter to skip and use placeholder): "
 
-if "%NGROK_URL%"=="" (
-    set "NGROK_URL=https://YOUR-NGROK-URL.ngrok-free.app"
-    echo  Using placeholder - APK will build but API calls will fail until you update .env.mobile
-) else (
-    echo  Using: %NGROK_URL%
+:: Re-use .env.mobile if it already has a real URL
+set "EXISTING_URL="
+if exist "frontend\.env.mobile" (
+    for /f "tokens=2 delims==" %%A in ('findstr "VITE_API_URL" "frontend\.env.mobile"') do set "EXISTING_URL=%%A"
 )
 
-:: Write .env.mobile
-echo VITE_API_URL=%NGROK_URL%/api/v1 > frontend\.env.mobile
-echo  Written to frontend\.env.mobile
+if not "%EXISTING_URL%"=="" (
+    echo  Found existing API URL: %EXISTING_URL%
+    set /p CHANGE_URL="  Press Enter to keep it, or type a new Railway URL to override: "
+    if "!CHANGE_URL!"=="" (
+        echo  Keeping existing URL.
+        goto :url_done
+    )
+    set "RAILWAY_URL=!CHANGE_URL!"
+) else (
+    echo  Your backend is deployed on Railway.
+    echo  Example: https://smart-appt-production.up.railway.app
+    echo.
+    set /p RAILWAY_URL="  Enter your Railway backend URL: "
+)
+
+if "!RAILWAY_URL!"=="" (
+    echo  ERROR: Railway URL is required.
+    pause & exit /b 1
+)
+
+:: Strip trailing slash if present
+if "!RAILWAY_URL:~-1!"=="/" set "RAILWAY_URL=!RAILWAY_URL:~0,-1!"
+
+:: Auto-prepend https:// if missing
+echo !RAILWAY_URL! | findstr /i "^https://" >nul
+if errorlevel 1 set "RAILWAY_URL=https://!RAILWAY_URL!"
+
+echo VITE_API_URL=!RAILWAY_URL!/api/v1 > frontend\.env.mobile
+echo  Written to frontend\.env.mobile (VITE_API_URL=!RAILWAY_URL!/api/v1)
+
+:url_done
 
 :: ── 4. npm install + build ─────────────────────────────────────
 echo.
@@ -120,7 +140,7 @@ if errorlevel 1 (
 cd ..
 
 :: ── Done ──────────────────────────────────────────────────────
-set APK_PATH=frontend\android\app\build\outputs\apk\debug\app-debug.apk
+set APK_PATH=frontend\android\app\build\outputs\apk\debug\SmartAppt.apk
 echo.
 echo ============================================================
 echo   SUCCESS! APK built at:
@@ -132,7 +152,7 @@ echo    1. Enable "Install unknown apps" in Android Settings
 echo    2. Transfer the APK to your phone (USB / WhatsApp / email)
 echo    3. Open the APK file on your phone and install
 echo.
-echo  Keep ngrok running while using the app!
+echo  Backend is on Railway - no ngrok needed!
 echo.
 explorer /select,"%CD%\%APK_PATH%"
 pause
