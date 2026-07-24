@@ -197,11 +197,20 @@ export class AuthService {
     const tokenHash = hashToken(rawRefresh);
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    // Fetch association name for display in dashboard/header
-    const config = await prisma.associationConfig.findUnique({
-      where: { association_id: user.association_id },
-      select: { association_name: true },
-    });
+    // Fetch association name + unit flat number for display in mobile header
+    const [config, unit] = await Promise.all([
+      prisma.associationConfig.findUnique({
+        where: { association_id: user.association_id },
+        select: { association_name: true },
+      }),
+      user.unit_id
+        ? prisma.unit.findUnique({ where: { id: user.unit_id }, select: { flat_number: true, block: true } })
+        : null,
+    ]);
+
+    const unitNumber = unit
+      ? (unit.block ? `${unit.block}-${unit.flat_number}` : unit.flat_number)
+      : null;
 
     await prisma.refreshToken.create({
       data: {
@@ -223,6 +232,7 @@ export class AuthService {
         association_id: user.association_id,
         association_name: config?.association_name ?? null,
         unit_id: user.unit_id,
+        unit_number: unitNumber,
       },
     };
   }

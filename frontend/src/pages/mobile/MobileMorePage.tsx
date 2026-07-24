@@ -66,13 +66,16 @@ export default function MobileMorePage() {
         </div>
         <div style={{ fontSize: 20, fontWeight: 700, color: '#fff' }}>{user?.name ?? '—'}</div>
         <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 2 }}>{user?.phone}</div>
-        <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {user?.association_name && (
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 3 }}>🏠 {user.association_name}</div>
+        )}
+        <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 600 }}>
             {user?.role ?? ''}
           </span>
-          {config.app_name && (
-            <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: 11, padding: '2px 10px', borderRadius: 20 }}>
-              {config.app_name}
+          {user?.unit_number && (
+            <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: 11, padding: '2px 10px', borderRadius: 20, fontWeight: 600 }}>
+              Unit {user.unit_number}
             </span>
           )}
         </div>
@@ -81,11 +84,16 @@ export default function MobileMorePage() {
       {/* Menu sections */}
       <div style={{ padding: '16px 16px 0' }}>
 
+        {/* Logout — always at the top */}
+        <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+          <MenuRow icon="🚪" label="Logout" sublabel="Sign out of your account" danger onClick={handleLogout} />
+        </div>
+
         {/* Account */}
         <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
           <div style={{ padding: '8px 16px', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', background: '#f8fafc' }}>Account</div>
           {config.login_mpin_enabled && (
-            <MenuRow icon="🔐" label="Change M-PIN" sublabel="Update your 6-digit security PIN" onClick={() => navigate('/change-mpin')} />
+            <MenuRow icon="🔐" label="Change M-PIN" sublabel="Update your 4-digit security PIN" onClick={() => navigate('/change-mpin')} />
           )}
         </div>
 
@@ -106,12 +114,7 @@ export default function MobileMorePage() {
           )}
         </div>
 
-        {/* Session */}
-        <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', marginBottom: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-          <MenuRow icon="🚪" label="Logout" danger onClick={handleLogout} />
-        </div>
-
-        <div style={{ textAlign: 'center', fontSize: 11, color: '#cbd5e1', paddingBottom: 8 }}>
+        <div style={{ textAlign: 'center', fontSize: 11, color: '#cbd5e1', paddingBottom: 24 }}>
           SmartAppt v1.0
         </div>
       </div>

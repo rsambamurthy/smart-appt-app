@@ -81,9 +81,22 @@ export default function MobileHomePage() {
         )}
         <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)', marginBottom: 2 }}>{greeting},</div>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{user?.name ?? 'Resident'}</div>
-        {config.app_name && (
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>{config.app_name}</div>
-        )}
+        {/* Association name + unit */}
+        <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {user?.association_name && (
+            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', fontWeight: 500 }}>
+              🏠 {user.association_name}
+            </span>
+          )}
+          {user?.unit_number && (
+            <span style={{
+              background: 'rgba(255,255,255,0.22)', color: '#fff',
+              fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 20,
+            }}>
+              Unit {user.unit_number}
+            </span>
+          )}
+        </div>
       </div>
 
       <div style={{ padding: '16px 16px 0' }}>

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import Layout from '../../components/organisms/Layout';
+import { IS_NATIVE } from '../../hooks/usePlatform';
 import { useListTicketsQuery, useListMyTicketsQuery } from '../../store/api/maintenanceApi';
 
 const STATUS_BADGE: Record<string, string> = {
@@ -17,21 +18,25 @@ const PRIORITY_BADGE: Record<string, string> = {
 export default function TicketListPage() {
   const user = useSelector((s: RootState) => s.auth.user);
   const isResident = user?.role === 'RESIDENT';
+  // On mobile: all roles see their own tickets and can raise requests
+  const useMyView = IS_NATIVE || isResident;
   const [status, setStatus] = useState('');
 
-  const { data: managerData, isFetching: mFetching } = useListTicketsQuery({ status: status || undefined }, { skip: isResident });
-  const { data: residentData, isFetching: rFetching } = useListMyTicketsQuery({}, { skip: !isResident });
-  const tickets = ((isResident ? residentData : managerData)?.data ?? []) as Record<string, unknown>[];
+  const { data: managerData, isFetching: mFetching } = useListTicketsQuery({ status: status || undefined }, { skip: useMyView });
+  const { data: myData, isFetching: rFetching } = useListMyTicketsQuery({}, { skip: !useMyView });
+  const tickets = ((useMyView ? myData : managerData)?.data ?? []) as Record<string, unknown>[];
   const loading = mFetching || rFetching;
 
   return (
     <Layout>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>Maintenance Requests</h1>
-        {isResident && <Link to="/maintenance/new"><button className="btn-primary">+ Raise Request</button></Link>}
+        {/* All roles can raise a maintenance request on mobile; web restricts to resident */}
+        {(IS_NATIVE || isResident) && <Link to="/maintenance/new"><button className="btn-primary">+ Raise Request</button></Link>}
       </div>
 
-      {!isResident && (
+      {/* Status filter only on web for managers */}
+      {!useMyView && (
         <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           {['', 'SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'].map((s) => (
             <button key={s} className={status === s ? 'btn-primary' : 'btn-secondary'} onClick={() => setStatus(s)} style={{ fontSize: '0.75rem' }}>

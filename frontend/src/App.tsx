@@ -79,6 +79,8 @@ export default function App() {
             <Route path="/mobile/home" element={<MobileHomePage />} />
             <Route path="/mobile/bills" element={<ProtectedRoute><MobileBillsPage /></ProtectedRoute>} />
             <Route path="/mobile/visitors" element={<ProtectedRoute><MobileVisitorsPage /></ProtectedRoute>} />
+            <Route path="/mobile/visitors/log" element={<ProtectedRoute><VisitorLogPage /></ProtectedRoute>} />
+            <Route path="/mobile/visitors/preapprove" element={<ProtectedRoute><PreApproveVisitorPage /></ProtectedRoute>} />
             <Route path="/mobile/more" element={<MobileMorePage />} />
             <Route path="/announcements" element={<ProtectedRoute><AnnouncementFeedPage /></ProtectedRoute>} />
             <Route path="/maintenance" element={<ProtectedRoute><TicketListPage /></ProtectedRoute>} />

@@ -8,6 +8,7 @@ interface AuthUser {
   association_id: string;
   association_name?: string | null;
   unit_id?: string | null;
+  unit_number?: string | null;
 }
 
 interface AuthState {
