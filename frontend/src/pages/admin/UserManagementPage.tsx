@@ -118,14 +118,13 @@ const USER_COLS = ['name', 'phone', 'email', 'role', 'flat_number', 'block', 'is
 const VALID_ROLES = ['MANAGER', 'RESIDENT', 'COMMITTEE', 'TREASURER', 'GATE_STAFF'];
 
 function downloadTemplate(type: BulkType) {
-  const wb = XLSX.utils.book_new();
-  const data = type === 'units'
-    ? [UNIT_COLS, ['101', 'A', 1, '2BHK', 850], ['102', 'B', 2, '3BHK', 1200]]
-    : [USER_COLS, ['John Doe', '9876543210', 'john@example.com', 'RESIDENT', '101', 'A', 'TRUE'],
-       ['Jane Doe', '9876543211', '', 'TREASURER', '', '', 'FALSE']];
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  XLSX.utils.book_append_sheet(wb, ws, type === 'units' ? 'Units' : 'Users');
-  XLSX.writeFile(wb, `${type}_template.xlsx`);
+  const filename = type === 'units'
+    ? 'SmartAppt_UnitUpload_Template.xlsx'
+    : 'SmartAppt_UserUpload_Template.xlsx';
+  const a = document.createElement('a');
+  a.href = `${import.meta.env.BASE_URL}templates/${filename}`;
+  a.download = filename;
+  a.click();
 }
 
 function validateUnitRow(row: Record<string, unknown>): string | null {

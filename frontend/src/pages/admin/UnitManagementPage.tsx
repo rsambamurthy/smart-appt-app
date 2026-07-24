@@ -91,14 +91,11 @@ interface ImportResult { created: number; skipped: number; errors: string[] }
 const UNIT_COLS = ['flat_number', 'block', 'floor', 'unit_type', 'area_sqft'];
 
 function downloadTemplate() {
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet([
-    UNIT_COLS,
-    ['101', 'A', 1, '2BHK', 850],
-    ['102', 'B', 2, '3BHK', 1200],
-  ]);
-  XLSX.utils.book_append_sheet(wb, ws, 'Units');
-  XLSX.writeFile(wb, 'units_template.xlsx');
+  const filename = 'SmartAppt_UnitUpload_Template.xlsx';
+  const a = document.createElement('a');
+  a.href = `${import.meta.env.BASE_URL}templates/${filename}`;
+  a.download = filename;
+  a.click();
 }
 
 function validateRow(row: Record<string, unknown>): string | null {
