@@ -38,13 +38,15 @@ router.post('/bills/rollback', requireRoles(UserRole.TREASURER, UserRole.MANAGER
 router.get('/bills', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   duesController.listBills(req as never, res, next));
 
-router.get('/bills/my', requireRoles(UserRole.RESIDENT), (req, res, next) =>
+// All authenticated users can view their own bills (mobile app — no role difference)
+router.get('/bills/my', (req, res, next) =>
   duesController.listMyBills(req as never, res, next));
 
-router.post('/payments/initiate', requireRoles(UserRole.RESIDENT), validate(initiatePaymentSchema), (req, res, next) =>
+// All authenticated users can initiate/verify payments for their own bills
+router.post('/payments/initiate', validate(initiatePaymentSchema), (req, res, next) =>
   duesController.initiatePayment(req as never, res, next));
 
-router.post('/payments/verify', requireRoles(UserRole.RESIDENT), (req, res, next) =>
+router.post('/payments/verify', (req, res, next) =>
   duesController.verifyPayment(req as never, res, next));
 
 router.post('/payments/offline', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(offlinePaymentSchema), (req, res, next) =>

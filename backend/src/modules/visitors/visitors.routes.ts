@@ -10,7 +10,8 @@ import { AuthRequest } from '../../types';
 const router = Router();
 router.use(authenticate);
 
-router.post('/preapprove', requireRoles(UserRole.RESIDENT), async (req: AuthRequest, res, next) => {
+// All authenticated users can pre-approve visitors (mobile — no role difference)
+router.post('/preapprove', async (req: AuthRequest, res, next) => {
   try {
     if (!req.user!.unit_id) throw new UnprocessableError('No unit associated.');
     res.status(201).json(await visitorsService.preApprove(req.user!.association_id, req.user!.id, req.user!.unit_id, req.body));
@@ -35,19 +36,20 @@ router.get('/log', requireRoles(UserRole.MANAGER, UserRole.GATE_STAFF), async (r
   } catch (err) { next(err); }
 });
 
-router.get('/frequent/my', requireRoles(UserRole.RESIDENT), async (req: AuthRequest, res, next) => {
+// All authenticated users can manage their own frequent visitors
+router.get('/frequent/my', async (req: AuthRequest, res, next) => {
   try { res.json(await visitorsService.listFrequentVisitors(req.user!.association_id, req.user!.id)); }
   catch (err) { next(err); }
 });
 
-router.post('/frequent', requireRoles(UserRole.RESIDENT), async (req: AuthRequest, res, next) => {
+router.post('/frequent', async (req: AuthRequest, res, next) => {
   try {
     if (!req.user!.unit_id) throw new UnprocessableError('No unit associated.');
     res.status(201).json(await visitorsService.addFrequentVisitor(req.user!.association_id, req.user!.id, req.user!.unit_id, req.body));
   } catch (err) { next(err); }
 });
 
-router.patch('/frequent/:id', requireRoles(UserRole.RESIDENT), async (req: AuthRequest, res, next) => {
+router.patch('/frequent/:id', async (req: AuthRequest, res, next) => {
   try { res.json(await visitorsService.updateFrequentVisitor(req.user!.association_id, req.params['id'], req.user!.id, req.body)); }
   catch (err) { next(err); }
 });
@@ -62,7 +64,7 @@ router.get('/qr/:token', requireRoles(UserRole.GATE_STAFF), async (req: AuthRequ
   catch (err) { next(err); }
 });
 
-router.post('/:id/approve', requireRoles(UserRole.RESIDENT), async (req: AuthRequest, res, next) => {
+router.post('/:id/approve', async (req: AuthRequest, res, next) => {
   try { res.json(await visitorsService.approveVisitor(req.user!.association_id, req.params['id'], req.user!.id, req.body.decision)); }
   catch (err) { next(err); }
 });
