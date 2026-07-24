@@ -7,6 +7,7 @@ import { useLogoutMutation } from '../../store/api/authApi';
 import { baseApi } from '../../store/api/baseApi';
 import { useTheme, PRESETS, type ThemePreset } from '../../contexts/ThemeContext';
 import { useGetMenuConfigQuery } from '../../store/api/systemApi';
+import { IS_NATIVE } from '../../hooks/usePlatform';
 
 interface NavItem {
   id: string;
@@ -133,7 +134,8 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-export default function Layout({ children }: { children: React.ReactNode }) {
+/** Web-only shell — never rendered on native mobile. */
+function WebLayout({ children }: { children: React.ReactNode }) {
   const user = useSelector((s: RootState) => s.auth.user);
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -400,4 +402,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       </div>
     </div>
   );
+}
+
+/**
+ * Layout shell.
+ * On native mobile (Capacitor WebView) MobileLayout already wraps all routes,
+ * so this component just passes children through to avoid a double shell.
+ */
+export default function Layout({ children }: { children: React.ReactNode }) {
+  if (IS_NATIVE) return <>{children}</>;
+  return <WebLayout>{children}</WebLayout>;
 }

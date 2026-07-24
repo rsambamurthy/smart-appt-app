@@ -2,6 +2,13 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import type { RootState } from './store';
 
+// Platform
+import { IS_NATIVE } from './hooks/usePlatform';
+import { MobileConfigProvider } from './contexts/MobileConfigContext';
+import MobileLayout from './components/organisms/MobileLayout';
+import MobileHomePage from './pages/mobile/MobileHomePage';
+import MobileMorePage from './pages/mobile/MobileMorePage';
+
 // Pages
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
@@ -58,9 +65,27 @@ const RoleRoute = ({ roles, children }: { roles: string[]; children: JSX.Element
 export default function App() {
   return (
     <BrowserRouter>
+      <MobileConfigProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterAssociationPage />} />
+
+        {/* ── Mobile routing tree (only active when running inside Capacitor) ── */}
+        {IS_NATIVE && (
+          <Route element={<MobileLayout />}>
+            <Route index element={<Navigate to="/mobile/home" replace />} />
+            <Route path="/mobile/home" element={<MobileHomePage />} />
+            <Route path="/dues/my-bills" element={<RoleRoute roles={['RESIDENT']}><MyBillsPage /></RoleRoute>} />
+            <Route path="/announcements" element={<ProtectedRoute><AnnouncementFeedPage /></ProtectedRoute>} />
+            <Route path="/maintenance" element={<ProtectedRoute><TicketListPage /></ProtectedRoute>} />
+            <Route path="/maintenance/new" element={<ProtectedRoute><RaiseTicketPage /></ProtectedRoute>} />
+            <Route path="/maintenance/:id" element={<ProtectedRoute><TicketDetailPage /></ProtectedRoute>} />
+            <Route path="/visitors/preapprove" element={<RoleRoute roles={['RESIDENT']}><PreApproveVisitorPage /></RoleRoute>} />
+            <Route path="/change-mpin" element={<ProtectedRoute><ChangeMpinPage /></ProtectedRoute>} />
+            <Route path="/mobile/more" element={<MobileMorePage />} />
+            <Route path="*" element={<Navigate to="/mobile/home" replace />} />
+          </Route>
+        )}
         <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
 
@@ -113,9 +138,12 @@ export default function App() {
         <Route path="/accounting/pnl"               element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><PnLPage /></RoleRoute>} />
         <Route path="/accounting/balance-sheet"     element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><BalanceSheetPage /></RoleRoute>} />
 
-        <Route path="/change-mpin" element={<ProtectedRoute><ChangeMpinPage /></ProtectedRoute>} />
-        <Route path="*" element={<NotFoundPage />} />
+        {/* change-mpin is available on web; mobile version is inside the MobileLayout block above */}
+        {!IS_NATIVE && <Route path="/change-mpin" element={<ProtectedRoute><ChangeMpinPage /></ProtectedRoute>} />}
+        {/* Catch-all: 404 on web, redirect on mobile (handled by the MobileLayout block above) */}
+        {!IS_NATIVE && <Route path="*" element={<NotFoundPage />} />}
       </Routes>
+      </MobileConfigProvider>
     </BrowserRouter>
   );
 }
