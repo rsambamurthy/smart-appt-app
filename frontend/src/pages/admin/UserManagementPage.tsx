@@ -375,7 +375,7 @@ function UsersTab() {
   const [formError, setFormError] = useState('');
   const [showBulkModal, setShowBulkModal] = useState(false);
 
-  const queryParams: Record<string, unknown> = {};
+  const queryParams: Record<string, unknown> = { limit: 500 };
   if (search) queryParams['search'] = search;
   if (roleFilter) queryParams['role'] = roleFilter;
   if (statusFilter !== '') queryParams['is_active'] = statusFilter === 'true';

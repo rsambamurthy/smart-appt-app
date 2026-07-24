@@ -269,6 +269,7 @@ export default function UnitManagementPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [panel, setPanel] = useState<{ mode: 'add' | 'edit'; unit?: UnitRecord } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<UnitRecord | null>(null);
+  const [deleteError, setDeleteError] = useState('');
   const [form, setForm] = useState<UnitForm>(BLANK);
   const [formError, setFormError] = useState('');
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -346,9 +347,12 @@ export default function UnitManagementPage() {
     if (!deleteConfirm) return;
     try {
       await deleteUnit({ id: deleteConfirm.id }).unwrap();
-    } catch { /* ignore */ }
-    setDeleteConfirm(null);
-    refetch();
+      setDeleteConfirm(null);
+      refetch();
+    } catch (err: unknown) {
+      setDeleteError((err as { data?: { detail?: string } })?.data?.detail ?? 'Could not delete unit. It may have linked bills or payments.');
+      setDeleteConfirm(null);
+    }
   };
 
   return (
@@ -366,6 +370,13 @@ export default function UnitManagementPage() {
         <h1>Manage Units</h1>
         <p>Apartment units and flat assignments for your association.</p>
       </div>
+
+      {deleteError && (
+        <div style={{ margin: '0 1.5rem', background: '#fee2e2', color: '#991b1b', padding: '0.65rem 1rem', borderRadius: 6, fontSize: '0.875rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{deleteError}</span>
+          <button onClick={() => setDeleteError('')} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.1rem', color: '#991b1b', lineHeight: 1 }}>×</button>
+        </div>
+      )}
 
       {/* Stats meta bar */}
       <div className="ent-meta">

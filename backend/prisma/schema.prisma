@@ -241,6 +241,7 @@ model Unit {
   unit_type      String?     @db.VarChar(50)
   created_at     DateTime    @default(now()) @db.Timestamptz
   updated_at     DateTime    @updatedAt @db.Timestamptz
+  deleted_at     DateTime?   @db.Timestamptz
 
   // Relations
   users               User[]

@@ -10,7 +10,7 @@ export class UsersService {
   // ── Units ────────────────────────────────────────────────────────────────────
   async listUnits(associationId: string) {
     const units = await prisma.unit.findMany({
-      where: { association_id: associationId },
+      where: { association_id: associationId, deleted_at: null },
       include: {
         users: {
           where: { deleted_at: null, is_active: true },
@@ -24,7 +24,7 @@ export class UsersService {
 
   async createUnit(associationId: string, body: CreateUnitBody) {
     const existing = await prisma.unit.findFirst({
-      where: { association_id: associationId, flat_number: body.flat_number },
+      where: { association_id: associationId, flat_number: body.flat_number, deleted_at: null },
     });
     if (existing) throw new ConflictError(`Unit ${body.flat_number} already exists.`);
 
@@ -42,9 +42,9 @@ export class UsersService {
   }
 
   async deleteUnit(associationId: string, unitId: string) {
-    const unit = await prisma.unit.findFirst({ where: { id: unitId, association_id: associationId } });
+    const unit = await prisma.unit.findFirst({ where: { id: unitId, association_id: associationId, deleted_at: null } });
     if (!unit) throw new NotFoundError('Unit');
-    await prisma.unit.delete({ where: { id: unitId } });
+    await prisma.unit.update({ where: { id: unitId }, data: { deleted_at: new Date() } });
     return { data: { message: 'Unit deleted' } };
   }
 
