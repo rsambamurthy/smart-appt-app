@@ -44,10 +44,9 @@ export default function MobileHomePage() {
   const navigate = useNavigate();
   const config = useMobileConfig();
   const user = useSelector((s: RootState) => s.auth.user);
-  const isResident = user?.role === 'RESIDENT';
 
-  // Data
-  const { data: billsData } = useListMyBillsQuery({ limit: 10 }, { skip: !isResident || !config.feature_bills });
+  // Data — no role filtering; feature flags from MobileConfig control what's fetched
+  const { data: billsData } = useListMyBillsQuery({ limit: 10 }, { skip: !config.feature_bills });
   const { data: announcementsData } = useListAnnouncementsQuery({ limit: 3 }, { skip: !config.feature_announcements });
   const { data: ticketsData } = useListTicketsQuery({ limit: 10 }, { skip: !config.feature_complaints });
 
@@ -90,7 +89,7 @@ export default function MobileHomePage() {
       <div style={{ padding: '16px 16px 0' }}>
 
         {/* Outstanding bills banner */}
-        {isResident && config.feature_bills && pendingBills.length > 0 && (
+        {config.feature_bills && pendingBills.length > 0 && (
           <button
             onClick={() => navigate('/dues/my-bills')}
             style={{
@@ -111,10 +110,10 @@ export default function MobileHomePage() {
           </button>
         )}
 
-        {/* Quick actions */}
+        {/* Quick actions — all shown to all users based on feature flags only */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
-          {isResident && config.feature_bills && (
-            <ActionCard icon="💳" label="Pay Bills" sublabel={pendingBills.length ? `${pendingBills.length} pending` : 'All clear'} color="#1d4ed8" bg="#eff6ff" onClick={() => navigate('/dues/my-bills')} />
+          {config.feature_bills && (
+            <ActionCard icon="💳" label="Bills" sublabel={pendingBills.length ? `${pendingBills.length} pending` : 'All clear'} color="#1d4ed8" bg="#eff6ff" onClick={() => navigate('/mobile/bills')} />
           )}
           {config.feature_complaints && (
             <ActionCard icon="🔧" label="Service" sublabel={openTickets > 0 ? `${openTickets} open` : 'No open requests'} color="#7c3aed" bg="#f5f3ff" onClick={() => navigate('/maintenance')} />
@@ -122,8 +121,8 @@ export default function MobileHomePage() {
           {config.feature_announcements && (
             <ActionCard icon="📢" label="Announcements" sublabel={`${announcements.length} recent`} color="#b45309" bg="#fffbeb" onClick={() => navigate('/announcements')} />
           )}
-          {isResident && config.feature_visitors && (
-            <ActionCard icon="🚪" label="Visitors" sublabel="Pre-approve entry" color="#15803d" bg="#f0fdf4" onClick={() => navigate('/visitors/preapprove')} />
+          {config.feature_visitors && (
+            <ActionCard icon="🚪" label="Visitors" sublabel="Gate & pre-approvals" color="#15803d" bg="#f0fdf4" onClick={() => navigate('/mobile/visitors')} />
           )}
         </div>
 

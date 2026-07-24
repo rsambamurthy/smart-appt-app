@@ -8,6 +8,8 @@ import { MobileConfigProvider } from './contexts/MobileConfigContext';
 import MobileLayout from './components/organisms/MobileLayout';
 import MobileHomePage from './pages/mobile/MobileHomePage';
 import MobileMorePage from './pages/mobile/MobileMorePage';
+import MobileBillsPage from './pages/mobile/MobileBillsPage';
+import MobileVisitorsPage from './pages/mobile/MobileVisitorsPage';
 
 // Pages
 import LoginPage from './pages/LoginPage';
@@ -75,14 +77,14 @@ export default function App() {
           <Route element={<MobileLayout />}>
             <Route index element={<Navigate to="/mobile/home" replace />} />
             <Route path="/mobile/home" element={<MobileHomePage />} />
-            <Route path="/dues/my-bills" element={<RoleRoute roles={['RESIDENT']}><MyBillsPage /></RoleRoute>} />
+            <Route path="/mobile/bills" element={<ProtectedRoute><MobileBillsPage /></ProtectedRoute>} />
+            <Route path="/mobile/visitors" element={<ProtectedRoute><MobileVisitorsPage /></ProtectedRoute>} />
+            <Route path="/mobile/more" element={<MobileMorePage />} />
             <Route path="/announcements" element={<ProtectedRoute><AnnouncementFeedPage /></ProtectedRoute>} />
             <Route path="/maintenance" element={<ProtectedRoute><TicketListPage /></ProtectedRoute>} />
             <Route path="/maintenance/new" element={<ProtectedRoute><RaiseTicketPage /></ProtectedRoute>} />
             <Route path="/maintenance/:id" element={<ProtectedRoute><TicketDetailPage /></ProtectedRoute>} />
-            <Route path="/visitors/preapprove" element={<RoleRoute roles={['RESIDENT']}><PreApproveVisitorPage /></RoleRoute>} />
             <Route path="/change-mpin" element={<ProtectedRoute><ChangeMpinPage /></ProtectedRoute>} />
-            <Route path="/mobile/more" element={<MobileMorePage />} />
             <Route path="*" element={<Navigate to="/mobile/home" replace />} />
           </Route>
         )}

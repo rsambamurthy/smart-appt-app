@@ -89,11 +89,11 @@ export default function MobileMorePage() {
           )}
         </div>
 
-        {/* Features */}
+        {/* Features — all shown to all users based on feature flags only */}
         <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
           <div style={{ padding: '8px 16px', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', background: '#f8fafc' }}>Features</div>
-          {config.feature_bills && user?.role === 'RESIDENT' && (
-            <MenuRow icon="🧾" label="My Bills" sublabel="View and pay dues" onClick={() => navigate('/dues/my-bills')} />
+          {config.feature_bills && (
+            <MenuRow icon="🧾" label="Bills" sublabel="View and pay dues" onClick={() => navigate('/mobile/bills')} />
           )}
           {config.feature_announcements && (
             <MenuRow icon="📢" label="Announcements" sublabel="Community notices and updates" onClick={() => navigate('/announcements')} />
@@ -101,8 +101,8 @@ export default function MobileMorePage() {
           {config.feature_complaints && (
             <MenuRow icon="🔧" label="Service Requests" sublabel="Raise and track maintenance requests" onClick={() => navigate('/maintenance')} />
           )}
-          {config.feature_visitors && user?.role === 'RESIDENT' && (
-            <MenuRow icon="🚪" label="Visitor Pre-Approval" sublabel="Manage expected visitors" onClick={() => navigate('/visitors/preapprove')} />
+          {config.feature_visitors && (
+            <MenuRow icon="🚪" label="Visitors" sublabel="Gate activity and pre-approvals" onClick={() => navigate('/mobile/visitors')} />
           )}
         </div>
 

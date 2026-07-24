@@ -1,4 +1,4 @@
-import { Outlet, NavLink, Navigate, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, Navigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { useMobileConfig } from '../../contexts/MobileConfigContext';
@@ -10,28 +10,25 @@ interface Tab {
   label: string;
   icon: string;
   featureKey?: 'feature_bills' | 'feature_announcements' | 'feature_complaints' | 'feature_visitors';
-  roles?: string[]; // undefined = all roles
 }
 
+// All tabs visible to all roles — feature flags from MobileConfig control visibility
 const ALL_TABS: Tab[] = [
-  { path: '/mobile/home',            label: 'Home',      icon: '⌂'  },
-  { path: '/dues/my-bills',          label: 'Bills',     icon: '₹',  featureKey: 'feature_bills',         roles: ['RESIDENT'] },
-  { path: '/announcements',          label: 'Feed',      icon: '📢', featureKey: 'feature_announcements' },
-  { path: '/maintenance',            label: 'Service',   icon: '🔧', featureKey: 'feature_complaints' },
-  { path: '/visitors/preapprove',    label: 'Visitors',  icon: '🚪', featureKey: 'feature_visitors',      roles: ['RESIDENT'] },
-  { path: '/mobile/more',            label: 'More',      icon: '☰'  },
+  { path: '/mobile/home',         label: 'Home',     icon: '⌂'  },
+  { path: '/mobile/bills',        label: 'Bills',    icon: '₹',  featureKey: 'feature_bills'         },
+  { path: '/announcements',       label: 'Feed',     icon: '📢', featureKey: 'feature_announcements' },
+  { path: '/maintenance',         label: 'Service',  icon: '🔧', featureKey: 'feature_complaints'    },
+  { path: '/mobile/visitors',     label: 'Visitors', icon: '🚪', featureKey: 'feature_visitors'      },
+  { path: '/mobile/more',         label: 'More',     icon: '☰'  },
 ];
 
 // ── Bottom Tab Bar ─────────────────────────────────────────────────────────────
 
 function BottomTabBar() {
   const config = useMobileConfig();
-  const user = useSelector((s: RootState) => s.auth.user);
-  const role = user?.role ?? '';
 
   const visibleTabs = ALL_TABS.filter((tab) => {
     if (tab.featureKey && !config[tab.featureKey]) return false;
-    if (tab.roles && !tab.roles.includes(role)) return false;
     return true;
   });
 
