@@ -45,7 +45,7 @@ export const inviteUserSchema = z.object({
 
 export const paginationSchema = z.object({
   cursor: z.string().uuid().optional(),
-  limit: z.coerce.number().int().min(1).max(200).optional().default(20),
+  limit: z.coerce.number().int().min(1).max(500).optional().default(20),
   role: z.nativeEnum(UserRole).optional(),
   unit_id: z.string().uuid().optional(),
   association_id: z.string().uuid().optional(),

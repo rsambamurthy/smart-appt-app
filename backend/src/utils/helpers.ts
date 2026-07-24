@@ -46,7 +46,7 @@ export const stripHtml = (str: string): string =>
 /** Parse cursor-based pagination query params */
 export const parsePagination = (query: { cursor?: string; limit?: string }) => ({
   cursor: query.cursor,
-  limit: Math.min(parseInt(query.limit ?? '20', 10), 100),
+  limit: Math.min(parseInt(query.limit ?? '20', 10), 500),
 });
 
 /** Build a cursor-paginated response */
