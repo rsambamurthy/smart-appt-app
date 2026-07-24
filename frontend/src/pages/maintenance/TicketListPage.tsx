@@ -18,27 +18,29 @@ const PRIORITY_BADGE: Record<string, string> = {
 
 export default function TicketListPage() {
   const user = useSelector((s: RootState) => s.auth.user);
-  // MANAGER/COMMITTEE/TREASURER are also residents — they see their own tickets and can raise requests
-  const isResident = isResidentRole(user?.role);
-  // On mobile all roles use the resident view; on web resident-equivalent roles do too
-  const useMyView = IS_NATIVE || isResident;
+  const isManager = user?.role === 'MANAGER';
+  // MANAGER sees ALL tickets on both web and mobile so they can act on them
+  // Everyone else (including COMMITTEE/TREASURER as residents) sees their own tickets
+  const showAllView = isManager;
   const [status, setStatus] = useState('');
 
-  const { data: managerData, isFetching: mFetching } = useListTicketsQuery({ status: status || undefined }, { skip: useMyView });
-  const { data: myData, isFetching: rFetching } = useListMyTicketsQuery({}, { skip: !useMyView });
-  const tickets = ((useMyView ? myData : managerData)?.data ?? []) as Record<string, unknown>[];
-  const loading = mFetching || rFetching;
+  const { data: allData,  isFetching: aFetching } = useListTicketsQuery({ status: status || undefined }, { skip: !showAllView });
+  const { data: myData,   isFetching: mFetching } = useListMyTicketsQuery({},                          { skip: showAllView });
+  const tickets = ((showAllView ? allData : myData)?.data ?? []) as Record<string, unknown>[];
+  const loading = aFetching || mFetching;
 
   return (
     <Layout>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h1>Maintenance Requests</h1>
-        {/* All roles can raise a maintenance request on mobile; web restricts to resident */}
-        {(IS_NATIVE || isResident) && <Link to="/maintenance/new"><button className="btn-primary">+ Raise Request</button></Link>}
+        {/* All roles can raise a request (mobile + web) */}
+        {(IS_NATIVE || isResidentRole(user?.role)) && (
+          <Link to="/maintenance/new"><button className="btn-primary">+ Raise Request</button></Link>
+        )}
       </div>
 
-      {/* Status filter only on web for managers */}
-      {!useMyView && (
+      {/* Status filter for MANAGER on both web and mobile */}
+      {showAllView && (
         <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
           {['', 'SUBMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'].map((s) => (
             <button key={s} className={status === s ? 'btn-primary' : 'btn-secondary'} onClick={() => setStatus(s)} style={{ fontSize: '0.75rem' }}>

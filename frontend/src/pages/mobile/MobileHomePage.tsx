@@ -4,7 +4,7 @@ import type { RootState } from '../../store';
 import { useMobileConfig } from '../../contexts/MobileConfigContext';
 import { useListMyBillsQuery } from '../../store/api/duesApi';
 import { useListAnnouncementsQuery } from '../../store/api/announcementsApi';
-import { useListMyTicketsQuery } from '../../store/api/maintenanceApi';
+import { useListTicketsQuery, useListMyTicketsQuery } from '../../store/api/maintenanceApi';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,10 +45,15 @@ export default function MobileHomePage() {
   const config = useMobileConfig();
   const user = useSelector((s: RootState) => s.auth.user);
 
-  // Data — no role filtering; feature flags from MobileConfig control what's fetched
+  const isManager = user?.role === 'MANAGER';
+
+  // Bills and announcements: always own data
   const { data: billsData } = useListMyBillsQuery({ limit: 10 }, { skip: !config.feature_bills });
   const { data: announcementsData } = useListAnnouncementsQuery({ limit: 3 }, { skip: !config.feature_announcements });
-  const { data: ticketsData } = useListMyTicketsQuery({ limit: 10 }, { skip: !config.feature_complaints });
+  // Manager sees all pending tickets so they know what needs attention; others see their own
+  const { data: allTicketsData } = useListTicketsQuery({ limit: 50 },   { skip: !config.feature_complaints || !isManager });
+  const { data: myTicketsData }  = useListMyTicketsQuery({ limit: 10 }, { skip: !config.feature_complaints || isManager });
+  const ticketsData = isManager ? allTicketsData : myTicketsData;
 
   type Bill = { id: string; status: string; total_amount: number; period_month: number; period_year: number };
   type Announcement = { id: string; title: string; created_at: string; type?: string };
@@ -129,7 +134,14 @@ export default function MobileHomePage() {
             <ActionCard icon="💳" label="Bills" sublabel={pendingBills.length ? `${pendingBills.length} pending` : 'All clear'} color="#1d4ed8" bg="#eff6ff" onClick={() => navigate('/mobile/bills')} />
           )}
           {config.feature_complaints && (
-            <ActionCard icon="🔧" label="Service" sublabel={openTickets > 0 ? `${openTickets} open` : 'No open requests'} color="#7c3aed" bg="#f5f3ff" onClick={() => navigate('/maintenance')} />
+            <ActionCard
+              icon="🔧"
+              label="Service"
+              sublabel={openTickets > 0 ? `${openTickets} open${isManager ? ' (all)' : ''}` : 'No open requests'}
+              color="#7c3aed"
+              bg="#f5f3ff"
+              onClick={() => navigate('/maintenance')}
+            />
           )}
           {config.feature_announcements && (
             <ActionCard icon="📢" label="Announcements" sublabel={`${announcements.length} recent`} color="#b45309" bg="#fffbeb" onClick={() => navigate('/announcements')} />
@@ -168,7 +180,9 @@ export default function MobileHomePage() {
             <span style={{ fontSize: 22 }}>🔧</span>
             <div style={{ flex: 1, textAlign: 'left' }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>Service Requests</div>
-              <div style={{ fontSize: 12, color: '#f59e0b' }}>{openTickets} open request{openTickets > 1 ? 's' : ''}</div>
+              <div style={{ fontSize: 12, color: '#f59e0b' }}>
+                {openTickets} open request{openTickets > 1 ? 's' : ''}{isManager ? ' — tap to manage' : ''}
+              </div>
             </div>
             <div style={{ color: '#94a3b8', fontSize: 18 }}>›</div>
           </button>
