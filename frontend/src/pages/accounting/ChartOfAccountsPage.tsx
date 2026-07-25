@@ -51,7 +51,7 @@ interface UploadRow {
   is_group?: string; is_control_account?: string;
   opening_balance?: string; opening_balance_type?: string; opening_balance_date?: string;
 }
-interface ParsedRow { valid: boolean; data: Partial<AccountForm>; error?: string; raw: UploadRow }
+interface ParsedRow { status: 'create' | 'skip' | 'error'; data: Partial<AccountForm>; error?: string; raw: UploadRow }
 
 // ── Sub-component: AccountForm panel ─────────────────────────────────────────
 function AccountFormPanel({
@@ -351,6 +351,7 @@ export default function ChartOfAccountsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadError(''); setUploadResult(null);
+    const existingCodes = new Set(accounts.map(a => a.code.trim().toLowerCase()));
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
@@ -363,12 +364,16 @@ export default function ChartOfAccountsPage() {
             const code = String(r.code ?? '').trim();
             const name = String(r.name ?? '').trim();
             const type = String(r.type ?? '').trim().toUpperCase() as AccountType;
-            if (!code) return { valid: false, data: {}, error: 'Code is required', raw: r };
-            if (!name) return { valid: false, data: {}, error: `Row ${code}: name is required`, raw: r };
-            if (!VALID_TYPES.has(type)) return { valid: false, data: {}, error: `Row ${code}: invalid type "${r.type}"`, raw: r };
+            if (!code) return { status: 'error' as const, data: {}, error: 'Code is required', raw: r };
+            if (!name) return { status: 'error' as const, data: {}, error: `${code}: name is required`, raw: r };
+            if (!VALID_TYPES.has(type)) return { status: 'error' as const, data: {}, error: `${code}: invalid type "${r.type}"`, raw: r };
+            // Check against existing accounts
+            if (existingCodes.has(code.toLowerCase())) {
+              return { status: 'skip' as const, data: { code, name }, error: `${code} already exists`, raw: r };
+            }
             const isControl = String(r.is_control_account ?? '').toLowerCase() === 'yes';
             return {
-              valid: true,
+              status: 'create' as const,
               raw: r,
               data: {
                 code, name, type,
@@ -393,7 +398,7 @@ export default function ChartOfAccountsPage() {
   };
 
   const handleImport = async () => {
-    const validRows = parsedRows.filter(r => r.valid);
+    const validRows = parsedRows.filter(r => r.status === 'create');
     if (validRows.length === 0) return;
     setUploading(true);
     const result = { created: 0, skipped: 0, failed: 0 };
@@ -483,8 +488,9 @@ export default function ChartOfAccountsPage() {
               <>
                 <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                   {[
-                    { label: 'to create', n: parsedRows.filter(r => r.valid).length, color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
-                    { label: 'errors',    n: parsedRows.filter(r => !r.valid).length, color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
+                    { label: 'to create',      n: parsedRows.filter(r => r.status === 'create').length, color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0' },
+                    { label: 'already exists', n: parsedRows.filter(r => r.status === 'skip').length,   color: '#d97706', bg: '#fffbeb', border: '#fde68a' },
+                    { label: 'errors',         n: parsedRows.filter(r => r.status === 'error').length,  color: '#dc2626', bg: '#fef2f2', border: '#fecaca' },
                   ].map(s => (
                     <div key={s.label} style={{ background: s.bg, border: `1px solid ${s.border}`, borderRadius: 8, padding: '8px 16px', textAlign: 'center' }}>
                       <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.n}</div>
@@ -492,16 +498,23 @@ export default function ChartOfAccountsPage() {
                     </div>
                   ))}
                 </div>
-                {parsedRows.filter(r => !r.valid).length > 0 && (
+                {parsedRows.filter(r => r.status === 'skip').length > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    {parsedRows.filter(r => r.status === 'skip').map((r, i) => (
+                      <div key={i} style={{ fontSize: 12, color: '#d97706', padding: '2px 0' }}>⊘ {r.error} — will be skipped</div>
+                    ))}
+                  </div>
+                )}
+                {parsedRows.filter(r => r.status === 'error').length > 0 && (
                   <div style={{ marginBottom: 12 }}>
-                    {parsedRows.filter(r => !r.valid).map((r, i) => (
+                    {parsedRows.filter(r => r.status === 'error').map((r, i) => (
                       <div key={i} style={{ fontSize: 12, color: '#dc2626', padding: '2px 0' }}>⚠ {r.error}</div>
                     ))}
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={handleImport} disabled={uploading || parsedRows.filter(r => r.valid).length === 0} style={{ ...btn(true), opacity: uploading ? 0.7 : 1 }}>
-                    {uploading ? 'Importing…' : `Import ${parsedRows.filter(r => r.valid).length} accounts`}
+                  <button onClick={handleImport} disabled={uploading || parsedRows.filter(r => r.status === 'create').length === 0} style={{ ...btn(true), opacity: uploading ? 0.7 : 1 }}>
+                    {uploading ? 'Importing…' : `Import ${parsedRows.filter(r => r.status === 'create').length} accounts`}
                   </button>
                   <button onClick={() => { setParsedRows([]); setUploadError(''); }} style={btn()}>Clear</button>
                 </div>
