@@ -6,8 +6,19 @@ import {
   useUpdateJournalEntryMutation,
   useListAccountsQuery,
   useListBPMastersQuery,
+  useListBPTypesQuery,
+  BPCategory,
   JournalEntry, JournalLineInput,
 } from '../../store/api/accountingApi';
+
+// ── Infer BPCategory from a BPType name (e.g. "Unit/Flat" → UNIT) ────────────
+function inferCategoryFromTypeName(name: string): BPCategory | null {
+  const n = name.toLowerCase();
+  if (n.includes('unit') || n.includes('flat') || n.includes('resident')) return 'UNIT';
+  if (n.includes('bank'))                                                  return 'BANK';
+  if (n.includes('vendor') || n.includes('supplier'))                     return 'VENDOR';
+  return null;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmt = (n: number) => n > 0 ? `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—';
@@ -65,6 +76,7 @@ export default function JournalEntriesPage() {
   });
   const { data: accountsData } = useListAccountsQuery();
   const { data: bpData }       = useListBPMastersQuery({});
+  const { data: bpTypesData }  = useListBPTypesQuery();
   const [createEntry, { isLoading: isCreating }] = useCreateJournalEntryMutation();
   const [updateEntry, { isLoading: isUpdating }] = useUpdateJournalEntryMutation();
   const isSaving = isCreating || isUpdating;
@@ -72,9 +84,14 @@ export default function JournalEntriesPage() {
   const entries  = data?.data ?? [];
   const accounts = accountsData?.data ?? [];
   const allBPs   = bpData?.data ?? [];
+  const bpTypes  = bpTypesData?.data ?? [];
 
   // Quick lookups
   const accountMap = new Map(accounts.map(a => [a.id, a]));
+  // Map bp_type_id → inferred BPCategory (for control account filtering)
+  const bpTypeToCategory = new Map<string, BPCategory | null>(
+    bpTypes.map(t => [t.id, inferCategoryFromTypeName(t.name)])
+  );
 
   // ── Form state ───────────────────────────────────────────────────────────
   const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
@@ -237,8 +254,13 @@ export default function JournalEntriesPage() {
                   const selectedAccount  = accountMap.get(line.account_id);
                   const isControl        = selectedAccount?.is_control_account ?? false;
                   const bpTypeId         = selectedAccount?.bp_type_id ?? null;
+                  // Infer bp_category from the linked BPType name (e.g. "Unit/Flat" → UNIT)
+                  const inferredCategory = bpTypeId ? bpTypeToCategory.get(bpTypeId) ?? null : null;
                   const availableBPs     = isControl
-                    ? (bpTypeId ? allBPs.filter(bp => bp.bp_type_id === bpTypeId && bp.is_active) : allBPs.filter(bp => bp.is_active))
+                    ? allBPs.filter(bp =>
+                        bp.is_active &&
+                        (inferredCategory ? bp.bp_category === inferredCategory : true)
+                      )
                     : [];
                   const bpMissing        = isControl && !line.business_partner_id;
 
