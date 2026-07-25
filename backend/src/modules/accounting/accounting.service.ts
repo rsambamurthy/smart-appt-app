@@ -102,11 +102,14 @@ class AccountingService {
 
     const obDate = body.opening_balance_date ? new Date(body.opening_balance_date) : undefined;
 
-    // System accounts: protect structural fields; opening balance always editable
+    // System accounts: protect structural fields (code, type, is_group) but allow
+    // name, description, control account linkage, and opening balance to be edited.
     const data = account.is_system
       ? {
           name:                 body.name,
           description:          body.description,
+          is_control_account:   body.is_control_account,
+          bp_type_id:           body.is_control_account ? body.bp_type_id : null,
           opening_balance:      body.opening_balance,
           opening_balance_type: body.opening_balance_type,
           opening_balance_date: obDate,
