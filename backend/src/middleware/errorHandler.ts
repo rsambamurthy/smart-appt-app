@@ -14,6 +14,7 @@ export const errorHandler = (
     res.status(err.status).json({
       type: `https://smartappt.app/errors/${err.code.toLowerCase()}`,
       title: err.message,
+      message: err.detail,   // alias so frontend err.data.message always works
       status: err.status,
       detail: err.detail,
       instance: req.path,

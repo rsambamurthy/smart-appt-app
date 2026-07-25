@@ -180,8 +180,8 @@ export default function JournalEntriesPage() {
       closeForm();
       refetch();
     } catch (e: unknown) {
-      const err = e as { data?: { message?: string } };
-      setFormError(err?.data?.message ?? 'Failed to save entry.');
+      const err = e as { data?: { detail?: string; title?: string; message?: string } };
+      setFormError(err?.data?.detail ?? err?.data?.message ?? err?.data?.title ?? 'Failed to save entry.');
     }
   };
 
