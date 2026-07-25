@@ -8,10 +8,10 @@ import {
   useListBPMastersQuery,
   useListBPTypesQuery,
   BPCategory,
-  JournalEntry, JournalLineInput,
+  JournalEntry,
 } from '../../store/api/accountingApi';
 
-// ── Infer BPCategory from a BPType name (e.g. "Unit/Flat" → UNIT) ────────────
+// ── Infer BPCategory from BPType name ─────────────────────────────────────────
 function inferCategoryFromTypeName(name: string): BPCategory | null {
   const n = name.toLowerCase();
   if (n.includes('unit') || n.includes('flat') || n.includes('resident')) return 'UNIT';
@@ -21,8 +21,18 @@ function inferCategoryFromTypeName(name: string): BPCategory | null {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const fmt = (n: number) => n > 0 ? `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—';
-const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+const fmtAmt = (n: number) =>
+  `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+
+const fmtDate = (d: string) =>
+  new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+
+const TODAY = new Date().toISOString().slice(0, 10);
+
+const TYPE_STYLE: Record<string, { bg: string; color: string; label: string }> = {
+  AUTO:   { bg: '#eff6ff', color: '#2563eb', label: 'Auto' },
+  MANUAL: { bg: '#f5f3ff', color: '#7c3aed', label: 'Manual' },
+};
 
 const REF_LABELS: Record<string, string> = {
   DUES_BILL:       'Dues Bill',
@@ -33,42 +43,64 @@ const REF_LABELS: Record<string, string> = {
   MANUAL:          'Manual',
 };
 
-const TYPE_COLOR: Record<string, { bg: string; color: string; label: string }> = {
-  AUTO:   { bg: '#eff6ff', color: '#2563eb', label: 'Auto' },
-  MANUAL: { bg: '#f5f3ff', color: '#7c3aed', label: 'Manual' },
-};
-
-// ── Line state type ───────────────────────────────────────────────────────────
-type LineState = JournalLineInput & {
+// ── Line state — voucher style: one Amount + DR/CR direction ─────────────────
+type LineState = {
   _key:                number;
+  account_id:          string;
   business_partner_id: string;
+  amount:              number;
+  drCr:                'DR' | 'CR';
+  narration:           string;
 };
 
 const emptyLine = (): LineState => ({
   _key:                Date.now() + Math.random(),
   account_id:          '',
   business_partner_id: '',
-  debit:               0,
-  credit:              0,
+  amount:              0,
+  drCr:                'DR',
   narration:           '',
 });
 
-// ── Shared input style ────────────────────────────────────────────────────────
-const fc: React.CSSProperties = {
-  width: '100%', padding: '6px 9px', border: '1px solid #e2e8f0',
-  borderRadius: 6, fontSize: 12.5, color: '#1e293b', background: '#fff',
-  outline: 'none', boxSizing: 'border-box',
+// ── Shared styles ─────────────────────────────────────────────────────────────
+const cellInp: React.CSSProperties = {
+  border: 'none', outline: 'none', width: '100%',
+  padding: '0 8px', fontSize: 12.5, color: '#1e293b',
+  background: 'transparent', boxSizing: 'border-box', height: '100%',
+};
+const cellSel: React.CSSProperties = {
+  ...cellInp, cursor: 'pointer',
+};
+const thSt: React.CSSProperties = {
+  padding: '7px 14px', textAlign: 'left', fontSize: 10.5, fontWeight: 600,
+  color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em',
+};
+const labelSt: React.CSSProperties = {
+  fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase',
+  letterSpacing: '0.04em', display: 'block', marginBottom: 4,
 };
 
-const fcWarn: React.CSSProperties = {
-  ...fc, borderColor: '#f97316',
-};
+// Voucher grid border
+const vBord = '1px solid #d1d5db';
 
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function JournalEntriesPage() {
-  const [filter, setFilter] = useState<{ type: string; from: string; to: string }>({ type: '', from: '', to: '' });
-  const [showForm, setShowForm]     = useState(false);
+
+  // ── Filter state ──────────────────────────────────────────────────────────
+  const [filter, setFilter] = useState({ type: '', from: '', to: '' });
+
+  // ── Panel state ───────────────────────────────────────────────────────────
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [formMode,   setFormMode]   = useState<'new' | 'edit' | null>(null);
   const [editTarget, setEditTarget] = useState<JournalEntry | null>(null);
 
+  // ── Form state ────────────────────────────────────────────────────────────
+  const [entryDate, setEntryDate] = useState(TODAY);
+  const [narration, setNarration] = useState('');
+  const [lines,     setLines]     = useState<LineState[]>([emptyLine(), emptyLine()]);
+  const [formError, setFormError] = useState('');
+
+  // ── Data ──────────────────────────────────────────────────────────────────
   const { data, isLoading, refetch } = useListJournalEntriesQuery({
     type: filter.type || undefined,
     from: filter.from || undefined,
@@ -86,60 +118,56 @@ export default function JournalEntriesPage() {
   const allBPs   = bpData?.data ?? [];
   const bpTypes  = bpTypesData?.data ?? [];
 
-  // Quick lookups
-  const accountMap = new Map(accounts.map(a => [a.id, a]));
-  // Map bp_type_id → inferred BPCategory (for control account filtering)
-  const bpTypeToCategory = new Map<string, BPCategory | null>(
-    bpTypes.map(t => [t.id, inferCategoryFromTypeName(t.name)])
-  );
+  const accountMap       = new Map(accounts.map(a => [a.id, a]));
+  const bpTypeToCategory = new Map(bpTypes.map(t => [t.id, inferCategoryFromTypeName(t.name)]));
+  const selectedEntry    = entries.find(e => e.id === selectedId) ?? null;
 
-  // ── Form state ───────────────────────────────────────────────────────────
-  const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
-  const [narration, setNarration] = useState('');
-  const [lines, setLines]         = useState<LineState[]>([emptyLine(), emptyLine()]);
-  const [formError, setFormError] = useState('');
-
+  // ── Form actions ──────────────────────────────────────────────────────────
   const openNewForm = () => {
+    setSelectedId(null);
     setEditTarget(null);
-    setEntryDate(new Date().toISOString().slice(0, 10));
+    setEntryDate(TODAY);
     setNarration('');
     setLines([emptyLine(), emptyLine()]);
     setFormError('');
-    setShowForm(true);
+    setFormMode('new');
   };
 
   const openEditForm = (entry: JournalEntry) => {
+    setSelectedId(entry.id);
     setEditTarget(entry);
     setEntryDate(entry.entry_date.slice(0, 10));
     setNarration(entry.narration);
+    // Map debit/credit → amount + drCr
     setLines(entry.lines.map(l => ({
       _key:                Math.random(),
       account_id:          l.account_id,
       business_partner_id: l.business_partner_id ?? '',
-      debit:               Number(l.debit),
-      credit:              Number(l.credit),
+      amount:              Number(l.debit) > 0 ? Number(l.debit) : Number(l.credit),
+      drCr:                Number(l.debit) > 0 ? 'DR' as const : 'CR' as const,
       narration:           l.narration ?? '',
     })));
     setFormError('');
-    setShowForm(true);
+    setFormMode('edit');
   };
 
-  const closeForm = () => { setShowForm(false); setEditTarget(null); };
+  const closeForm = () => { setFormMode(null); setEditTarget(null); };
 
   const updateLine = (idx: number, field: string, value: string | number) => {
     setLines(ls => ls.map((l, i) => {
       if (i !== idx) return l;
       const updated = { ...l, [field]: value };
-      // When account changes, clear the BP selection
       if (field === 'account_id') updated.business_partner_id = '';
       return updated;
     }));
   };
+
   const addLine    = () => setLines(ls => [...ls, emptyLine()]);
   const removeLine = (idx: number) => setLines(ls => ls.filter((_, i) => i !== idx));
 
-  const totalDebit  = lines.reduce((s, l) => s + (Number(l.debit)  || 0), 0);
-  const totalCredit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+  // Balance computations from amount + drCr
+  const totalDebit  = lines.filter(l => l.drCr === 'DR').reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  const totalCredit = lines.filter(l => l.drCr === 'CR').reduce((s, l) => s + (Number(l.amount) || 0), 0);
   const balanced    = Math.abs(totalDebit - totalCredit) < 0.005;
 
   const handleSave = async () => {
@@ -147,36 +175,40 @@ export default function JournalEntriesPage() {
     if (!narration.trim()) { setFormError('Narration is required.'); return; }
     if (lines.some(l => !l.account_id)) { setFormError('All lines must have an account.'); return; }
 
-    // Validate control account lines have BP
     for (const line of lines) {
       const acct = accountMap.get(line.account_id);
       if (acct?.is_control_account && !line.business_partner_id) {
-        setFormError(`"${acct.name}" is a control account — select a Business Partner for this line.`);
+        setFormError(`"${acct.name}" is a control account — select a Sub Account (Business Partner).`);
         return;
       }
     }
-
-    if (!balanced) { setFormError(`Unbalanced: debit ₹${totalDebit.toFixed(2)} ≠ credit ₹${totalCredit.toFixed(2)}`); return; }
+    if (!balanced) {
+      setFormError(`Unbalanced: DR ₹${totalDebit.toFixed(2)} ≠ CR ₹${totalCredit.toFixed(2)}`);
+      return;
+    }
     if (totalDebit === 0) { setFormError('Entry amount cannot be zero.'); return; }
 
+    // Map amount + drCr → debit / credit for API
     const payload = {
       entry_date: entryDate,
       narration,
-      lines: lines.map(({ account_id, business_partner_id, debit, credit, narration: ln }) => ({
+      lines: lines.map(({ account_id, business_partner_id, amount, drCr, narration: ln }) => ({
         account_id,
         business_partner_id: business_partner_id || null,
-        debit:    Number(debit)  || 0,
-        credit:   Number(credit) || 0,
+        debit:    drCr === 'DR' ? (Number(amount) || 0) : 0,
+        credit:   drCr === 'CR' ? (Number(amount) || 0) : 0,
         narration: ln || undefined,
       })),
     };
 
     try {
+      let result: { data: JournalEntry };
       if (editTarget) {
-        await updateEntry({ id: editTarget.id, ...payload }).unwrap();
+        result = await updateEntry({ id: editTarget.id, ...payload }).unwrap();
       } else {
-        await createEntry(payload).unwrap();
+        result = await createEntry(payload).unwrap();
       }
+      setSelectedId(result.data.id);
       closeForm();
       refetch();
     } catch (e: unknown) {
@@ -185,265 +217,451 @@ export default function JournalEntriesPage() {
     }
   };
 
-  // ── Group entries by date ────────────────────────────────────────────────
+  // ── Group entries by date ─────────────────────────────────────────────────
   const grouped = entries.reduce((acc, e) => {
     const d = e.entry_date.slice(0, 10);
     if (!acc[d]) acc[d] = [];
     acc[d].push(e);
     return acc;
   }, {} as Record<string, JournalEntry[]>);
-
   const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
 
+  // ── Right panel: voucher entry form ──────────────────────────────────────
+  const renderForm = () => (
+    <div style={{ padding: '18px 24px' }}>
+
+      {/* Voucher title bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          Journal Voucher
+        </div>
+        <button onClick={closeForm} title="Cancel"
+          style={{ background: 'none', border: 'none', fontSize: 22, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 }}>
+          ×
+        </button>
+      </div>
+
+      {/* ── Header row: Date | Narration | JV Number ── */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 0 }}>
+        <tbody>
+          <tr>
+            {/* Date */}
+            <td style={{ border: vBord, padding: '6px 10px', width: 60, fontSize: 11, fontWeight: 600, color: '#475569', background: '#f8fafc', whiteSpace: 'nowrap' }}>
+              Date
+            </td>
+            <td style={{ border: vBord, padding: 0, width: 140 }}>
+              <input type="date" style={{ ...cellInp, padding: '7px 10px' }}
+                value={entryDate} onChange={e => setEntryDate(e.target.value)} />
+            </td>
+
+            {/* Narration */}
+            <td style={{ border: vBord, padding: '6px 10px', width: 80, fontSize: 11, fontWeight: 600, color: '#475569', background: '#f8fafc', whiteSpace: 'nowrap' }}>
+              Narration
+            </td>
+            <td style={{ border: vBord, padding: 0 }}>
+              <input style={{ ...cellInp, padding: '7px 10px' }}
+                value={narration} onChange={e => setNarration(e.target.value)}
+                placeholder="Description of this entry…" />
+            </td>
+
+            {/* JV Number */}
+            <td style={{ border: vBord, padding: '6px 10px', width: 85, fontSize: 11, fontWeight: 600, color: '#475569', background: '#f8fafc', whiteSpace: 'nowrap' }}>
+              JV Number
+            </td>
+            <td style={{ border: vBord, padding: '6px 12px', width: 150, fontSize: 12, fontFamily: 'monospace', color: '#7c3aed', fontWeight: 700, background: '#faf5ff' }}>
+              {editTarget?.reference_code ?? <span style={{ color: '#cbd5e1', fontStyle: 'italic', fontFamily: 'sans-serif', fontWeight: 400, fontSize: 11.5 }}>Auto-generated</span>}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* ── Lines grid ── */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: -1 }}>
+        <thead>
+          <tr style={{ background: '#f1f5f9' }}>
+            <th style={{ border: vBord, padding: '7px 10px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#475569' }}>
+              Account
+            </th>
+            <th style={{ border: vBord, padding: '7px 10px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#475569', width: '32%' }}>
+              Sub Account
+            </th>
+            <th style={{ border: vBord, padding: '7px 10px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: '#475569', width: 130 }}>
+              Amount
+            </th>
+            <th style={{ border: vBord, padding: '7px 10px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: '#475569', width: 72 }}>
+              DR / CR
+            </th>
+            <th style={{ border: vBord, width: 28, background: '#f8fafc' }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {lines.map((line, idx) => {
+            const acct         = accountMap.get(line.account_id);
+            const isCtrl       = acct?.is_control_account ?? false;
+            const bpTypeId     = acct?.bp_type_id ?? null;
+            const inferredCat  = bpTypeId ? (bpTypeToCategory.get(bpTypeId) ?? null) : null;
+            const availableBPs = isCtrl
+              ? allBPs.filter(bp => bp.is_active && (inferredCat ? bp.bp_category === inferredCat : true))
+              : [];
+            const bpMissing    = isCtrl && !line.business_partner_id;
+            const isDR         = line.drCr === 'DR';
+
+            return (
+              <tr key={line._key} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+
+                {/* Account */}
+                <td style={{ border: vBord, padding: 0, height: 36 }}>
+                  <select style={cellSel} value={line.account_id}
+                    onChange={e => updateLine(idx, 'account_id', e.target.value)}>
+                    <option value="">— select —</option>
+                    {['ASSET', 'LIABILITY', 'INCOME', 'EXPENSE', 'EQUITY'].map(type => (
+                      <optgroup key={type} label={type}>
+                        {accounts.filter(a => a.type === type && a.is_active).map(a => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} — {a.name}{a.is_control_account ? ' ⊕' : ''}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </td>
+
+                {/* Sub Account (BP) — always visible, enabled only for control accounts */}
+                <td style={{ border: vBord, padding: 0, height: 36, background: isCtrl ? (bpMissing ? '#fef9f0' : '#fff7ed') : '#fafafa' }}>
+                  {isCtrl ? (
+                    <select style={{ ...cellSel, color: bpMissing ? '#f97316' : '#1e293b' }}
+                      value={line.business_partner_id}
+                      onChange={e => updateLine(idx, 'business_partner_id', e.target.value)}>
+                      <option value="">{bpMissing ? '⚠ required' : '— select —'}</option>
+                      {availableBPs.map(bp => (
+                        <option key={bp.id} value={bp.id}>{bp.code} — {bp.name}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span style={{ padding: '0 8px', fontSize: 12, color: '#cbd5e1' }}>—</span>
+                  )}
+                </td>
+
+                {/* Amount */}
+                <td style={{ border: vBord, padding: 0, height: 36 }}>
+                  <input type="number" min="0" step="0.01"
+                    style={{ ...cellInp, textAlign: 'right', fontWeight: line.amount > 0 ? 500 : 400 }}
+                    value={line.amount || ''}
+                    onChange={e => updateLine(idx, 'amount', parseFloat(e.target.value) || 0)}
+                    placeholder="0.00" />
+                </td>
+
+                {/* DR / CR dropdown */}
+                <td style={{ border: vBord, padding: 0, height: 36 }}>
+                  <select
+                    value={line.drCr}
+                    onChange={e => updateLine(idx, 'drCr', e.target.value)}
+                    style={{
+                      ...cellSel,
+                      fontWeight: 700, fontSize: 12.5, textAlign: 'center',
+                      color: line.drCr === 'DR' ? '#1d4ed8' : '#15803d',
+                      background: line.drCr === 'DR' ? '#eff6ff' : '#f0fdf4',
+                    }}>
+                    <option value="DR">DR</option>
+                    <option value="CR">CR</option>
+                  </select>
+                </td>
+
+                {/* Remove */}
+                <td style={{ border: vBord, padding: '4px 4px', textAlign: 'center' }}>
+                  {lines.length > 2 && (
+                    <button onClick={() => removeLine(idx)}
+                      style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>
+                      ×
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+
+          {/* Add line row */}
+          <tr>
+            <td colSpan={5} style={{ border: vBord, padding: '7px 10px', background: '#f8fafc' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <button onClick={addLine}
+                  style={{ fontSize: 12.5, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}>
+                  <i className="ti ti-plus" style={{ fontSize: 14 }} /> Add Line
+                </button>
+                <span style={{ fontSize: 10.5, color: '#94a3b8' }}>⊕ = control account, Sub Account required</span>
+              </div>
+            </td>
+          </tr>
+
+          {/* Totals row */}
+          <tr style={{ background: '#f1f5f9' }}>
+            <td colSpan={2} style={{ border: vBord, padding: '8px 12px' }}>
+              {!balanced && (totalDebit > 0 || totalCredit > 0) ? (
+                <span style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>
+                  ⚠ Difference: ₹{Math.abs(totalDebit - totalCredit).toFixed(2)}
+                </span>
+              ) : balanced && totalDebit > 0 ? (
+                <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>✓ Balanced</span>
+              ) : null}
+            </td>
+            <td style={{ border: vBord, padding: '8px 10px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5 }}>
+                <span style={{ color: '#2563eb', fontWeight: 600 }}>
+                  DR {totalDebit > 0 ? `₹${totalDebit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
+                </span>
+                <span style={{ color: '#16a34a', fontWeight: 600 }}>
+                  CR {totalCredit > 0 ? `₹${totalCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
+                </span>
+              </div>
+            </td>
+            <td colSpan={2} style={{ border: vBord, padding: '8px 12px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
+              {totalDebit > 0 ? fmtAmt(totalDebit) : '—'}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Error */}
+      {formError && (
+        <div style={{ fontSize: 12.5, color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '9px 13px', marginTop: 12 }}>
+          {formError}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+        <button onClick={handleSave} disabled={isSaving}
+          style={{ padding: '8px 22px', borderRadius: 7, border: 'none', background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: isSaving ? 0.7 : 1 }}>
+          {isSaving ? 'Saving…' : editTarget ? 'Update Entry' : 'Post Entry'}
+        </button>
+        <button onClick={closeForm}
+          style={{ padding: '8px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: 13, cursor: 'pointer' }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+
+  // ── Right panel: entry detail ─────────────────────────────────────────────
+  const renderDetail = (entry: JournalEntry) => {
+    const tc    = TYPE_STYLE[entry.type] ?? TYPE_STYLE['MANUAL'];
+    const totDR = entry.lines.reduce((s, l) => s + Number(l.debit),  0);
+    const totCR = entry.lines.reduce((s, l) => s + Number(l.credit), 0);
+    const bal   = Math.abs(totDR - totCR) < 0.005;
+
+    return (
+      <div style={{ padding: '22px 28px' }}>
+        {/* Entry header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, gap: 12 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 9px', borderRadius: 99, background: tc.bg, color: tc.color }}>
+                {tc.label}
+              </span>
+              {entry.reference_code && (
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', padding: '2px 10px', borderRadius: 5, letterSpacing: '0.04em', fontFamily: 'monospace' }}>
+                  {entry.reference_code}
+                </span>
+              )}
+              {entry.reference_type && (
+                <span style={{ fontSize: 10.5, fontWeight: 500, padding: '2px 8px', borderRadius: 99, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0' }}>
+                  {REF_LABELS[entry.reference_type] ?? entry.reference_type}
+                </span>
+              )}
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 600, color: '#1e293b', marginBottom: 4 }}>{entry.narration}</div>
+            <div style={{ fontSize: 12, color: '#94a3b8' }}>{fmtDate(entry.entry_date)}</div>
+          </div>
+          {entry.type === 'MANUAL' && (
+            <button onClick={() => openEditForm(entry)}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12.5, cursor: 'pointer', flexShrink: 0 }}>
+              <i className="ti ti-pencil" style={{ fontSize: 13 }} /> Edit
+            </button>
+          )}
+        </div>
+
+        {/* Lines table */}
+        <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <thead>
+              <tr style={{ background: '#f8fafc' }}>
+                <th style={thSt}>Account</th>
+                <th style={thSt}>Sub Account</th>
+                <th style={{ ...thSt, textAlign: 'right', width: 120 }}>Debit (DR)</th>
+                <th style={{ ...thSt, textAlign: 'right', width: 120 }}>Credit (CR)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entry.lines.map(line => (
+                <tr key={line.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '10px 14px' }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#94a3b8', marginRight: 6 }}>
+                      {line.account.code}
+                    </span>
+                    <span style={{ color: '#1e293b', fontWeight: 500 }}>{line.account.name}</span>
+                    {line.narration && (
+                      <span style={{ marginLeft: 8, fontSize: 11, color: '#94a3b8' }}>— {line.narration}</span>
+                    )}
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    {line.business_partner ? (
+                      <span style={{ fontSize: 11.5, background: '#f0fdf4', color: '#16a34a', padding: '2px 8px', borderRadius: 5, fontWeight: 500 }}>
+                        {line.business_partner.name}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span>
+                    )}
+                  </td>
+                  <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: Number(line.debit) > 0 ? '#2563eb' : '#cbd5e1' }}>
+                    {Number(line.debit) > 0 ? fmtAmt(Number(line.debit)) : '—'}
+                  </td>
+                  <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 600, color: Number(line.credit) > 0 ? '#16a34a' : '#cbd5e1' }}>
+                    {Number(line.credit) > 0 ? fmtAmt(Number(line.credit)) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
+                <td colSpan={2} style={{ padding: '9px 14px', fontSize: 12, fontWeight: 600 }}>
+                  {bal
+                    ? <span style={{ color: '#16a34a' }}>✓ Balanced</span>
+                    : <span style={{ color: '#dc2626' }}>⚠ Not balanced</span>}
+                </td>
+                <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#2563eb' }}>
+                  {fmtAmt(totDR)}
+                </td>
+                <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#16a34a' }}>
+                  {fmtAmt(totCR)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Right panel: empty state ──────────────────────────────────────────────
+  const renderEmpty = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10 }}>
+      <i className="ti ti-book-2" style={{ fontSize: 44, color: '#e2e8f0' }} />
+      <div style={{ fontSize: 14, fontWeight: 500, color: '#cbd5e1' }}>Select an entry to view</div>
+      <div style={{ fontSize: 12.5, color: '#d1d5db' }}>or create a new manual entry</div>
+    </div>
+  );
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <Layout>
       <PageSubHeader crumbs={[{ label: 'Accounting' }, { label: 'Journal Entries' }]} />
 
-      <div style={{ padding: '1.25rem 1.5rem 3rem', maxWidth: 1000 }}>
+      <div style={{ display: 'flex', height: 'calc(100vh - 108px)', overflow: 'hidden' }}>
 
-        {/* Toolbar */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-          <select style={{ ...fc, width: 130 }} value={filter.type} onChange={e => setFilter(f => ({ ...f, type: e.target.value }))}>
-            <option value="">All types</option>
-            <option value="AUTO">Auto-posted</option>
-            <option value="MANUAL">Manual</option>
-          </select>
-          <input type="date" style={{ ...fc, width: 145 }} value={filter.from} onChange={e => setFilter(f => ({ ...f, from: e.target.value }))} />
-          <input type="date" style={{ ...fc, width: 145 }} value={filter.to}   onChange={e => setFilter(f => ({ ...f, to:   e.target.value }))} />
-          <div style={{ flex: 1, fontSize: 12.5, color: '#64748b' }}>{entries.length} entries</div>
-          <button onClick={openNewForm} style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '7px 14px', borderRadius: 7, border: 'none',
-            background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer',
-          }}>
-            <i className="ti ti-plus" style={{ fontSize: 15 }} /> Add Manual Entry
-          </button>
+        {/* ═══ LEFT PANEL: entry list ═══════════════════════════════════════ */}
+        <div style={{
+          width: 320, flexShrink: 0,
+          borderRight: '1px solid #e2e8f0',
+          display: 'flex', flexDirection: 'column',
+          background: '#f8fafc',
+        }}>
+          {/* Header + filters */}
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid #e2e8f0', background: '#fff', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>
+                Journal Entries
+                <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 5 }}>
+                  ({entries.length})
+                </span>
+              </span>
+              <button onClick={openNewForm} style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                padding: '5px 12px', borderRadius: 6, border: 'none',
+                background: '#2563eb', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+              }}>
+                <i className="ti ti-plus" style={{ fontSize: 13 }} /> New
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <select style={{ width: '100%', padding: '6px 9px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, color: '#1e293b', background: '#fff', outline: 'none' }}
+                value={filter.type} onChange={e => setFilter(f => ({ ...f, type: e.target.value }))}>
+                <option value="">All types</option>
+                <option value="AUTO">Auto-posted</option>
+                <option value="MANUAL">Manual</option>
+              </select>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input type="date" style={{ flex: 1, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, color: '#1e293b', background: '#fff', outline: 'none' }}
+                  value={filter.from} onChange={e => setFilter(f => ({ ...f, from: e.target.value }))} />
+                <input type="date" style={{ flex: 1, padding: '6px 8px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, color: '#1e293b', background: '#fff', outline: 'none' }}
+                  value={filter.to} onChange={e => setFilter(f => ({ ...f, to: e.target.value }))} />
+              </div>
+            </div>
+          </div>
+
+          {/* Scrollable entry list */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {isLoading ? (
+              <div style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Loading…</div>
+            ) : entries.length === 0 ? (
+              <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#94a3b8', fontSize: 12.5, lineHeight: 1.6 }}>
+                No entries found.
+              </div>
+            ) : (
+              sortedDates.map(date => (
+                <div key={date}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '8px 14px 4px', background: '#f1f5f9', borderBottom: '1px solid #e9edf2' }}>
+                    {fmtDate(date)}
+                  </div>
+                  {grouped[date].map(entry => {
+                    const tc       = TYPE_STYLE[entry.type] ?? TYPE_STYLE['MANUAL'];
+                    const isActive = entry.id === selectedId;
+                    const amount   = entry.lines.reduce((s, l) => s + Number(l.debit), 0);
+                    return (
+                      <div key={entry.id}
+                        onClick={() => { setSelectedId(entry.id); setFormMode(null); }}
+                        style={{
+                          padding: '10px 14px', cursor: 'pointer',
+                          borderBottom: '1px solid #e2e8f0',
+                          borderLeft: isActive ? '3px solid #2563eb' : '3px solid transparent',
+                          background: isActive ? '#eff6ff' : '#fff',
+                          transition: 'background 0.12s, border-left-color 0.12s',
+                        }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+                          <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: tc.bg, color: tc.color }}>
+                            {tc.label}
+                          </span>
+                          {entry.reference_code && (
+                            <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#7c3aed', fontWeight: 600 }}>
+                              {entry.reference_code}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 500, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                            {entry.narration}
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap' }}>
+                            ₹{amount.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
-        {/* Entry form (new or edit) */}
-        {showForm && (
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '18px 20px', marginBottom: 18 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 14 }}>
-              {editTarget ? 'Edit Journal Entry' : 'New Journal Entry'}
-            </div>
+        {/* ═══ RIGHT PANEL: detail / form / empty ══════════════════════════ */}
+        <div style={{ flex: 1, overflowY: 'auto', background: '#fff' }}>
+          {formMode
+            ? renderForm()
+            : selectedEntry
+              ? renderDetail(selectedEntry)
+              : renderEmpty()}
+        </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: '0 12px', marginBottom: 14 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: 4 }}>Date</label>
-                <input type="date" style={fc} value={entryDate} onChange={e => setEntryDate(e.target.value)} />
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: 4 }}>Narration</label>
-                <input style={fc} value={narration} onChange={e => setNarration(e.target.value)} placeholder="Description of this entry" />
-              </div>
-            </div>
-
-            {/* Lines */}
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, marginBottom: 10 }}>
-              <thead>
-                <tr style={{ background: '#f8fafc' }}>
-                  <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Account / Business Partner</th>
-                  <th style={{ padding: '6px 10px', width: 120, fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', textAlign: 'right' }}>Debit (DR)</th>
-                  <th style={{ padding: '6px 10px', width: 120, fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', textAlign: 'right' }}>Credit (CR)</th>
-                  <th style={{ padding: '6px 10px', width: 160, fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Note</th>
-                  <th style={{ width: 32 }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((line, idx) => {
-                  const selectedAccount  = accountMap.get(line.account_id);
-                  const isControl        = selectedAccount?.is_control_account ?? false;
-                  const bpTypeId         = selectedAccount?.bp_type_id ?? null;
-                  // Infer bp_category from the linked BPType name (e.g. "Unit/Flat" → UNIT)
-                  const inferredCategory = bpTypeId ? bpTypeToCategory.get(bpTypeId) ?? null : null;
-                  const availableBPs     = isControl
-                    ? allBPs.filter(bp =>
-                        bp.is_active &&
-                        (inferredCategory ? bp.bp_category === inferredCategory : true)
-                      )
-                    : [];
-                  const bpMissing        = isControl && !line.business_partner_id;
-
-                  return (
-                    <tr key={line._key} style={{ borderTop: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '5px 8px' }}>
-                        {/* Account dropdown */}
-                        <select style={fc} value={line.account_id} onChange={e => updateLine(idx, 'account_id', e.target.value)}>
-                          <option value="">— Select account —</option>
-                          {['ASSET','LIABILITY','INCOME','EXPENSE','EQUITY'].map(type => (
-                            <optgroup key={type} label={type}>
-                              {accounts.filter(a => a.type === type && a.is_active).map(a => (
-                                <option key={a.id} value={a.id}>
-                                  {a.code} — {a.name}{a.is_control_account ? ' ⊕' : ''}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
-
-                        {/* BP selector — shown when account is a control account */}
-                        {isControl && (
-                          <div style={{ marginTop: 4 }}>
-                            <select
-                              style={bpMissing ? fcWarn : { ...fc, borderColor: '#f97316', background: '#fff7ed' }}
-                              value={line.business_partner_id}
-                              onChange={e => updateLine(idx, 'business_partner_id', e.target.value)}
-                            >
-                              <option value="">— Select Business Partner (required) —</option>
-                              {availableBPs.map(bp => (
-                                <option key={bp.id} value={bp.id}>{bp.code} — {bp.name}</option>
-                              ))}
-                            </select>
-                            {availableBPs.length === 0 && (
-                              <span style={{ fontSize: 10.5, color: '#dc2626', marginTop: 2, display: 'block' }}>
-                                No active Business Partners for this account type
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ padding: '5px 8px' }}>
-                        <input type="number" min="0" step="0.01" style={{ ...fc, textAlign: 'right' }}
-                          value={line.debit || ''} onChange={e => updateLine(idx, 'debit', parseFloat(e.target.value) || 0)} />
-                      </td>
-                      <td style={{ padding: '5px 8px' }}>
-                        <input type="number" min="0" step="0.01" style={{ ...fc, textAlign: 'right' }}
-                          value={line.credit || ''} onChange={e => updateLine(idx, 'credit', parseFloat(e.target.value) || 0)} />
-                      </td>
-                      <td style={{ padding: '5px 8px' }}>
-                        <input style={fc} value={line.narration ?? ''} onChange={e => updateLine(idx, 'narration', e.target.value)} placeholder="Optional" />
-                      </td>
-                      <td style={{ padding: '5px 4px', textAlign: 'center' }}>
-                        {lines.length > 2 && (
-                          <button onClick={() => removeLine(idx)} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16 }}>×</button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {/* Totals row */}
-                <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                  <td style={{ padding: '7px 10px', fontSize: 12, fontWeight: 600, color: '#475569' }}>Total</td>
-                  <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, color: '#1e293b' }}>
-                    {totalDebit > 0 ? `₹${totalDebit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
-                  </td>
-                  <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, color: '#1e293b' }}>
-                    {totalCredit > 0 ? `₹${totalCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
-                  </td>
-                  <td colSpan={2} style={{ padding: '7px 10px' }}>
-                    {!balanced && totalDebit > 0 && (
-                      <span style={{ fontSize: 11.5, color: '#dc2626', fontWeight: 600 }}>
-                        Diff: ₹{Math.abs(totalDebit - totalCredit).toFixed(2)}
-                      </span>
-                    )}
-                    {balanced && totalDebit > 0 && (
-                      <span style={{ fontSize: 11.5, color: '#16a34a', fontWeight: 600 }}>✓ Balanced</span>
-                    )}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            <button onClick={addLine} style={{ fontSize: 12.5, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 12px', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <i className="ti ti-plus" /> Add line
-            </button>
-
-            {/* Legend */}
-            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>
-              ⊕ = Control account — Business Partner selection required
-            </div>
-
-            {formError && <div style={{ fontSize: 12.5, color: '#dc2626', marginBottom: 10 }}>{formError}</div>}
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={handleSave} disabled={isSaving} style={{ padding: '7px 18px', borderRadius: 7, border: 'none', background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>
-                {isSaving ? 'Saving…' : editTarget ? 'Update Entry' : 'Post Entry'}
-              </button>
-              <button onClick={closeForm} style={{ padding: '7px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-            </div>
-          </div>
-        )}
-
-        {/* Entry list */}
-        {isLoading ? (
-          <div style={{ color: '#94a3b8', padding: '2rem 0' }}>Loading…</div>
-        ) : entries.length === 0 ? (
-          <div style={{ color: '#94a3b8', padding: '3rem 0', textAlign: 'center', fontSize: 13 }}>
-            No journal entries yet. Entries are auto-posted when bills, payments, expenses and receipts are recorded.
-          </div>
-        ) : (
-          sortedDates.map(date => (
-            <div key={date} style={{ marginBottom: 18 }}>
-              {/* Date header */}
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '0 2px 6px' }}>
-                {fmtDate(date)}
-              </div>
-
-              {grouped[date].map(entry => {
-                const tc = TYPE_COLOR[entry.type] ?? TYPE_COLOR['MANUAL'];
-                return (
-                  <div key={entry.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, marginBottom: 10, overflow: 'hidden' }}>
-                    {/* Entry header */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid #f1f5f9' }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: tc.bg, color: tc.color }}>
-                        {tc.label}
-                      </span>
-                      {entry.reference_code && (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', padding: '2px 8px', borderRadius: 5, letterSpacing: '0.03em', fontFamily: 'monospace' }}>
-                          {entry.reference_code}
-                        </span>
-                      )}
-                      {entry.reference_type && (
-                        <span style={{ fontSize: 11.5, color: '#64748b', background: '#f8fafc', padding: '2px 7px', borderRadius: 5 }}>
-                          {REF_LABELS[entry.reference_type] ?? entry.reference_type}
-                        </span>
-                      )}
-                      <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', flex: 1 }}>{entry.narration}</span>
-                      <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
-                        {new Date(entry.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      {/* Edit button */}
-                      <button
-                        className="ent-ia ent-ia-edit"
-                        title="Edit entry"
-                        onClick={() => openEditForm(entry)}
-                        style={{ marginLeft: 4 }}
-                      ><i className="ti ti-pencil" /></button>
-                    </div>
-
-                    {/* Lines */}
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                      <tbody>
-                        {entry.lines.map(line => {
-                          const isDebit = Number(line.debit) > 0;
-                          return (
-                            <tr key={line.id} style={{ borderBottom: '1px solid #f8fafc' }}>
-                              <td style={{ padding: '7px 14px', paddingLeft: isDebit ? 14 : 32, color: '#475569' }}>
-                                <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#94a3b8', marginRight: 6 }}>{line.account.code}</span>
-                                {line.account.name}
-                                {line.business_partner && (
-                                  <span style={{ marginLeft: 8, fontSize: 11, background: '#f0fdf4', color: '#16a34a', padding: '1px 6px', borderRadius: 4, fontWeight: 500 }}>
-                                    {line.business_partner.name}
-                                  </span>
-                                )}
-                                {line.narration && <span style={{ marginLeft: 8, fontSize: 11, color: '#94a3b8' }}>— {line.narration}</span>}
-                              </td>
-                              <td style={{ padding: '7px 14px', textAlign: 'right', width: 120, fontWeight: 600, color: '#2563eb' }}>
-                                {isDebit ? fmt(Number(line.debit)) : ''}
-                              </td>
-                              <td style={{ padding: '7px 14px', textAlign: 'right', width: 120, fontWeight: 600, color: '#16a34a' }}>
-                                {!isDebit ? fmt(Number(line.credit)) : ''}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                );
-              })}
-            </div>
-          ))
-        )}
       </div>
     </Layout>
   );
