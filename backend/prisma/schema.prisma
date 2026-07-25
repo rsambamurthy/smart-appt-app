@@ -202,6 +202,9 @@ model Association {
   other_receipts     OtherReceipt[]
   accounts           Account[]
   journal_entries    JournalEntry[]
+  bp_types           BPType[]
+  business_partners  BusinessPartner[]
+  voucher_sequences  VoucherSequence[]
   mobile_config      MobileConfig?
 
   @@map("associations")
@@ -225,6 +228,7 @@ model AssociationConfig {
   session_idle_timeout_min  Int            @default(30) @db.SmallInt
   max_concurrent_sessions   Int            @default(5) @db.SmallInt
   expense_approval_threshold Decimal       @default(0) @db.Decimal(10, 2)
+  financial_year_start_month Int           @default(4) @db.SmallInt  // 4 = April (Indian FY)
   created_at                DateTime       @default(now()) @db.Timestamptz
   updated_at                DateTime       @updatedAt @db.Timestamptz
 
@@ -297,6 +301,9 @@ model User {
   pre_approved_visitors Visitor[]         @relation("ResidentApproval")
   logged_visitors     Visitor[]           @relation("LoggedBy")
   frequent_visitors   FrequentVisitor[]
+  je_created          JournalEntry[]      @relation("JECreatedBy")
+  je_posted           JournalEntry[]      @relation("JEPostedBy")
+  je_cancelled        JournalEntry[]      @relation("JECancelledBy")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
   invite_received     UserInvite?         @relation("InvitedUser")
@@ -854,61 +861,202 @@ enum AccountType {
   EQUITY
 }
 
-model Account {
+enum BalanceType {
+  DEBIT
+  CREDIT
+}
+
+enum BPSide {
+  RECEIVABLE
+  PAYABLE
+  BOTH
+}
+
+enum VoucherType {
+  RV  // Receipt Voucher   — money received
+  PV  // Payment Voucher   — money paid out
+  JV  // Journal Voucher   — adjustments / provisions
+  CV  // Contra Voucher    — cash ↔ bank transfers
+  DN  // Debit Note        — charge raised on a BP
+  CN  // Credit Note       — credit issued to a BP
+}
+
+enum JournalEntrySource {
+  AUTO    // system-generated (dues, expenses, payments)
+  MANUAL  // treasurer-created
+}
+
+enum JournalStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+// ── BP Type Master ────────────────────────────────────────────────────────────
+
+model BPType {
   id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   association_id String      @db.Uuid
-  code           String      @db.VarChar(20)
-  name           String      @db.VarChar(120)
-  type           AccountType
-  sub_type       String?     @db.VarChar(60)
-  description    String?     @db.VarChar(255)
-  is_system      Boolean     @default(false)
+  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  name           String      @db.VarChar(100)
+  side           BPSide
   is_active      Boolean     @default(true)
-  sort_order     Int         @default(0) @db.SmallInt
   created_at     DateTime    @default(now()) @db.Timestamptz
   updated_at     DateTime    @updatedAt @db.Timestamptz
 
-  association    Association  @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  business_partners BusinessPartner[]
+  accounts          Account[]
+
+  @@unique([association_id, name])
+  @@index([association_id])
+  @@map("bp_types")
+}
+
+// ── Business Partner ──────────────────────────────────────────────────────────
+
+model BusinessPartner {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  code           String      @db.VarChar(20)   // e.g. BP-001, auto-generated
+  name           String      @db.VarChar(255)
+  bp_type_id     String      @db.Uuid
+  bp_type        BPType      @relation(fields: [bp_type_id], references: [id])
+  email          String?     @db.VarChar(255)
+  phone          String?     @db.VarChar(20)
+  address        String?     @db.Text
+  is_active      Boolean     @default(true)
+  created_at     DateTime    @default(now()) @db.Timestamptz
+  updated_at     DateTime    @updatedAt @db.Timestamptz
+  deleted_at     DateTime?   @db.Timestamptz
+
   journal_lines  JournalLine[]
 
   @@unique([association_id, code])
+  @@index([association_id])
+  @@index([association_id, bp_type_id])
+  @@map("business_partners")
+}
+
+// ── Voucher Sequence ──────────────────────────────────────────────────────────
+// Tracks the running counter per voucher type per financial year per association
+
+model VoucherSequence {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  voucher_type   VoucherType
+  financial_year String      @db.VarChar(7)   // e.g. "2024-25"
+  last_sequence  Int         @default(0)
+  created_at     DateTime    @default(now()) @db.Timestamptz
+  updated_at     DateTime    @updatedAt @db.Timestamptz
+
+  @@unique([association_id, voucher_type, financial_year])
+  @@map("voucher_sequences")
+}
+
+// ── Account (GL) ──────────────────────────────────────────────────────────────
+
+model Account {
+  id                   String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id       String       @db.Uuid
+  code                 String       @db.VarChar(20)
+  name                 String       @db.VarChar(120)
+  type                 AccountType
+  sub_type             String?      @db.VarChar(60)
+  description          String?      @db.VarChar(255)
+
+  // Hierarchy — group accounts roll up child accounts in reports
+  parent_id            String?      @db.Uuid
+  parent               Account?     @relation("AccountHierarchy", fields: [parent_id], references: [id])
+  children             Account[]    @relation("AccountHierarchy")
+  is_group             Boolean      @default(false)  // group accounts cannot have journal lines
+
+  // Control account / sub-ledger linkage
+  is_control_account   Boolean      @default(false)
+  bp_type_id           String?      @db.Uuid         // required when is_control_account = true
+  bp_type              BPType?      @relation(fields: [bp_type_id], references: [id])
+
+  // Opening balance
+  opening_balance      Decimal?     @db.Decimal(15, 2)
+  opening_balance_type BalanceType?
+  opening_balance_date DateTime?    @db.Date
+
+  is_system            Boolean      @default(false)  // seeded accounts — cannot be deleted
+  is_active            Boolean      @default(true)
+  sort_order           Int          @default(0) @db.SmallInt
+  created_at           DateTime     @default(now()) @db.Timestamptz
+  updated_at           DateTime     @updatedAt @db.Timestamptz
+
+  association          Association  @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  journal_lines        JournalLine[]
+
+  @@unique([association_id, code])
+  @@index([association_id, type])
+  @@index([association_id, parent_id])
   @@map("accounts")
 }
 
-enum JournalEntryType {
-  AUTO
-  MANUAL
-}
+// ── Journal Entry ─────────────────────────────────────────────────────────────
 
 model JournalEntry {
-  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  association_id String           @db.Uuid
-  entry_date     DateTime         @db.Date
-  narration      String           @db.VarChar(255)
-  reference_type String?          @db.VarChar(50)
-  reference_id   String?          @db.Uuid
-  type           JournalEntryType @default(MANUAL)
-  created_by     String?          @db.Uuid
-  created_at     DateTime         @default(now()) @db.Timestamptz
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id      String             @db.Uuid
+  reference_code      String             @db.VarChar(25)  // e.g. RV-2024-25-0001
+  voucher_type        VoucherType
+  financial_year      String             @db.VarChar(7)   // e.g. "2024-25"
+  entry_date          DateTime           @db.Date
+  narration           String             @db.VarChar(255)
+  status              JournalStatus      @default(DRAFT)
+  source              JournalEntrySource @default(MANUAL)
 
-  association    Association   @relation(fields: [association_id], references: [id], onDelete: Cascade)
-  lines          JournalLine[]
+  // Link back to the originating transaction (dues, expense, payment etc.)
+  reference_type      String?            @db.VarChar(50)
+  reference_id        String?            @db.Uuid
 
+  // Workflow
+  created_by_id       String?            @db.Uuid
+  created_by          User?              @relation("JECreatedBy", fields: [created_by_id], references: [id])
+  posted_by_id        String?            @db.Uuid
+  posted_by           User?              @relation("JEPostedBy", fields: [posted_by_id], references: [id])
+  posted_at           DateTime?          @db.Timestamptz
+  cancelled_by_id     String?            @db.Uuid
+  cancelled_by        User?              @relation("JECancelledBy", fields: [cancelled_by_id], references: [id])
+  cancelled_at        DateTime?          @db.Timestamptz
+  cancellation_reason String?            @db.Text
+
+  created_at          DateTime           @default(now()) @db.Timestamptz
+  updated_at          DateTime           @updatedAt @db.Timestamptz
+
+  association         Association        @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  lines               JournalLine[]
+
+  @@unique([association_id, reference_code])
+  @@index([association_id, voucher_type])
   @@index([association_id, entry_date(sort: Desc)])
+  @@index([association_id, financial_year])
+  @@index([association_id, status])
   @@map("journal_entries")
 }
 
+// ── Journal Line ──────────────────────────────────────────────────────────────
+
 model JournalLine {
-  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  journal_entry_id String       @db.Uuid
-  account_id       String       @db.Uuid
-  debit            Decimal      @default(0) @db.Decimal(12, 2)
-  credit           Decimal      @default(0) @db.Decimal(12, 2)
-  narration        String?      @db.VarChar(255)
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  journal_entry_id    String           @db.Uuid
+  account_id          String           @db.Uuid
+  business_partner_id String?          @db.Uuid  // required when account is a control account
+  debit               Decimal          @default(0) @db.Decimal(15, 2)
+  credit              Decimal          @default(0) @db.Decimal(15, 2)
+  narration           String?          @db.VarChar(255)
 
-  journal_entry    JournalEntry @relation(fields: [journal_entry_id], references: [id], onDelete: Cascade)
-  account          Account      @relation(fields: [account_id], references: [id])
+  journal_entry       JournalEntry     @relation(fields: [journal_entry_id], references: [id], onDelete: Cascade)
+  account             Account          @relation(fields: [account_id], references: [id])
+  business_partner    BusinessPartner? @relation(fields: [business_partner_id], references: [id])
 
+  @@index([journal_entry_id])
+  @@index([account_id])
+  @@index([business_partner_id])
   @@map("journal_lines")
 }
 
