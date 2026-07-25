@@ -360,36 +360,83 @@ export default function ChartOfAccountsPage() {
       try {
         const wb = XLSX.read(ev.target?.result, { type: 'array' });
         const ws = wb.Sheets[wb.SheetNames[0]];
-        const raw = XLSX.utils.sheet_to_json<UploadRow>(ws, { defval: '' });
-        const parsed: ParsedRow[] = raw
-          .filter(r => r.code && String(r.code).trim() !== '' && String(r.code).toLowerCase() !== 'required')
+
+        // Read all rows as raw arrays so we can auto-detect the real header row.
+        // The template has legend/badge rows before the actual field-name row.
+        const allRows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' });
+
+        // Find the row that contains the actual field names (has 'code' AND 'name' AND 'type')
+        let headerIdx = -1;
+        for (let i = 0; i < Math.min(allRows.length, 10); i++) {
+          const cells = allRows[i].map(c => String(c).toLowerCase().trim());
+          if (cells.includes('code') && cells.includes('name') && cells.includes('type')) {
+            headerIdx = i;
+            // Prefer the row with underscore field names (e.g. sub_type, is_group) over display labels
+            if (cells.includes('sub_type') || cells.includes('is_group')) break;
+          }
+        }
+        if (headerIdx === -1) {
+          setUploadError('Cannot find header row. Make sure the file has "code", "name", "type" column headers.');
+          return;
+        }
+
+        // Build column-index map from the header row
+        const headers = allRows[headerIdx].map(c => String(c).toLowerCase().trim().replace(/[\s?]+/g, '_'));
+        const col = (field: string) => headers.indexOf(field);
+
+        // Data rows start after the header row
+        const dataRows = allRows.slice(headerIdx + 1);
+
+        const SKIP_VALUES = new Set(['required', 'optional', '']);
+
+        const parsed: ParsedRow[] = dataRows
+          .map(row => {
+            const get = (field: string) => String(row[col(field)] ?? '').trim();
+            return {
+              code:                 get('code'),
+              name:                 get('name'),
+              type:                 get('type'),
+              sub_type:             get('sub_type'),
+              description:          get('description'),
+              is_group:             get('is_group'),
+              is_control_account:   get('is_control_account'),
+              opening_balance:      get('opening_balance'),
+              opening_balance_type: get('opening_balance_type'),
+              opening_balance_date: get('opening_balance_date'),
+            } as UploadRow;
+          })
+          .filter(r => r.code && !SKIP_VALUES.has(r.code.toLowerCase()))
           .map(r => {
-            const code = String(r.code ?? '').trim();
-            const name = String(r.name ?? '').trim();
-            const type = String(r.type ?? '').trim().toUpperCase() as AccountType;
-            if (!code) return { status: 'error' as const, data: {}, error: 'Code is required', raw: r };
+            const code = r.code.trim();
+            const name = r.name.trim();
+            const type = r.type.trim().toUpperCase() as AccountType;
             if (!name) return { status: 'error' as const, data: {}, error: `${code}: name is required`, raw: r };
             if (!VALID_TYPES.has(type)) return { status: 'error' as const, data: {}, error: `${code}: invalid type "${r.type}"`, raw: r };
             if (existingCodes.has(code.toLowerCase())) {
               return { status: 'skip' as const, data: { code, name }, error: `${code} already exists`, raw: r };
             }
-            const isControl = String(r.is_control_account ?? '').toLowerCase() === 'yes';
+            const isControl = r.is_control_account.toLowerCase() === 'yes';
             return {
               status: 'create' as const,
               raw: r,
               data: {
                 code, name, type,
-                sub_type:             String(r.sub_type ?? '').trim() || '',
-                description:          String(r.description ?? '').trim() || '',
-                is_group:             String(r.is_group ?? '').toLowerCase() === 'yes',
+                sub_type:             r.sub_type || '',
+                description:          r.description || '',
+                is_group:             r.is_group.toLowerCase() === 'yes',
                 is_control_account:   isControl,
                 bp_type_id:           '',
-                opening_balance:      (!isControl && r.opening_balance) ? String(r.opening_balance) : '',
-                opening_balance_type: (String(r.opening_balance_type ?? '').toUpperCase() === 'CR' ? 'CR' : 'DR') as BalanceType,
-                opening_balance_date: String(r.opening_balance_date ?? '').trim() || '',
+                opening_balance:      (!isControl && r.opening_balance) ? r.opening_balance : '',
+                opening_balance_type: (r.opening_balance_type.toUpperCase() === 'CR' ? 'CR' : 'DR') as BalanceType,
+                opening_balance_date: r.opening_balance_date || '',
               },
             };
           });
+
+        if (parsed.length === 0) {
+          setUploadError('No data rows found. Fill in accounts starting from the row after the headers.');
+          return;
+        }
         setParsedRows(parsed);
       } catch {
         setUploadError('Failed to parse file. Make sure it is a valid .xlsx file.');
