@@ -117,7 +117,8 @@ export interface LedgerResult {
 }
 
 // ── BP Types ──────────────────────────────────────────────────────────────────
-export type BPSide = 'RECEIVABLE' | 'PAYABLE' | 'BOTH';
+export type BPSide     = 'RECEIVABLE' | 'PAYABLE' | 'BOTH';
+export type BPCategory = 'BANK' | 'VENDOR' | 'UNIT';
 
 export interface BPType {
   id:             string;
@@ -126,6 +127,47 @@ export interface BPType {
   is_active:      boolean;
   association_id: string;
   created_at:     string;
+}
+
+// ── Business Partner Master ───────────────────────────────────────────────────
+export interface UnitRef {
+  id:          string;
+  flat_number: string;
+  block:       string | null;
+}
+
+export interface BusinessPartner {
+  id:                    string;
+  code:                  string;
+  name:                  string;
+  bp_category:           BPCategory;
+  bp_type_id:            string | null;
+  bp_type:               { id: string; name: string; side: BPSide } | null;
+  // bank
+  account_number:        string | null;
+  ifsc:                  string | null;
+  // vendor
+  gstin:                 string | null;
+  pan:                   string | null;
+  // unit
+  unit_id:               string | null;
+  unit:                  UnitRef | null;
+  // contact
+  email:                 string | null;
+  phone:                 string | null;
+  // opening balance
+  opening_balance:       number | null;
+  opening_balance_type:  BalanceType | null;
+  opening_balance_date:  string | null;
+  is_active:             boolean;
+  created_at:            string;
+}
+
+export interface UnitOption {
+  id:          string;
+  flat_number: string;
+  block:       string | null;
+  floor:       number;
 }
 
 // ── Combined API ──────────────────────────────────────────────────────────────
@@ -170,6 +212,32 @@ const accountingApi = baseApi.injectEndpoints({
     toggleBPType: builder.mutation<{ data: BPType }, string>({
       query: (id) => ({ url: `/accounting/bp-types/${id}/toggle`, method: 'PATCH' }),
       invalidatesTags: ['Account'],
+    }),
+
+    // BP Master
+    listBPMasters: builder.query<{ data: BusinessPartner[] }, { category?: BPCategory }>({
+      query: ({ category } = {}) => `/accounting/bp-masters${category ? `?category=${category}` : ''}`,
+      providesTags: ['BPMaster'],
+    }),
+    createBPMaster: builder.mutation<{ data: BusinessPartner }, Partial<BusinessPartner>>({
+      query: (body) => ({ url: '/accounting/bp-masters', method: 'POST', body }),
+      invalidatesTags: ['BPMaster'],
+    }),
+    updateBPMaster: builder.mutation<{ data: BusinessPartner }, { id: string; body: Partial<BusinessPartner> }>({
+      query: ({ id, body }) => ({ url: `/accounting/bp-masters/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['BPMaster'],
+    }),
+    toggleBPMaster: builder.mutation<{ data: BusinessPartner }, string>({
+      query: (id) => ({ url: `/accounting/bp-masters/${id}/toggle`, method: 'PATCH' }),
+      invalidatesTags: ['BPMaster'],
+    }),
+    deleteBPMaster: builder.mutation<{ data: { deleted: boolean } }, string>({
+      query: (id) => ({ url: `/accounting/bp-masters/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['BPMaster'],
+    }),
+    listUnitOptions: builder.query<{ data: UnitOption[] }, void>({
+      query: () => '/accounting/bp-masters/units',
+      providesTags: ['BPMaster'],
     }),
 
     // Journal Entries
@@ -226,6 +294,12 @@ export const {
   useListBPTypesQuery,
   useCreateBPTypeMutation,
   useToggleBPTypeMutation,
+  useListBPMastersQuery,
+  useCreateBPMasterMutation,
+  useUpdateBPMasterMutation,
+  useToggleBPMasterMutation,
+  useDeleteBPMasterMutation,
+  useListUnitOptionsQuery,
   useListJournalEntriesQuery,
   useCreateJournalEntryMutation,
   useUpdateJournalEntryMutation,

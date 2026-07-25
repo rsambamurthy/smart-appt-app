@@ -46,6 +46,7 @@ import ChangeMpinPage from './pages/ChangeMpinPage';
 import TransactionsDashboardPage from './pages/transactions/TransactionsDashboardPage';
 import ReportsPage from './pages/transactions/ReportsPage';
 import ChartOfAccountsPage from './pages/accounting/ChartOfAccountsPage';
+import BusinessPartnersPage from './pages/accounting/BusinessPartnersPage';
 import JournalEntriesPage from './pages/accounting/JournalEntriesPage';
 import LedgerPage from './pages/accounting/LedgerPage';
 import PnLPage from './pages/accounting/PnLPage';
@@ -139,6 +140,7 @@ export default function App() {
 
         {/* Accounting */}
         {!IS_NATIVE && <Route path="/accounting/chart-of-accounts" element={<RoleRoute roles={['MANAGER', 'TREASURER']}><ChartOfAccountsPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/business-partners"  element={<RoleRoute roles={['MANAGER', 'TREASURER']}><BusinessPartnersPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/accounting/journal"            element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><JournalEntriesPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/accounting/ledger"             element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><LedgerPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/accounting/pnl"               element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><PnLPage /></RoleRoute>} />}

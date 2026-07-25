@@ -92,8 +92,9 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ['SUPER_USER', 'MANAGER', 'TREASURER'],
     landingPath: '/accounting/chart-of-accounts',
     items: [
-      { id: 'chart_of_accounts', label: 'Chart of Accounts', path: '/accounting/chart-of-accounts', roles: ['SUPER_USER', 'MANAGER', 'TREASURER'], dot: '#2563eb', end: true },
-      { id: 'journal_entries',   label: 'Journal Entries',   path: '/accounting/journal',            roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#7c3aed', end: true },
+      { id: 'chart_of_accounts',  label: 'Chart of Accounts',   path: '/accounting/chart-of-accounts', roles: ['SUPER_USER', 'MANAGER', 'TREASURER'], dot: '#2563eb', end: true },
+      { id: 'business_partners',  label: 'Business Partners',   path: '/accounting/business-partners', roles: ['SUPER_USER', 'MANAGER', 'TREASURER'], dot: '#0891b2', end: true },
+      { id: 'journal_entries',    label: 'Journal Entries',     path: '/accounting/journal',            roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#7c3aed', end: true },
       { id: 'ledger',            label: 'Ledger',            path: '/accounting/ledger',             roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#16a34a', end: true },
       { id: 'pnl',               label: 'Profit & Loss',     path: '/accounting/pnl',                roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#f59e0b', end: true },
       { id: 'balance_sheet',     label: 'Balance Sheet',     path: '/accounting/balance-sheet',      roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#7c3aed', end: true },

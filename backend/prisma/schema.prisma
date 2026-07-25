@@ -255,6 +255,7 @@ model Unit {
   payments            Payment[]
   visitors            Visitor[]
   frequent_visitors   FrequentVisitor[]
+  business_partners   BusinessPartner[]
 
   @@unique([association_id, flat_number])
   @@index([flat_number])
@@ -872,6 +873,12 @@ enum BPSide {
   BOTH
 }
 
+enum BPCategory {
+  BANK
+  VENDOR
+  UNIT
+}
+
 enum VoucherType {
   RV  // Receipt Voucher   — money received
   PV  // Payment Voucher   — money paid out
@@ -918,22 +925,42 @@ model BusinessPartner {
   id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   association_id String      @db.Uuid
   association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
-  code           String      @db.VarChar(20)   // e.g. BP-001, auto-generated
+  code           String      @db.VarChar(20)
   name           String      @db.VarChar(255)
-  bp_type_id     String      @db.Uuid
-  bp_type        BPType      @relation(fields: [bp_type_id], references: [id])
+  bp_category    BPCategory                    // BANK | VENDOR | UNIT
+  bp_type_id     String?     @db.Uuid          // optional GL control-account linkage
+  bp_type        BPType?     @relation(fields: [bp_type_id], references: [id])
+
+  // Bank-specific
+  account_number String?     @db.VarChar(30)
+  ifsc           String?     @db.VarChar(15)
+
+  // Vendor-specific
+  gstin          String?     @db.VarChar(15)
+  pan            String?     @db.VarChar(10)
+
+  // Unit-specific
+  unit_id        String?     @db.Uuid
+  unit           Unit?       @relation(fields: [unit_id], references: [id])
+
+  // Common contact
   email          String?     @db.VarChar(255)
   phone          String?     @db.VarChar(20)
-  address        String?     @db.Text
+
+  // Opening balance (set here for sub-ledger BPs)
+  opening_balance      Decimal?    @db.Decimal(15, 2)
+  opening_balance_type BalanceType?
+  opening_balance_date DateTime?   @db.Date
+
   is_active      Boolean     @default(true)
   created_at     DateTime    @default(now()) @db.Timestamptz
   updated_at     DateTime    @updatedAt @db.Timestamptz
-  deleted_at     DateTime?   @db.Timestamptz
 
   journal_lines  JournalLine[]
 
   @@unique([association_id, code])
   @@index([association_id])
+  @@index([association_id, bp_category])
   @@index([association_id, bp_type_id])
   @@map("business_partners")
 }

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { accountingController } from './accounting.controller';
 import { journalController }    from './journal.controller';
+import { bpMasterController }   from './bp-master.controller';
 import { authenticate }  from '../../middleware/auth';
 import { requireRoles }  from '../../middleware/rbac';
 import { UserRole }      from '@prisma/client';
@@ -24,6 +25,14 @@ router.delete('/accounts/:id',         requireRoles(...managerRoles), accounting
 router.get   ('/bp-types',          requireRoles(...managerRoles), accountingController.listBPTypes);
 router.post  ('/bp-types',          requireRoles(...managerRoles), accountingController.createBPType);
 router.patch ('/bp-types/:id/toggle', requireRoles(...managerRoles), accountingController.toggleBPType);
+
+// ── BP Master ─────────────────────────────────────────────────────────────────
+router.get   ('/bp-masters',             requireRoles(...managerRoles), bpMasterController.list);
+router.post  ('/bp-masters',             requireRoles(...managerRoles), bpMasterController.create);
+router.patch ('/bp-masters/:id',         requireRoles(...managerRoles), bpMasterController.update);
+router.patch ('/bp-masters/:id/toggle',  requireRoles(...managerRoles), bpMasterController.toggle);
+router.delete('/bp-masters/:id',         requireRoles(...managerRoles), bpMasterController.delete);
+router.get   ('/bp-masters/units',       requireRoles(...managerRoles), bpMasterController.listUnits);
 
 // ── Journal Entries ───────────────────────────────────────────────────────────
 router.get ('/journal',         requireRoles(...viewRoles),    journalController.list);
