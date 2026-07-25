@@ -236,6 +236,7 @@ export default function ChartOfAccountsPage() {
   const [uploadError, setUploadError]     = useState('');
   const [uploading, setUploading]         = useState(false);
   const [uploadResult, setUploadResult]   = useState<{ created: number; skipped: number; failed: number } | null>(null);
+  const [dragging, setDragging]           = useState(false);
 
   // ── Backfill ──────────────────────────────────────────────────────────────────
   const [backfillResult, setBackfillResult] = useState<BackfillResult | null>(null);
@@ -347,9 +348,11 @@ export default function ChartOfAccountsPage() {
   };
 
   // ── Parse upload file ─────────────────────────────────────────────────────────
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const processFile = (file: File) => {
+    if (!file.name.match(/\.(xlsx|xls)$/i)) {
+      setUploadError('Please select an .xlsx or .xls file.');
+      return;
+    }
     setUploadError(''); setUploadResult(null);
     const existingCodes = new Set(accounts.map(a => a.code.trim().toLowerCase()));
     const reader = new FileReader();
@@ -367,7 +370,6 @@ export default function ChartOfAccountsPage() {
             if (!code) return { status: 'error' as const, data: {}, error: 'Code is required', raw: r };
             if (!name) return { status: 'error' as const, data: {}, error: `${code}: name is required`, raw: r };
             if (!VALID_TYPES.has(type)) return { status: 'error' as const, data: {}, error: `${code}: invalid type "${r.type}"`, raw: r };
-            // Check against existing accounts
             if (existingCodes.has(code.toLowerCase())) {
               return { status: 'skip' as const, data: { code, name }, error: `${code} already exists`, raw: r };
             }
@@ -393,8 +395,21 @@ export default function ChartOfAccountsPage() {
         setUploadError('Failed to parse file. Make sure it is a valid .xlsx file.');
       }
     };
+    reader.onerror = () => setUploadError('Could not read file.');
     reader.readAsArrayBuffer(file);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
     e.target.value = '';
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); e.stopPropagation();
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
   };
 
   const handleImport = async () => {
@@ -466,18 +481,38 @@ export default function ChartOfAccountsPage() {
               Use the standard template. Existing account codes are skipped. Control account BP type linkage must be set manually after upload.
             </div>
 
+            {/* Hidden file input — lives outside the drop zone to avoid double-trigger */}
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls"
+              style={{ display: 'none' }}
+              onChange={handleFileChange}
+            />
+
             {/* Drop zone */}
             {parsedRows.length === 0 && !uploadResult && (
               <div
-                style={{ border: '2px dashed #e2e8f0', borderRadius: 8, padding: '24px', textAlign: 'center', background: '#f8fafc', cursor: 'pointer', marginBottom: 12 }}
+                style={{
+                  border: `2px dashed ${dragging ? '#2563eb' : '#e2e8f0'}`,
+                  borderRadius: 8, padding: '28px', textAlign: 'center',
+                  background: dragging ? '#eff6ff' : '#f8fafc',
+                  cursor: 'pointer', marginBottom: 12,
+                  transition: 'border-color 0.15s, background 0.15s',
+                }}
                 onClick={() => fileRef.current?.click()}
+                onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
+                onDragEnter={e => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
+                onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setDragging(false); }}
+                onDrop={handleDrop}
               >
-                <i className="ti ti-file-spreadsheet" style={{ fontSize: 28, color: '#94a3b8', display: 'block', marginBottom: 6 }} aria-hidden="true" />
-                <div style={{ fontSize: 13, color: '#64748b' }}>
-                  Drop an .xlsx file here, or <span style={{ color: '#2563eb' }}>choose file</span>
+                <i className="ti ti-file-spreadsheet"
+                  style={{ fontSize: 30, color: dragging ? '#2563eb' : '#94a3b8', display: 'block', marginBottom: 6 }}
+                  aria-hidden="true" />
+                <div style={{ fontSize: 13, color: dragging ? '#2563eb' : '#64748b', fontWeight: dragging ? 500 : 400 }}>
+                  {dragging ? 'Drop to upload' : (<>Drop an .xlsx file here, or <span style={{ color: '#2563eb' }}>choose file</span></>)}
                 </div>
                 <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>SmartAppt_COAUpload_Template.xlsx</div>
-                <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileChange} />
               </div>
             )}
 
