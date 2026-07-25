@@ -213,13 +213,15 @@ class UnitOBService {
       autoFilter:          false,
     });
 
-    return wb.xlsx.writeBuffer() as Promise<Buffer>;
+    const raw = await wb.xlsx.writeBuffer();
+    return Buffer.from(raw);
   }
 
   // Parse uploaded Excel file and return a preview (create / update / skip / error per row)
   async previewUpload(associationId: string, fileBuffer: Buffer): Promise<UnitOBPreviewRow[]> {
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(fileBuffer);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await wb.xlsx.load(fileBuffer as any);
     const ws = wb.getWorksheet('Unit Opening Balances') ?? wb.worksheets[0];
     if (!ws) return [];
 
