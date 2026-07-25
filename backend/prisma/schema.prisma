@@ -203,6 +203,7 @@ model Association {
   accounts           Account[]
   journal_entries    JournalEntry[]
   bp_types           BPType[]
+  service_types      ServiceType[]
   business_partners  BusinessPartner[]
   voucher_sequences  VoucherSequence[]
   mobile_config      MobileConfig?
@@ -900,6 +901,25 @@ enum JournalStatus {
   CANCELLED
 }
 
+// ── Vendor Service Type Master ────────────────────────────────────────────────
+
+model ServiceType {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  name           String      @db.VarChar(100)
+  description    String?     @db.VarChar(255)
+  is_active      Boolean     @default(true)
+  created_at     DateTime    @default(now()) @db.Timestamptz
+  updated_at     DateTime    @updatedAt @db.Timestamptz
+
+  business_partners BusinessPartner[]
+
+  @@unique([association_id, name])
+  @@index([association_id])
+  @@map("service_types")
+}
+
 // ── BP Type Master ────────────────────────────────────────────────────────────
 
 model BPType {
@@ -937,8 +957,10 @@ model BusinessPartner {
   ifsc           String?     @db.VarChar(15)
 
   // Vendor-specific
-  gstin          String?     @db.VarChar(15)
-  pan            String?     @db.VarChar(10)
+  gstin            String?      @db.VarChar(15)
+  pan              String?      @db.VarChar(10)
+  service_type_id  String?      @db.Uuid
+  service_type     ServiceType? @relation(fields: [service_type_id], references: [id])
 
   // Unit-specific
   unit_id        String?     @db.Uuid

@@ -160,6 +160,17 @@ export interface BPType {
   created_at:     string;
 }
 
+// ── Vendor Service Type Master ─────────────────────────────────────────────────
+export interface ServiceType {
+  id:             string;
+  name:           string;
+  description:    string | null;
+  is_active:      boolean;
+  association_id: string;
+  created_at:     string;
+  updated_at:     string;
+}
+
 // ── Business Partner Master ───────────────────────────────────────────────────
 export interface UnitRef {
   id:          string;
@@ -180,6 +191,8 @@ export interface BusinessPartner {
   // vendor
   gstin:                 string | null;
   pan:                   string | null;
+  service_type_id:       string | null;
+  service_type:          { id: string; name: string } | null;
   // unit
   unit_id:               string | null;
   unit:                  UnitRef | null;
@@ -320,6 +333,28 @@ const accountingApi = baseApi.injectEndpoints({
       },
       providesTags: ['Journal'],
     }),
+
+    // Service Types
+    listServiceTypes: builder.query<{ data: ServiceType[] }, void>({
+      query: () => '/accounting/service-types',
+      providesTags: ['ServiceType'],
+    }),
+    createServiceType: builder.mutation<{ data: ServiceType }, { name: string; description?: string | null }>({
+      query: (body) => ({ url: '/accounting/service-types', method: 'POST', body }),
+      invalidatesTags: ['ServiceType'],
+    }),
+    updateServiceType: builder.mutation<{ data: ServiceType }, { id: string; name?: string; description?: string | null }>({
+      query: ({ id, ...body }) => ({ url: `/accounting/service-types/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['ServiceType'],
+    }),
+    toggleServiceType: builder.mutation<{ data: ServiceType }, string>({
+      query: (id) => ({ url: `/accounting/service-types/${id}/toggle`, method: 'PATCH' }),
+      invalidatesTags: ['ServiceType'],
+    }),
+    deleteServiceType: builder.mutation<{ data: { deleted: boolean } }, string>({
+      query: (id) => ({ url: `/accounting/service-types/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['ServiceType'],
+    }),
   }),
 });
 
@@ -348,4 +383,9 @@ export const {
   useGetBalanceSheetQuery,
   useGetLedgerQuery,
   useGetPnLQuery,
+  useListServiceTypesQuery,
+  useCreateServiceTypeMutation,
+  useUpdateServiceTypeMutation,
+  useToggleServiceTypeMutation,
+  useDeleteServiceTypeMutation,
 } = accountingApi;

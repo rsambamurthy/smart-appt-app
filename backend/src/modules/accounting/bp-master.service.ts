@@ -13,6 +13,7 @@ export interface CreateBPMasterBody {
   // vendor
   gstin?:                string | null;
   pan?:                  string | null;
+  service_type_id?:      string | null;
   // unit
   unit_id?:              string | null;
   // contact
@@ -36,8 +37,9 @@ class BPMasterService {
         ...(category ? { bp_category: category } : {}),
       },
       include: {
-        unit: { select: { id: true, flat_number: true, block: true } },
-        bp_type: { select: { id: true, name: true, side: true } },
+        unit:         { select: { id: true, flat_number: true, block: true } },
+        bp_type:      { select: { id: true, name: true, side: true } },
+        service_type: { select: { id: true, name: true } },
       },
       orderBy: [{ bp_category: 'asc' }, { code: 'asc' }],
     });

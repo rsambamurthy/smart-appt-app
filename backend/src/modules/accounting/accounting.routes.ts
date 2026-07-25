@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { accountingController } from './accounting.controller';
-import { journalController }    from './journal.controller';
-import { bpMasterController }   from './bp-master.controller';
-import { unitOBController }     from './unit-ob.controller';
+import { accountingController }  from './accounting.controller';
+import { journalController }     from './journal.controller';
+import { bpMasterController }    from './bp-master.controller';
+import { unitOBController }      from './unit-ob.controller';
+import { serviceTypeController } from './service-type.controller';
 import { authenticate }  from '../../middleware/auth';
 import { requireRoles }  from '../../middleware/rbac';
 import { UserRole }      from '@prisma/client';
@@ -29,6 +30,13 @@ router.delete('/accounts/:id',         requireRoles(...managerRoles), accounting
 router.get   ('/bp-types',          requireRoles(...managerRoles), accountingController.listBPTypes);
 router.post  ('/bp-types',          requireRoles(...managerRoles), accountingController.createBPType);
 router.patch ('/bp-types/:id/toggle', requireRoles(...managerRoles), accountingController.toggleBPType);
+
+// ── Vendor Service Types ───────────────────────────────────────────────────────
+router.get   ('/service-types',             requireRoles(...managerRoles), serviceTypeController.list);
+router.post  ('/service-types',             requireRoles(...managerRoles), serviceTypeController.create);
+router.patch ('/service-types/:id',         requireRoles(...managerRoles), serviceTypeController.update);
+router.patch ('/service-types/:id/toggle',  requireRoles(...managerRoles), serviceTypeController.toggle);
+router.delete('/service-types/:id',         requireRoles(...managerRoles), serviceTypeController.delete);
 
 // ── BP Master ─────────────────────────────────────────────────────────────────
 router.get   ('/bp-masters',             requireRoles(...managerRoles), bpMasterController.list);

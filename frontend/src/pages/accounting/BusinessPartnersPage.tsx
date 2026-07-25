@@ -9,20 +9,22 @@ import {
   useUpdateBPMasterMutation, useToggleBPMasterMutation,
   useDeleteBPMasterMutation, useListUnitOptionsQuery,
   useListUnitsWithBalancesQuery, useApplyUnitOBUploadMutation,
-  BusinessPartner, BPCategory, BalanceType, UnitWithBalance, UnitOBPreviewRow,
+  useListServiceTypesQuery, useCreateServiceTypeMutation,
+  useUpdateServiceTypeMutation, useToggleServiceTypeMutation, useDeleteServiceTypeMutation,
+  BusinessPartner, BPCategory, BalanceType, UnitWithBalance, UnitOBPreviewRow, ServiceType,
 } from '../../store/api/accountingApi';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface BPForm {
   code: string; name: string; email: string; phone: string;
   account_number: string; ifsc: string;
-  gstin: string; pan: string;
+  gstin: string; pan: string; service_type_id: string;
   unit_id: string;
   opening_balance: string; opening_balance_type: BalanceType; opening_balance_date: string;
 }
 const emptyForm = (): BPForm => ({
   code: '', name: '', email: '', phone: '',
-  account_number: '', ifsc: '', gstin: '', pan: '', unit_id: '',
+  account_number: '', ifsc: '', gstin: '', pan: '', service_type_id: '', unit_id: '',
   opening_balance: '', opening_balance_type: 'DEBIT', opening_balance_date: '',
 });
 
@@ -41,11 +43,14 @@ const btnIcon: React.CSSProperties = { background: 'none', border: 'none', curso
 
 // ── BP form component (used for Banks and Vendors) ────────────────────────────
 function BPFormPanel({
-  category, form, onChange, onSave, onCancel, isSaving, error, unitOptions, title,
+  category, form, onChange, onSave, onCancel, isSaving, error, unitOptions, serviceTypes, title,
 }: {
   category: BPCategory; form: BPForm; onChange: (f: BPForm) => void;
   onSave: () => void; onCancel: () => void;
-  isSaving: boolean; error: string; unitOptions: { id: string; flat_number: string; block: string | null }[]; title: string;
+  isSaving: boolean; error: string;
+  unitOptions: { id: string; flat_number: string; block: string | null }[];
+  serviceTypes: ServiceType[];
+  title: string;
 }) {
   const set = (p: Partial<BPForm>) => onChange({ ...form, ...p });
   return (
@@ -64,9 +69,18 @@ function BPFormPanel({
         </div>
       )}
       {category === 'VENDOR' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px', marginBottom: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 10px', marginBottom: 10 }}>
           <div><label style={fl}>GSTIN</label><input style={fc} value={form.gstin} onChange={e => set({ gstin: e.target.value })} placeholder="29ABCDE1234F1Z5" /></div>
           <div><label style={fl}>PAN</label><input style={fc} value={form.pan} onChange={e => set({ pan: e.target.value })} placeholder="ABCDE1234F" /></div>
+          <div>
+            <label style={fl}>Service type</label>
+            <select style={fc} value={form.service_type_id} onChange={e => set({ service_type_id: e.target.value })}>
+              <option value="">— Select —</option>
+              {serviceTypes.filter(st => st.is_active).map(st => (
+                <option key={st.id} value={st.id}>{st.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
       <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: 10, marginTop: 2 }}>
@@ -102,11 +116,12 @@ function BPFormPanel({
 // ── Generic BP section (Banks, Vendors) ───────────────────────────────────────
 function BPSection({
   category, label, icon, iconBg, iconColor,
-  bps, unitOptions, onCreate, onUpdate, onToggle, onDelete,
+  bps, unitOptions, serviceTypes, onCreate, onUpdate, onToggle, onDelete,
 }: {
   category: BPCategory; label: string; icon: string; iconBg: string; iconColor: string;
   bps: BusinessPartner[];
   unitOptions: { id: string; flat_number: string; block: string | null }[];
+  serviceTypes: ServiceType[];
   onCreate: (body: object) => Promise<void>;
   onUpdate: (id: string, body: object) => Promise<void>;
   onToggle: (id: string) => void;
@@ -123,10 +138,11 @@ function BPSection({
   const buildBody = (f: BPForm) => ({
     code: f.code.trim(), name: f.name.trim(), bp_category: category,
     email: f.email || null, phone: f.phone || null,
-    account_number: category === 'BANK' ? f.account_number || null : null,
-    ifsc:           category === 'BANK' ? f.ifsc || null : null,
-    gstin:          category === 'VENDOR' ? f.gstin || null : null,
-    pan:            category === 'VENDOR' ? f.pan || null : null,
+    account_number:  category === 'BANK'   ? f.account_number || null : null,
+    ifsc:            category === 'BANK'   ? f.ifsc || null : null,
+    gstin:           category === 'VENDOR' ? f.gstin || null : null,
+    pan:             category === 'VENDOR' ? f.pan || null : null,
+    service_type_id: category === 'VENDOR' ? f.service_type_id || null : null,
     opening_balance: f.opening_balance ? parseFloat(f.opening_balance) : null,
     opening_balance_type: f.opening_balance ? f.opening_balance_type : null,
     opening_balance_date: f.opening_balance_date || null,
@@ -142,7 +158,7 @@ function BPSection({
 
   const startEdit = (bp: BusinessPartner) => {
     setEditId(bp.id);
-    setEditForm({ code: bp.code, name: bp.name, email: bp.email ?? '', phone: bp.phone ?? '', account_number: bp.account_number ?? '', ifsc: bp.ifsc ?? '', gstin: bp.gstin ?? '', pan: bp.pan ?? '', unit_id: '', opening_balance: bp.opening_balance != null ? String(bp.opening_balance) : '', opening_balance_type: bp.opening_balance_type ?? 'DEBIT', opening_balance_date: bp.opening_balance_date ? bp.opening_balance_date.slice(0, 10) : '' });
+    setEditForm({ code: bp.code, name: bp.name, email: bp.email ?? '', phone: bp.phone ?? '', account_number: bp.account_number ?? '', ifsc: bp.ifsc ?? '', gstin: bp.gstin ?? '', pan: bp.pan ?? '', service_type_id: bp.service_type_id ?? '', unit_id: '', opening_balance: bp.opening_balance != null ? String(bp.opening_balance) : '', opening_balance_type: bp.opening_balance_type ?? 'DEBIT', opening_balance_date: bp.opening_balance_date ? bp.opening_balance_date.slice(0, 10) : '' });
     setEditError('');
   };
 
@@ -178,7 +194,7 @@ function BPSection({
       </div>
 
       {showAdd && (
-        <BPFormPanel category={category} title={`New ${label.toLowerCase().slice(0, -1)}`} form={addForm} onChange={setAddForm} onSave={handleAdd} onCancel={() => setShowAdd(false)} isSaving={false} error={addError} unitOptions={unitOptions} />
+        <BPFormPanel category={category} title={`New ${label.toLowerCase().slice(0, -1)}`} form={addForm} onChange={setAddForm} onSave={handleAdd} onCancel={() => setShowAdd(false)} isSaving={false} error={addError} unitOptions={unitOptions} serviceTypes={serviceTypes} />
       )}
 
       {bps.length === 0 && !showAdd ? (
@@ -189,7 +205,7 @@ function BPSection({
             <tr style={{ background: '#f8fafc' }}>
               <th style={th}>Code</th><th style={th}>Name</th>
               {category === 'BANK'   && <><th style={th}>Account no.</th><th style={th}>IFSC</th></>}
-              {category === 'VENDOR' && <><th style={th}>GSTIN</th><th style={th}>PAN</th></>}
+              {category === 'VENDOR' && <><th style={th}>Service Type</th><th style={th}>GSTIN</th><th style={th}>PAN</th></>}
               <th style={{ ...th, textAlign: 'right' }}>Opening balance</th>
               <th style={th}>As-on date</th><th style={th}>Status</th><th style={th}></th>
             </tr>
@@ -199,7 +215,7 @@ function BPSection({
               editId === bp.id ? (
                 <tr key={bp.id} style={{ borderTop: idx === 0 ? 'none' : '1px solid #f1f5f9' }}>
                   <td colSpan={99} style={{ padding: 0 }}>
-                    <BPFormPanel category={category} title={`Edit — ${bp.code} ${bp.name}`} form={editForm} onChange={setEditForm} onSave={() => handleSaveEdit(bp)} onCancel={() => setEditId(null)} isSaving={false} error={editError} unitOptions={unitOptions} />
+                    <BPFormPanel category={category} title={`Edit — ${bp.code} ${bp.name}`} form={editForm} onChange={setEditForm} onSave={() => handleSaveEdit(bp)} onCancel={() => setEditId(null)} isSaving={false} error={editError} unitOptions={unitOptions} serviceTypes={serviceTypes} />
                   </td>
                 </tr>
               ) : (
@@ -211,8 +227,15 @@ function BPSection({
                       <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{bp.ifsc ?? '—'}</td></>
                   )}
                   {category === 'VENDOR' && (
-                    <><td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{bp.gstin ?? '—'}</td>
-                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{bp.pan ?? '—'}</td></>
+                    <>
+                      <td style={{ padding: '10px 14px' }}>
+                        {bp.service_type
+                          ? <span style={{ fontSize: 11.5, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: '#f0fdf4', color: '#15803d' }}>{bp.service_type.name}</span>
+                          : <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span>}
+                      </td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{bp.gstin ?? '—'}</td>
+                      <td style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{bp.pan ?? '—'}</td>
+                    </>
                   )}
                   <td style={{ padding: '10px 14px', textAlign: 'right' }}>{formatOB(bp)}</td>
                   <td style={{ padding: '10px 14px', fontSize: 12, color: '#64748b' }}>
@@ -553,6 +576,127 @@ function UnitSection({ token }: { token: string | null }) {
   );
 }
 
+// ── Service Type management panel ─────────────────────────────────────────────
+function ServiceTypesPanel({ serviceTypes }: { serviceTypes: ServiceType[] }) {
+  const [showAdd, setShowAdd]   = useState(false);
+  const [newName, setNewName]   = useState('');
+  const [newDesc, setNewDesc]   = useState('');
+  const [addError, setAddError] = useState('');
+  const [editId, setEditId]     = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editError, setEditError] = useState('');
+  const [createST]  = useCreateServiceTypeMutation();
+  const [updateST]  = useUpdateServiceTypeMutation();
+  const [toggleST]  = useToggleServiceTypeMutation();
+  const [deleteST]  = useDeleteServiceTypeMutation();
+
+  const handleAdd = async () => {
+    if (!newName.trim()) { setAddError('Name is required.'); return; }
+    try {
+      await createST({ name: newName.trim(), description: newDesc.trim() || null }).unwrap();
+      setNewName(''); setNewDesc(''); setShowAdd(false); setAddError('');
+    } catch (e: unknown) {
+      setAddError((e as { data?: { message?: string } })?.data?.message ?? 'Failed to save.');
+    }
+  };
+
+  const startEdit = (st: ServiceType) => {
+    setEditId(st.id); setEditName(st.name); setEditDesc(st.description ?? ''); setEditError('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editName.trim()) { setEditError('Name is required.'); return; }
+    try {
+      await updateST({ id: editId!, name: editName.trim(), description: editDesc.trim() || null }).unwrap();
+      setEditId(null); setEditError('');
+    } catch (e: unknown) {
+      setEditError((e as { data?: { message?: string } })?.data?.message ?? 'Failed to update.');
+    }
+  };
+
+  return (
+    <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: '#fef9c3', color: '#854d0e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
+            <i className="ti ti-tag" aria-hidden="true" />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>Service Types</div>
+            <div style={{ fontSize: 11.5, color: '#64748b' }}>{serviceTypes.length} type{serviceTypes.length !== 1 ? 's' : ''} — vendor category lookup</div>
+          </div>
+        </div>
+        <button onClick={() => { setShowAdd(v => !v); setNewName(''); setNewDesc(''); setAddError(''); }} style={btn()}>
+          <i className="ti ti-plus" style={{ fontSize: 14 }} aria-hidden="true" /> Add
+        </button>
+      </div>
+
+      {showAdd && (
+        <div style={{ background: '#fffbeb', borderBottom: '1px solid #fef08a', padding: '12px 16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '0 10px', marginBottom: 8 }}>
+            <div><label style={fl}>Name *</label><input style={fc} value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Electrical, Plumbing" /></div>
+            <div><label style={fl}>Description</label><input style={fc} value={newDesc} onChange={e => setNewDesc(e.target.value)} placeholder="Optional description" /></div>
+          </div>
+          {addError && <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 6 }}>{addError}</div>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={handleAdd} style={btn(true)}>Save</button>
+            <button onClick={() => setShowAdd(false)} style={btn()}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {serviceTypes.length === 0 && !showAdd ? (
+        <div style={{ padding: '12px 16px', fontSize: 12.5, color: '#94a3b8', fontStyle: 'italic' }}>No service types yet. Add one to categorise your vendors.</div>
+      ) : serviceTypes.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#f8fafc' }}>
+              <th style={th}>Name</th><th style={th}>Description</th><th style={th}>Status</th><th style={th}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {serviceTypes.map((st, idx) => (
+              editId === st.id ? (
+                <tr key={st.id} style={{ borderTop: idx === 0 ? 'none' : '1px solid #f1f5f9', background: '#fffbeb' }}>
+                  <td style={{ padding: '8px 14px' }}>
+                    <input style={{ ...fc, width: 160 }} value={editName} onChange={e => setEditName(e.target.value)} />
+                  </td>
+                  <td style={{ padding: '8px 14px' }}>
+                    <input style={fc} value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description" />
+                  </td>
+                  <td colSpan={2} style={{ padding: '8px 14px' }}>
+                    {editError && <span style={{ fontSize: 12, color: '#dc2626', marginRight: 8 }}>{editError}</span>}
+                    <button onClick={handleSaveEdit} style={btn(true)}>Save</button>
+                    <button onClick={() => setEditId(null)} style={{ ...btn(), marginLeft: 6 }}>Cancel</button>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={st.id} style={{ borderTop: idx === 0 ? 'none' : '1px solid #f1f5f9', opacity: st.is_active ? 1 : 0.5 }}>
+                  <td style={{ padding: '10px 14px', fontWeight: 500, color: '#1e293b' }}>{st.name}</td>
+                  <td style={{ padding: '10px 14px', fontSize: 12, color: '#64748b' }}>{st.description ?? <span style={{ color: '#cbd5e1' }}>—</span>}</td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: st.is_active ? '#f0fdf4' : '#f1f5f9', color: st.is_active ? '#15803d' : '#64748b' }}>
+                      {st.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button style={btnIcon} title="Edit" onClick={() => startEdit(st)}>✎</button>
+                      <button style={btnIcon} title={st.is_active ? 'Deactivate' : 'Activate'} onClick={() => toggleST(st.id)}>{st.is_active ? '⊗' : '↺'}</button>
+                      <button style={{ ...btnIcon, color: '#dc2626' }} title="Delete" onClick={() => deleteST(st.id)}>🗑</button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 const SECTIONS: { category: BPCategory; label: string; icon: string; iconBg: string; iconColor: string }[] = [
   { category: 'BANK',   label: 'Banks',   icon: 'ti-building-bank', iconBg: '#e6f1fb', iconColor: '#185fa5' },
@@ -563,14 +707,16 @@ export default function BusinessPartnersPage() {
   const token                       = useSelector((s: RootState) => s.auth.access_token);
   const { data, isLoading }         = useListBPMastersQuery({});
   const { data: unitData }          = useListUnitOptionsQuery();
+  const { data: stData }            = useListServiceTypesQuery();
   const [createBP]                  = useCreateBPMasterMutation();
   const [updateBP]                  = useUpdateBPMasterMutation();
   const [toggleBP]                  = useToggleBPMasterMutation();
   const [deleteBP]                  = useDeleteBPMasterMutation();
 
-  const allBPs      = data?.data ?? [];
-  const unitOptions = (unitData?.data ?? []).map(u => ({ id: u.id, flat_number: u.flat_number, block: u.block }));
-  const byCategory  = (cat: BPCategory) => allBPs.filter(bp => bp.bp_category === cat);
+  const allBPs       = data?.data ?? [];
+  const unitOptions  = (unitData?.data ?? []).map(u => ({ id: u.id, flat_number: u.flat_number, block: u.block }));
+  const serviceTypes = stData?.data ?? [];
+  const byCategory   = (cat: BPCategory) => allBPs.filter(bp => bp.bp_category === cat);
 
   return (
     <Layout>
@@ -585,11 +731,13 @@ export default function BusinessPartnersPage() {
           <div style={{ color: '#94a3b8', padding: '2rem 0' }}>Loading…</div>
         ) : (
           <>
+            <ServiceTypesPanel serviceTypes={serviceTypes} />
             {SECTIONS.map(s => (
               <BPSection
                 key={s.category} {...s}
                 bps={byCategory(s.category)}
                 unitOptions={unitOptions}
+                serviceTypes={serviceTypes}
                 onCreate={async (body) => { await createBP(body as Partial<BusinessPartner>).unwrap(); }}
                 onUpdate={async (id, body) => { await updateBP({ id, body: body as Partial<BusinessPartner> }).unwrap(); }}
                 onToggle={(id) => toggleBP(id)}
