@@ -70,6 +70,28 @@ class JournalService {
     }
   }
 
+  // ── Infer voucher type for manual entries from account names ──────────────
+  // Bank account in any line → BV; Cash account → CV; otherwise → JV.
+  // "Bank" takes priority if both appear on the same entry.
+  private async inferManualVoucherType(
+    lines: { account_id: string }[],
+  ): Promise<VoucherType> {
+    const accountIds = [...new Set(lines.map(l => l.account_id))];
+    const accts = await prisma.account.findMany({
+      where:  { id: { in: accountIds } },
+      select: { name: true },
+    });
+    let hasBank = false, hasCash = false;
+    for (const a of accts) {
+      const n = a.name.toLowerCase();
+      if (n.includes('bank')) hasBank = true;
+      if (n.includes('cash')) hasCash = true;
+    }
+    if (hasBank) return VoucherType.BV;
+    if (hasCash) return VoucherType.CV;
+    return VoucherType.JV;
+  }
+
   // ── Get account by code (throws if not found) ─────────────────────────────
   private async getAccount(associationId: string, code: string) {
     const account = await prisma.account.findUnique({
@@ -585,13 +607,16 @@ class JournalService {
 
     await this.validateControlAccounts(body.lines);
 
+    const voucherType = await this.inferManualVoucherType(body.lines);
+
     await prisma.journalLine.deleteMany({ where: { journal_entry_id: id } });
 
     const updated = await prisma.journalEntry.update({
       where: { id },
       data: {
-        entry_date: new Date(body.entry_date),
-        narration:  body.narration,
+        entry_date:   new Date(body.entry_date),
+        narration:    body.narration,
+        voucher_type: voucherType,
         lines: {
           create: body.lines.map(l => ({
             account_id:          l.account_id,
@@ -808,10 +833,12 @@ class JournalService {
 
     await this.validateControlAccounts(body.lines);
 
+    const voucherType = await this.inferManualVoucherType(body.lines);
+
     const entry = await this.post(associationId, {
       entry_date:    new Date(body.entry_date),
       narration:     body.narration,
-      voucher_type:  VoucherType.JV,
+      voucher_type:  voucherType,
       source:        JournalEntrySource.MANUAL,
       status:        JournalStatus.POSTED,
       created_by_id: createdBy,

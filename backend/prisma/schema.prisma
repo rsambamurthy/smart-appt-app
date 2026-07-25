@@ -883,7 +883,8 @@ enum VoucherType {
   RV  // Receipt Voucher   — money received
   PV  // Payment Voucher   — money paid out
   JV  // Journal Voucher   — adjustments / provisions
-  CV  // Contra Voucher    — cash ↔ bank transfers
+  BV  // Bank Voucher      — transactions involving a bank account
+  CV  // Cash Voucher      — transactions involving a cash account
   DN  // Debit Note        — charge raised on a BP
   CN  // Credit Note       — credit issued to a BP
 }
