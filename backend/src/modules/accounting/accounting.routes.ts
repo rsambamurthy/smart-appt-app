@@ -1,10 +1,14 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { accountingController } from './accounting.controller';
 import { journalController }    from './journal.controller';
 import { bpMasterController }   from './bp-master.controller';
+import { unitOBController }     from './unit-ob.controller';
 import { authenticate }  from '../../middleware/auth';
 import { requireRoles }  from '../../middleware/rbac';
 import { UserRole }      from '@prisma/client';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 const router = Router();
 
@@ -32,7 +36,11 @@ router.post  ('/bp-masters',             requireRoles(...managerRoles), bpMaster
 router.patch ('/bp-masters/:id',         requireRoles(...managerRoles), bpMasterController.update);
 router.patch ('/bp-masters/:id/toggle',  requireRoles(...managerRoles), bpMasterController.toggle);
 router.delete('/bp-masters/:id',         requireRoles(...managerRoles), bpMasterController.delete);
-router.get   ('/bp-masters/units',       requireRoles(...managerRoles), bpMasterController.listUnits);
+router.get   ('/bp-masters/units',                requireRoles(...managerRoles), bpMasterController.listUnits);
+router.get   ('/bp-masters/units/with-balances',  requireRoles(...managerRoles), unitOBController.listWithBalances);
+router.get   ('/bp-masters/units/template',        requireRoles(...managerRoles), unitOBController.downloadTemplate);
+router.post  ('/bp-masters/units/upload/preview',  requireRoles(...managerRoles), upload.single('file'), unitOBController.previewUpload);
+router.post  ('/bp-masters/units/upload/apply',    requireRoles(...managerRoles), unitOBController.applyUpload);
 
 // ── Journal Entries ───────────────────────────────────────────────────────────
 router.get ('/journal',         requireRoles(...viewRoles),    journalController.list);

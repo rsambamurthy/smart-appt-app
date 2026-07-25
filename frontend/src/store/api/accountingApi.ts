@@ -120,6 +120,31 @@ export interface LedgerResult {
 export type BPSide     = 'RECEIVABLE' | 'PAYABLE' | 'BOTH';
 export type BPCategory = 'BANK' | 'VENDOR' | 'UNIT';
 
+// ── Unit Opening Balance ──────────────────────────────────────────────────────
+export interface UnitWithBalance {
+  unit_id:              string;
+  flat_number:          string;
+  block:                string | null;
+  floor:                number;
+  unit_type:            string | null;
+  owner_name:           string | null;
+  bp_id:                string | null;
+  opening_balance:      number | null;
+  opening_balance_type: BalanceType | null;
+  opening_balance_date: string | null;
+}
+
+export interface UnitOBPreviewRow {
+  unit_id:              string;
+  flat_number:          string;
+  block:                string | null;
+  status:               'create' | 'update' | 'skip' | 'error';
+  opening_balance:      number | null;
+  opening_balance_type: BalanceType | null;
+  opening_balance_date: string | null;
+  error?:               string;
+}
+
 export interface BPType {
   id:             string;
   name:           string;
@@ -239,6 +264,14 @@ const accountingApi = baseApi.injectEndpoints({
       query: () => '/accounting/bp-masters/units',
       providesTags: ['BPMaster'],
     }),
+    listUnitsWithBalances: builder.query<{ data: UnitWithBalance[] }, void>({
+      query: () => '/accounting/bp-masters/units/with-balances',
+      providesTags: ['BPMaster'],
+    }),
+    applyUnitOBUpload: builder.mutation<{ data: { created: number; updated: number } }, UnitOBPreviewRow[]>({
+      query: (rows) => ({ url: '/accounting/bp-masters/units/upload/apply', method: 'POST', body: { rows } }),
+      invalidatesTags: ['BPMaster'],
+    }),
 
     // Journal Entries
     listJournalEntries: builder.query<{ data: JournalEntry[]; nextCursor: string | null }, { type?: string; from?: string; to?: string; cursor?: string }>({
@@ -300,6 +333,8 @@ export const {
   useToggleBPMasterMutation,
   useDeleteBPMasterMutation,
   useListUnitOptionsQuery,
+  useListUnitsWithBalancesQuery,
+  useApplyUnitOBUploadMutation,
   useListJournalEntriesQuery,
   useCreateJournalEntryMutation,
   useUpdateJournalEntryMutation,
