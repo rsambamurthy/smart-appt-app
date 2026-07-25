@@ -5,6 +5,7 @@ import {
   useListJournalEntriesQuery, useCreateJournalEntryMutation,
   useUpdateJournalEntryMutation,
   useListAccountsQuery,
+  useListBPMastersQuery,
   JournalEntry, JournalLineInput,
 } from '../../store/api/accountingApi';
 
@@ -26,13 +27,19 @@ const TYPE_COLOR: Record<string, { bg: string; color: string; label: string }> =
   MANUAL: { bg: '#f5f3ff', color: '#7c3aed', label: 'Manual' },
 };
 
-// ── Empty line ────────────────────────────────────────────────────────────────
-const emptyLine = (): JournalLineInput & { _key: number } => ({
-  _key: Date.now() + Math.random(),
-  account_id: '',
-  debit:  0,
-  credit: 0,
-  narration: '',
+// ── Line state type ───────────────────────────────────────────────────────────
+type LineState = JournalLineInput & {
+  _key:                number;
+  business_partner_id: string;
+};
+
+const emptyLine = (): LineState => ({
+  _key:                Date.now() + Math.random(),
+  account_id:          '',
+  business_partner_id: '',
+  debit:               0,
+  credit:              0,
+  narration:           '',
 });
 
 // ── Shared input style ────────────────────────────────────────────────────────
@@ -40,6 +47,10 @@ const fc: React.CSSProperties = {
   width: '100%', padding: '6px 9px', border: '1px solid #e2e8f0',
   borderRadius: 6, fontSize: 12.5, color: '#1e293b', background: '#fff',
   outline: 'none', boxSizing: 'border-box',
+};
+
+const fcWarn: React.CSSProperties = {
+  ...fc, borderColor: '#f97316',
 };
 
 export default function JournalEntriesPage() {
@@ -53,17 +64,22 @@ export default function JournalEntriesPage() {
     to:   filter.to   || undefined,
   });
   const { data: accountsData } = useListAccountsQuery();
+  const { data: bpData }       = useListBPMastersQuery({});
   const [createEntry, { isLoading: isCreating }] = useCreateJournalEntryMutation();
   const [updateEntry, { isLoading: isUpdating }] = useUpdateJournalEntryMutation();
   const isSaving = isCreating || isUpdating;
 
   const entries  = data?.data ?? [];
   const accounts = accountsData?.data ?? [];
+  const allBPs   = bpData?.data ?? [];
+
+  // Quick lookups
+  const accountMap = new Map(accounts.map(a => [a.id, a]));
 
   // ── Form state ───────────────────────────────────────────────────────────
   const [entryDate, setEntryDate] = useState(new Date().toISOString().slice(0, 10));
   const [narration, setNarration] = useState('');
-  const [lines, setLines]         = useState([emptyLine(), emptyLine()]);
+  const [lines, setLines]         = useState<LineState[]>([emptyLine(), emptyLine()]);
   const [formError, setFormError] = useState('');
 
   const openNewForm = () => {
@@ -80,11 +96,12 @@ export default function JournalEntriesPage() {
     setEntryDate(entry.entry_date.slice(0, 10));
     setNarration(entry.narration);
     setLines(entry.lines.map(l => ({
-      _key: Math.random(),
-      account_id: l.account_id,
-      debit:      Number(l.debit),
-      credit:     Number(l.credit),
-      narration:  l.narration ?? '',
+      _key:                Math.random(),
+      account_id:          l.account_id,
+      business_partner_id: l.business_partner_id ?? '',
+      debit:               Number(l.debit),
+      credit:              Number(l.credit),
+      narration:           l.narration ?? '',
     })));
     setFormError('');
     setShowForm(true);
@@ -93,7 +110,13 @@ export default function JournalEntriesPage() {
   const closeForm = () => { setShowForm(false); setEditTarget(null); };
 
   const updateLine = (idx: number, field: string, value: string | number) => {
-    setLines(ls => ls.map((l, i) => i === idx ? { ...l, [field]: value } : l));
+    setLines(ls => ls.map((l, i) => {
+      if (i !== idx) return l;
+      const updated = { ...l, [field]: value };
+      // When account changes, clear the BP selection
+      if (field === 'account_id') updated.business_partner_id = '';
+      return updated;
+    }));
   };
   const addLine    = () => setLines(ls => [...ls, emptyLine()]);
   const removeLine = (idx: number) => setLines(ls => ls.filter((_, i) => i !== idx));
@@ -106,14 +129,25 @@ export default function JournalEntriesPage() {
     setFormError('');
     if (!narration.trim()) { setFormError('Narration is required.'); return; }
     if (lines.some(l => !l.account_id)) { setFormError('All lines must have an account.'); return; }
+
+    // Validate control account lines have BP
+    for (const line of lines) {
+      const acct = accountMap.get(line.account_id);
+      if (acct?.is_control_account && !line.business_partner_id) {
+        setFormError(`"${acct.name}" is a control account — select a Business Partner for this line.`);
+        return;
+      }
+    }
+
     if (!balanced) { setFormError(`Unbalanced: debit ₹${totalDebit.toFixed(2)} ≠ credit ₹${totalCredit.toFixed(2)}`); return; }
     if (totalDebit === 0) { setFormError('Entry amount cannot be zero.'); return; }
 
     const payload = {
       entry_date: entryDate,
       narration,
-      lines: lines.map(({ account_id, debit, credit, narration: ln }) => ({
+      lines: lines.map(({ account_id, business_partner_id, debit, credit, narration: ln }) => ({
         account_id,
+        business_partner_id: business_partner_id || null,
         debit:    Number(debit)  || 0,
         credit:   Number(credit) || 0,
         narration: ln || undefined,
@@ -148,7 +182,7 @@ export default function JournalEntriesPage() {
     <Layout>
       <PageSubHeader crumbs={[{ label: 'Accounting' }, { label: 'Journal Entries' }]} />
 
-      <div style={{ padding: '1.25rem 1.5rem 3rem', maxWidth: 960 }}>
+      <div style={{ padding: '1.25rem 1.5rem 3rem', maxWidth: 1000 }}>
 
         {/* Toolbar */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -191,46 +225,80 @@ export default function JournalEntriesPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, marginBottom: 10 }}>
               <thead>
                 <tr style={{ background: '#f8fafc' }}>
-                  <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Account</th>
-                  <th style={{ padding: '6px 10px', width: 130, fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', textAlign: 'right' }}>Debit (DR)</th>
-                  <th style={{ padding: '6px 10px', width: 130, fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', textAlign: 'right' }}>Credit (CR)</th>
-                  <th style={{ padding: '6px 10px', width: 180, fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Note</th>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Account / Business Partner</th>
+                  <th style={{ padding: '6px 10px', width: 120, fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', textAlign: 'right' }}>Debit (DR)</th>
+                  <th style={{ padding: '6px 10px', width: 120, fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', textAlign: 'right' }}>Credit (CR)</th>
+                  <th style={{ padding: '6px 10px', width: 160, fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' }}>Note</th>
                   <th style={{ width: 32 }}></th>
                 </tr>
               </thead>
               <tbody>
-                {lines.map((line, idx) => (
-                  <tr key={line._key} style={{ borderTop: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '5px 8px' }}>
-                      <select style={fc} value={line.account_id} onChange={e => updateLine(idx, 'account_id', e.target.value)}>
-                        <option value="">— Select account —</option>
-                        {['ASSET','LIABILITY','INCOME','EXPENSE','EQUITY'].map(type => (
-                          <optgroup key={type} label={type}>
-                            {accounts.filter(a => a.type === type && a.is_active).map(a => (
-                              <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    </td>
-                    <td style={{ padding: '5px 8px' }}>
-                      <input type="number" min="0" step="0.01" style={{ ...fc, textAlign: 'right' }}
-                        value={line.debit || ''} onChange={e => updateLine(idx, 'debit', parseFloat(e.target.value) || 0)} />
-                    </td>
-                    <td style={{ padding: '5px 8px' }}>
-                      <input type="number" min="0" step="0.01" style={{ ...fc, textAlign: 'right' }}
-                        value={line.credit || ''} onChange={e => updateLine(idx, 'credit', parseFloat(e.target.value) || 0)} />
-                    </td>
-                    <td style={{ padding: '5px 8px' }}>
-                      <input style={fc} value={line.narration ?? ''} onChange={e => updateLine(idx, 'narration', e.target.value)} placeholder="Optional" />
-                    </td>
-                    <td style={{ padding: '5px 4px', textAlign: 'center' }}>
-                      {lines.length > 2 && (
-                        <button onClick={() => removeLine(idx)} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16 }}>×</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {lines.map((line, idx) => {
+                  const selectedAccount  = accountMap.get(line.account_id);
+                  const isControl        = selectedAccount?.is_control_account ?? false;
+                  const bpTypeId         = selectedAccount?.bp_type_id ?? null;
+                  const availableBPs     = isControl
+                    ? (bpTypeId ? allBPs.filter(bp => bp.bp_type_id === bpTypeId && bp.is_active) : allBPs.filter(bp => bp.is_active))
+                    : [];
+                  const bpMissing        = isControl && !line.business_partner_id;
+
+                  return (
+                    <tr key={line._key} style={{ borderTop: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '5px 8px' }}>
+                        {/* Account dropdown */}
+                        <select style={fc} value={line.account_id} onChange={e => updateLine(idx, 'account_id', e.target.value)}>
+                          <option value="">— Select account —</option>
+                          {['ASSET','LIABILITY','INCOME','EXPENSE','EQUITY'].map(type => (
+                            <optgroup key={type} label={type}>
+                              {accounts.filter(a => a.type === type && a.is_active).map(a => (
+                                <option key={a.id} value={a.id}>
+                                  {a.code} — {a.name}{a.is_control_account ? ' ⊕' : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+                          ))}
+                        </select>
+
+                        {/* BP selector — shown when account is a control account */}
+                        {isControl && (
+                          <div style={{ marginTop: 4 }}>
+                            <select
+                              style={bpMissing ? fcWarn : { ...fc, borderColor: '#f97316', background: '#fff7ed' }}
+                              value={line.business_partner_id}
+                              onChange={e => updateLine(idx, 'business_partner_id', e.target.value)}
+                            >
+                              <option value="">— Select Business Partner (required) —</option>
+                              {availableBPs.map(bp => (
+                                <option key={bp.id} value={bp.id}>{bp.code} — {bp.name}</option>
+                              ))}
+                            </select>
+                            {availableBPs.length === 0 && (
+                              <span style={{ fontSize: 10.5, color: '#dc2626', marginTop: 2, display: 'block' }}>
+                                No active Business Partners for this account type
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '5px 8px' }}>
+                        <input type="number" min="0" step="0.01" style={{ ...fc, textAlign: 'right' }}
+                          value={line.debit || ''} onChange={e => updateLine(idx, 'debit', parseFloat(e.target.value) || 0)} />
+                      </td>
+                      <td style={{ padding: '5px 8px' }}>
+                        <input type="number" min="0" step="0.01" style={{ ...fc, textAlign: 'right' }}
+                          value={line.credit || ''} onChange={e => updateLine(idx, 'credit', parseFloat(e.target.value) || 0)} />
+                      </td>
+                      <td style={{ padding: '5px 8px' }}>
+                        <input style={fc} value={line.narration ?? ''} onChange={e => updateLine(idx, 'narration', e.target.value)} placeholder="Optional" />
+                      </td>
+                      <td style={{ padding: '5px 4px', textAlign: 'center' }}>
+                        {lines.length > 2 && (
+                          <button onClick={() => removeLine(idx)} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16 }}>×</button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {/* Totals row */}
                 <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
                   <td style={{ padding: '7px 10px', fontSize: 12, fontWeight: 600, color: '#475569' }}>Total</td>
@@ -257,6 +325,11 @@ export default function JournalEntriesPage() {
             <button onClick={addLine} style={{ fontSize: 12.5, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 12px', display: 'flex', alignItems: 'center', gap: 4 }}>
               <i className="ti ti-plus" /> Add line
             </button>
+
+            {/* Legend */}
+            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>
+              ⊕ = Control account — Business Partner selection required
+            </div>
 
             {formError && <div style={{ fontSize: 12.5, color: '#dc2626', marginBottom: 10 }}>{formError}</div>}
             <div style={{ display: 'flex', gap: 8 }}>
@@ -288,10 +361,15 @@ export default function JournalEntriesPage() {
                 return (
                   <div key={entry.id} style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, marginBottom: 10, overflow: 'hidden' }}>
                     {/* Entry header */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid #f1f5f9' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid #f1f5f9' }}>
                       <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: tc.bg, color: tc.color }}>
                         {tc.label}
                       </span>
+                      {entry.reference_code && (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', padding: '2px 8px', borderRadius: 5, letterSpacing: '0.03em', fontFamily: 'monospace' }}>
+                          {entry.reference_code}
+                        </span>
+                      )}
                       {entry.reference_type && (
                         <span style={{ fontSize: 11.5, color: '#64748b', background: '#f8fafc', padding: '2px 7px', borderRadius: 5 }}>
                           {REF_LABELS[entry.reference_type] ?? entry.reference_type}
@@ -320,6 +398,11 @@ export default function JournalEntriesPage() {
                               <td style={{ padding: '7px 14px', paddingLeft: isDebit ? 14 : 32, color: '#475569' }}>
                                 <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#94a3b8', marginRight: 6 }}>{line.account.code}</span>
                                 {line.account.name}
+                                {line.business_partner && (
+                                  <span style={{ marginLeft: 8, fontSize: 11, background: '#f0fdf4', color: '#16a34a', padding: '1px 6px', borderRadius: 4, fontWeight: 500 }}>
+                                    {line.business_partner.name}
+                                  </span>
+                                )}
                                 {line.narration && <span style={{ marginLeft: 8, fontSize: 11, color: '#94a3b8' }}>— {line.narration}</span>}
                               </td>
                               <td style={{ padding: '7px 14px', textAlign: 'right', width: 120, fontWeight: 600, color: '#2563eb' }}>

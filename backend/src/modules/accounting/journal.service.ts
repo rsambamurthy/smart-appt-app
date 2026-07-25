@@ -49,6 +49,27 @@ function cashOrBankCode(paymentMode: string): string {
 
 class JournalService {
 
+  // ── Validate control account lines have a business partner ───────────────────
+  private async validateControlAccounts(
+    lines: { account_id: string; business_partner_id?: string | null }[],
+  ) {
+    const accountIds = [...new Set(lines.map(l => l.account_id))];
+    const accounts   = await prisma.account.findMany({
+      where:  { id: { in: accountIds } },
+      select: { id: true, name: true, is_control_account: true },
+    });
+    const acctMap = new Map(accounts.map(a => [a.id, a]));
+
+    for (const line of lines) {
+      const acct = acctMap.get(line.account_id);
+      if (acct?.is_control_account && !line.business_partner_id) {
+        throw new UnprocessableError(
+          `Account "${acct.name}" is a control account — a Business Partner is required on this line.`,
+        );
+      }
+    }
+  }
+
   // ── Get account by code (throws if not found) ─────────────────────────────
   private async getAccount(associationId: string, code: string) {
     const account = await prisma.account.findUnique({
@@ -68,7 +89,7 @@ class JournalService {
     source:          JournalEntrySource;
     status?:         JournalStatus;
     created_by_id?:  string;
-    lines: { account_id: string; debit: number; credit: number; narration?: string | null }[];
+    lines: { account_id: string; business_partner_id?: string | null; debit: number; credit: number; narration?: string | null }[];
   }) {
     const totalDebit  = opts.lines.reduce((s, l) => s + l.debit,  0);
     const totalCredit = opts.lines.reduce((s, l) => s + l.credit, 0);
@@ -96,15 +117,21 @@ class JournalService {
         created_by_id:  opts.created_by_id,
         lines: {
           create: opts.lines.map(l => ({
-            account_id: l.account_id,
-            debit:      l.debit,
-            credit:     l.credit,
-            narration:  l.narration,
+            account_id:          l.account_id,
+            business_partner_id: l.business_partner_id ?? null,
+            debit:               l.debit,
+            credit:              l.credit,
+            narration:           l.narration,
           })),
         },
       },
       include: {
-        lines: { include: { account: { select: { code: true, name: true, type: true } } } },
+        lines: {
+          include: {
+            account:          { select: { code: true, name: true, type: true } },
+            business_partner: { select: { id: true, code: true, name: true } },
+          },
+        },
       },
     });
   }
@@ -274,7 +301,8 @@ class JournalService {
       include: {
         lines: {
           include: {
-            account: { select: { code: true, name: true, type: true } },
+            account:          { select: { code: true, name: true, type: true } },
+            business_partner: { select: { id: true, code: true, name: true } },
           },
         },
       },
@@ -555,6 +583,8 @@ class JournalService {
       );
     }
 
+    await this.validateControlAccounts(body.lines);
+
     await prisma.journalLine.deleteMany({ where: { journal_entry_id: id } });
 
     const updated = await prisma.journalEntry.update({
@@ -564,15 +594,21 @@ class JournalService {
         narration:  body.narration,
         lines: {
           create: body.lines.map(l => ({
-            account_id: l.account_id,
-            debit:      l.debit  ?? 0,
-            credit:     l.credit ?? 0,
-            narration:  l.narration,
+            account_id:          l.account_id,
+            business_partner_id: l.business_partner_id ?? null,
+            debit:               l.debit  ?? 0,
+            credit:              l.credit ?? 0,
+            narration:           l.narration,
           })),
         },
       },
       include: {
-        lines: { include: { account: { select: { code: true, name: true, type: true } } } },
+        lines: {
+          include: {
+            account:          { select: { code: true, name: true, type: true } },
+            business_partner: { select: { id: true, code: true, name: true } },
+          },
+        },
       },
     });
 
@@ -770,18 +806,21 @@ class JournalService {
       );
     }
 
+    await this.validateControlAccounts(body.lines);
+
     const entry = await this.post(associationId, {
       entry_date:    new Date(body.entry_date),
       narration:     body.narration,
       voucher_type:  VoucherType.JV,
       source:        JournalEntrySource.MANUAL,
-      status:        JournalStatus.DRAFT,
+      status:        JournalStatus.POSTED,
       created_by_id: createdBy,
       lines:      body.lines.map(l => ({
-        account_id: l.account_id,
-        debit:      l.debit  ?? 0,
-        credit:     l.credit ?? 0,
-        narration:  l.narration,
+        account_id:          l.account_id,
+        business_partner_id: l.business_partner_id ?? null,
+        debit:               l.debit  ?? 0,
+        credit:              l.credit ?? 0,
+        narration:           l.narration,
       })),
     });
 

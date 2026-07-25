@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
 export const journalLineSchema = z.object({
-  account_id: z.string().uuid('Invalid account ID'),
-  debit:      z.number().min(0).default(0),
-  credit:     z.number().min(0).default(0),
-  narration:  z.string().max(255).optional().nullable(),
+  account_id:          z.string().uuid('Invalid account ID'),
+  business_partner_id: z.string().uuid('Invalid business partner ID').optional().nullable(),
+  debit:               z.number().min(0).default(0),
+  credit:              z.number().min(0).default(0),
+  narration:           z.string().max(255).optional().nullable(),
 });
 
 export const createJournalEntrySchema = z.object({

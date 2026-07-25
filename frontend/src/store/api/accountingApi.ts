@@ -16,6 +16,7 @@ export interface Account {
   is_active:            boolean;
   is_group:             boolean;
   is_control_account:   boolean;
+  bp_type_id:           string | null;
   opening_balance:      number | null;
   opening_balance_type: BalanceType | null;
   opening_balance_date: string | null;
@@ -25,12 +26,14 @@ export interface Account {
 
 // ── Journal types ─────────────────────────────────────────────────────────────
 export interface JournalLine {
-  id:         string;
-  account_id: string;
-  debit:      number;
-  credit:     number;
-  narration:  string | null;
-  account:    { code: string; name: string; type: string };
+  id:                   string;
+  account_id:           string;
+  business_partner_id:  string | null;
+  debit:                number;
+  credit:               number;
+  narration:            string | null;
+  account:              { code: string; name: string; type: string };
+  business_partner:     { id: string; code: string; name: string } | null;
 }
 
 export interface JournalEntry {
@@ -39,6 +42,8 @@ export interface JournalEntry {
   narration:      string;
   reference_type: string | null;
   reference_id:   string | null;
+  reference_code: string | null;
+  voucher_type:   string | null;
   type:           'AUTO' | 'MANUAL';
   created_by:     string | null;
   created_at:     string;
@@ -46,10 +51,11 @@ export interface JournalEntry {
 }
 
 export interface JournalLineInput {
-  account_id: string;
-  debit:      number;
-  credit:     number;
-  narration?: string;
+  account_id:          string;
+  business_partner_id?: string | null;
+  debit:               number;
+  credit:              number;
+  narration?:          string;
 }
 
 export interface LedgerRow {
