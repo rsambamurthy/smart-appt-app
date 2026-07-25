@@ -1,40 +1,50 @@
-import { AccountType } from '@prisma/client';
+import { AccountType, BPSide } from '@prisma/client';
 import prisma from '../../config/database';
 import { ConflictError, NotFoundError } from '../../utils/errors';
 import { CreateAccountBody, UpdateAccountBody } from './accounting.schema';
 
 // ── Standard housing-society chart of accounts ───────────────────────────────
-const DEFAULT_ACCOUNTS: Omit<CreateAccountBody & { is_system: boolean }, 'sort_order'>[] = [
+type SeedAccount = {
+  code:               string;
+  name:               string;
+  type:               AccountType;
+  sub_type?:          string;
+  is_system:          boolean;
+  is_group:           boolean;
+  is_control_account: boolean;
+};
+
+const DEFAULT_ACCOUNTS: SeedAccount[] = [
   // ASSET
-  { code: '1001', name: 'Cash in Hand',         type: AccountType.ASSET,     sub_type: 'Current Asset',  is_system: true  },
-  { code: '1002', name: 'Bank Account',          type: AccountType.ASSET,     sub_type: 'Current Asset',  is_system: true  },
-  { code: '1003', name: 'Fixed Deposit',         type: AccountType.ASSET,     sub_type: 'Current Asset',  is_system: false },
-  { code: '1004', name: 'Dues Receivable',       type: AccountType.ASSET,     sub_type: 'Current Asset',  is_system: true  },
-  { code: '1005', name: 'Other Receivable',      type: AccountType.ASSET,     sub_type: 'Current Asset',  is_system: false },
+  { code: '1001', name: 'Cash in Hand',         type: AccountType.ASSET,     sub_type: 'Current Asset',     is_system: true,  is_group: false, is_control_account: false },
+  { code: '1002', name: 'Bank Account',          type: AccountType.ASSET,     sub_type: 'Current Asset',     is_system: true,  is_group: false, is_control_account: false },
+  { code: '1003', name: 'Fixed Deposit',         type: AccountType.ASSET,     sub_type: 'Current Asset',     is_system: false, is_group: false, is_control_account: false },
+  { code: '1004', name: 'Dues Receivable',       type: AccountType.ASSET,     sub_type: 'Current Asset',     is_system: true,  is_group: false, is_control_account: false },
+  { code: '1005', name: 'Other Receivable',      type: AccountType.ASSET,     sub_type: 'Current Asset',     is_system: false, is_group: false, is_control_account: false },
   // LIABILITY
-  { code: '2001', name: 'Advance Deposits',      type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false },
-  { code: '2002', name: 'Loans Payable',         type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false },
-  { code: '2003', name: 'Other Payables',        type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false },
+  { code: '2001', name: 'Advance Deposits',      type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false, is_group: false, is_control_account: false },
+  { code: '2002', name: 'Loans Payable',         type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false, is_group: false, is_control_account: false },
+  { code: '2003', name: 'Other Payables',        type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false, is_group: false, is_control_account: false },
   // INCOME
-  { code: '3001', name: 'Maintenance Income',    type: AccountType.INCOME,    sub_type: 'Operating Income',  is_system: true  },
-  { code: '3002', name: 'Other Receipts',        type: AccountType.INCOME,    sub_type: 'Other Income',      is_system: true  },
-  { code: '3003', name: 'Interest Income',       type: AccountType.INCOME,    sub_type: 'Other Income',      is_system: false },
-  { code: '3004', name: 'Penalty Income',        type: AccountType.INCOME,    sub_type: 'Other Income',      is_system: false },
+  { code: '3001', name: 'Maintenance Income',    type: AccountType.INCOME,    sub_type: 'Operating Income',  is_system: true,  is_group: false, is_control_account: false },
+  { code: '3002', name: 'Other Receipts',        type: AccountType.INCOME,    sub_type: 'Other Income',      is_system: true,  is_group: false, is_control_account: false },
+  { code: '3003', name: 'Interest Income',       type: AccountType.INCOME,    sub_type: 'Other Income',      is_system: false, is_group: false, is_control_account: false },
+  { code: '3004', name: 'Penalty Income',        type: AccountType.INCOME,    sub_type: 'Other Income',      is_system: false, is_group: false, is_control_account: false },
   // EXPENSE
-  { code: '4001', name: 'Electricity',           type: AccountType.EXPENSE,   sub_type: 'Utility',           is_system: false },
-  { code: '4002', name: 'Water Charges',         type: AccountType.EXPENSE,   sub_type: 'Utility',           is_system: false },
-  { code: '4003', name: 'Security Salaries',     type: AccountType.EXPENSE,   sub_type: 'Salaries',          is_system: false },
-  { code: '4004', name: 'Housekeeping Salaries', type: AccountType.EXPENSE,   sub_type: 'Salaries',          is_system: false },
-  { code: '4005', name: 'Repairs & Maintenance', type: AccountType.EXPENSE,   sub_type: 'Maintenance',       is_system: false },
-  { code: '4006', name: 'Lift Maintenance',      type: AccountType.EXPENSE,   sub_type: 'Maintenance',       is_system: false },
-  { code: '4007', name: 'Generator Expense',     type: AccountType.EXPENSE,   sub_type: 'Utility',           is_system: false },
-  { code: '4008', name: 'Administrative',        type: AccountType.EXPENSE,   sub_type: 'Administrative',    is_system: false },
-  { code: '4009', name: 'Audit Fees',            type: AccountType.EXPENSE,   sub_type: 'Administrative',    is_system: false },
-  { code: '4010', name: 'Insurance',             type: AccountType.EXPENSE,   sub_type: 'Administrative',    is_system: false },
+  { code: '4001', name: 'Electricity',           type: AccountType.EXPENSE,   sub_type: 'Utility',           is_system: false, is_group: false, is_control_account: false },
+  { code: '4002', name: 'Water Charges',         type: AccountType.EXPENSE,   sub_type: 'Utility',           is_system: false, is_group: false, is_control_account: false },
+  { code: '4003', name: 'Security Salaries',     type: AccountType.EXPENSE,   sub_type: 'Salaries',          is_system: false, is_group: false, is_control_account: false },
+  { code: '4004', name: 'Housekeeping Salaries', type: AccountType.EXPENSE,   sub_type: 'Salaries',          is_system: false, is_group: false, is_control_account: false },
+  { code: '4005', name: 'Repairs & Maintenance', type: AccountType.EXPENSE,   sub_type: 'Maintenance',       is_system: false, is_group: false, is_control_account: false },
+  { code: '4006', name: 'Lift Maintenance',      type: AccountType.EXPENSE,   sub_type: 'Maintenance',       is_system: false, is_group: false, is_control_account: false },
+  { code: '4007', name: 'Generator Expense',     type: AccountType.EXPENSE,   sub_type: 'Utility',           is_system: false, is_group: false, is_control_account: false },
+  { code: '4008', name: 'Administrative',        type: AccountType.EXPENSE,   sub_type: 'Administrative',    is_system: false, is_group: false, is_control_account: false },
+  { code: '4009', name: 'Audit Fees',            type: AccountType.EXPENSE,   sub_type: 'Administrative',    is_system: false, is_group: false, is_control_account: false },
+  { code: '4010', name: 'Insurance',             type: AccountType.EXPENSE,   sub_type: 'Administrative',    is_system: false, is_group: false, is_control_account: false },
   // EQUITY
-  { code: '5001', name: 'Reserve Fund',              type: AccountType.EQUITY,    sub_type: 'Reserve',           is_system: false },
-  { code: '5002', name: 'Corpus Fund',               type: AccountType.EQUITY,    sub_type: 'Reserve',           is_system: false },
-  { code: '5003', name: 'Opening Balance Equity',    type: AccountType.EQUITY,    sub_type: 'Opening Balance',   is_system: true  },
+  { code: '5001', name: 'Reserve Fund',          type: AccountType.EQUITY,    sub_type: 'Reserve',           is_system: false, is_group: false, is_control_account: false },
+  { code: '5002', name: 'Corpus Fund',           type: AccountType.EQUITY,    sub_type: 'Reserve',           is_system: false, is_group: false, is_control_account: false },
+  { code: '5003', name: 'Opening Balance Equity',type: AccountType.EQUITY,    sub_type: 'Opening Balance',   is_system: true,  is_group: false, is_control_account: false },
 ];
 
 class AccountingService {
@@ -73,8 +83,14 @@ class AccountingService {
     });
     if (existing) throw new ConflictError(`Account code ${body.code} already exists.`);
 
+    const { opening_balance_date, ...rest } = body;
     const account = await prisma.account.create({
-      data: { ...body, association_id: associationId, is_system: false },
+      data: {
+        ...rest,
+        association_id:      associationId,
+        is_system:           false,
+        opening_balance_date: opening_balance_date ? new Date(opening_balance_date) : null,
+      },
     });
     return { data: account };
   }
@@ -84,12 +100,23 @@ class AccountingService {
     const account = await prisma.account.findFirst({ where: { id, association_id: associationId } });
     if (!account) throw new NotFoundError('Account not found.');
 
-    // System accounts: only name and description can change
-    const safeBody = account.is_system
-      ? { name: body.name, description: body.description }
-      : body;
+    const obDate = body.opening_balance_date ? new Date(body.opening_balance_date) : undefined;
 
-    const updated = await prisma.account.update({ where: { id }, data: safeBody });
+    // System accounts: protect structural fields; opening balance always editable
+    const data = account.is_system
+      ? {
+          name:                 body.name,
+          description:          body.description,
+          opening_balance:      body.opening_balance,
+          opening_balance_type: body.opening_balance_type,
+          opening_balance_date: obDate,
+        }
+      : {
+          ...body,
+          opening_balance_date: obDate,
+        };
+
+    const updated = await prisma.account.update({ where: { id }, data });
     return { data: updated };
   }
 
@@ -114,6 +141,39 @@ class AccountingService {
 
     await prisma.account.delete({ where: { id } });
     return { data: { deleted: true } };
+  }
+
+  // ── List BP Types ─────────────────────────────────────────────────────────────
+  async listBPTypes(associationId: string) {
+    const types = await prisma.bPType.findMany({
+      where: { association_id: associationId },
+      orderBy: { name: 'asc' },
+    });
+    return { data: types };
+  }
+
+  // ── Create BP Type ────────────────────────────────────────────────────────────
+  async createBPType(associationId: string, body: { name: string; side: BPSide }) {
+    const existing = await prisma.bPType.findUnique({
+      where: { association_id_name: { association_id: associationId, name: body.name } },
+    });
+    if (existing) throw new ConflictError(`BP Type "${body.name}" already exists.`);
+
+    const bpType = await prisma.bPType.create({
+      data: { ...body, association_id: associationId },
+    });
+    return { data: bpType };
+  }
+
+  // ── Toggle BP Type active ─────────────────────────────────────────────────────
+  async toggleBPType(associationId: string, id: string) {
+    const bpType = await prisma.bPType.findFirst({ where: { id, association_id: associationId } });
+    if (!bpType) throw new NotFoundError('BP Type not found.');
+    const updated = await prisma.bPType.update({
+      where: { id },
+      data: { is_active: !bpType.is_active },
+    });
+    return { data: updated };
   }
 }
 

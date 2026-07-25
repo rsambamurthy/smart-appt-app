@@ -20,6 +20,11 @@ router.patch ('/accounts/:id',         requireRoles(...managerRoles), ...account
 router.patch ('/accounts/:id/toggle',  requireRoles(...managerRoles), accountingController.toggleActive);
 router.delete('/accounts/:id',         requireRoles(...managerRoles), accountingController.deleteAccount);
 
+// ── BP Types ──────────────────────────────────────────────────────────────────
+router.get   ('/bp-types',          requireRoles(...managerRoles), accountingController.listBPTypes);
+router.post  ('/bp-types',          requireRoles(...managerRoles), accountingController.createBPType);
+router.patch ('/bp-types/:id/toggle', requireRoles(...managerRoles), accountingController.toggleBPType);
+
 // ── Journal Entries ───────────────────────────────────────────────────────────
 router.get ('/journal',         requireRoles(...viewRoles),    journalController.list);
 router.post('/journal',         requireRoles(...managerRoles), ...journalController.createManual);

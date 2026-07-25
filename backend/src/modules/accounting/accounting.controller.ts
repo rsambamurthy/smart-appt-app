@@ -52,6 +52,28 @@ class AccountingController {
       res.json(result);
     } catch (err) { next(err); }
   };
+
+  // ── BP Types ──────────────────────────────────────────────────────────────────
+  listBPTypes = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await accountingService.listBPTypes(req.user!.association_id);
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
+  createBPType = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await accountingService.createBPType(req.user!.association_id, req.body);
+      res.status(201).json(result);
+    } catch (err) { next(err); }
+  };
+
+  toggleBPType = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await accountingService.toggleBPType(req.user!.association_id, req.params.id);
+      res.json(result);
+    } catch (err) { next(err); }
+  };
 }
 
 export const accountingController = new AccountingController();

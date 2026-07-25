@@ -3,17 +3,24 @@ import { baseApi } from './baseApi';
 // ── Account types ─────────────────────────────────────────────────────────────
 export type AccountType = 'ASSET' | 'LIABILITY' | 'INCOME' | 'EXPENSE' | 'EQUITY';
 
+export type BalanceType = 'DR' | 'CR';
+
 export interface Account {
-  id:          string;
-  code:        string;
-  name:        string;
-  type:        AccountType;
-  sub_type:    string | null;
-  description: string | null;
-  is_system:   boolean;
-  is_active:   boolean;
-  sort_order:  number;
-  created_at:  string;
+  id:                   string;
+  code:                 string;
+  name:                 string;
+  type:                 AccountType;
+  sub_type:             string | null;
+  description:          string | null;
+  is_system:            boolean;
+  is_active:            boolean;
+  is_group:             boolean;
+  is_control_account:   boolean;
+  opening_balance:      number | null;
+  opening_balance_type: BalanceType | null;
+  opening_balance_date: string | null;
+  sort_order:           number;
+  created_at:           string;
 }
 
 // ── Journal types ─────────────────────────────────────────────────────────────
@@ -109,6 +116,18 @@ export interface LedgerResult {
   rows:           LedgerRow[];
 }
 
+// ── BP Types ──────────────────────────────────────────────────────────────────
+export type BPSide = 'RECEIVABLE' | 'PAYABLE' | 'BOTH';
+
+export interface BPType {
+  id:             string;
+  name:           string;
+  side:           BPSide;
+  is_active:      boolean;
+  association_id: string;
+  created_at:     string;
+}
+
 // ── Combined API ──────────────────────────────────────────────────────────────
 const accountingApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -136,6 +155,20 @@ const accountingApi = baseApi.injectEndpoints({
     }),
     deleteAccount: builder.mutation<{ data: { deleted: boolean } }, string>({
       query: (id) => ({ url: `/accounting/accounts/${id}`, method: 'DELETE' }),
+      invalidatesTags: ['Account'],
+    }),
+
+    // BP Types
+    listBPTypes: builder.query<{ data: BPType[] }, void>({
+      query: () => '/accounting/bp-types',
+      providesTags: ['Account'],
+    }),
+    createBPType: builder.mutation<{ data: BPType }, { name: string; side: BPSide }>({
+      query: (body) => ({ url: '/accounting/bp-types', method: 'POST', body }),
+      invalidatesTags: ['Account'],
+    }),
+    toggleBPType: builder.mutation<{ data: BPType }, string>({
+      query: (id) => ({ url: `/accounting/bp-types/${id}/toggle`, method: 'PATCH' }),
       invalidatesTags: ['Account'],
     }),
 
@@ -190,6 +223,9 @@ export const {
   useUpdateAccountMutation,
   useToggleAccountMutation,
   useDeleteAccountMutation,
+  useListBPTypesQuery,
+  useCreateBPTypeMutation,
+  useToggleBPTypeMutation,
   useListJournalEntriesQuery,
   useCreateJournalEntryMutation,
   useUpdateJournalEntryMutation,
