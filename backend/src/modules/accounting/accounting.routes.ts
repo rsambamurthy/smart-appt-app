@@ -6,6 +6,7 @@ import { bpMasterController }    from './bp-master.controller';
 import { unitOBController }      from './unit-ob.controller';
 import { serviceTypeController }  from './service-type.controller';
 import { vendorUploadController } from './vendor-upload.controller';
+import { bankUploadController }   from './bank-upload.controller';
 import { authenticate }  from '../../middleware/auth';
 import { requireRoles }  from '../../middleware/rbac';
 import { UserRole }      from '@prisma/client';
@@ -55,6 +56,11 @@ router.post  ('/bp-masters/units/upload/apply',    requireRoles(...managerRoles)
 router.get ('/vendors/template',        requireRoles(...managerRoles), vendorUploadController.downloadTemplate);
 router.post('/vendors/upload/preview',  requireRoles(...managerRoles), upload.single('file'), vendorUploadController.previewUpload);
 router.post('/vendors/upload/apply',    requireRoles(...managerRoles), vendorUploadController.applyUpload);
+
+// ── Bank Bulk Upload ──────────────────────────────────────────────────────────
+router.get ('/banks/template',        requireRoles(...managerRoles), bankUploadController.downloadTemplate);
+router.post('/banks/upload/preview',  requireRoles(...managerRoles), upload.single('file'), bankUploadController.previewUpload);
+router.post('/banks/upload/apply',    requireRoles(...managerRoles), bankUploadController.applyUpload);
 
 // ── Journal Entries ───────────────────────────────────────────────────────────
 router.get ('/journal',         requireRoles(...viewRoles),    journalController.list);

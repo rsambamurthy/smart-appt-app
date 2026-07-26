@@ -160,6 +160,22 @@ export interface BPType {
   created_at:     string;
 }
 
+// ── Bank Bulk Upload ──────────────────────────────────────────────────────────
+export interface BankUploadPreviewRow {
+  row_num:              number;
+  code:                 string;
+  name:                 string;
+  phone:                string | null;
+  email:                string | null;
+  account_number:       string | null;
+  ifsc:                 string | null;
+  opening_balance:      number | null;
+  opening_balance_type: BalanceType | null;
+  opening_balance_date: string | null;
+  status:               'create' | 'update' | 'skip' | 'error';
+  error?:               string;
+}
+
 // ── Vendor Bulk Upload ────────────────────────────────────────────────────────
 export interface VendorUploadPreviewRow {
   row_num:              number;
@@ -382,6 +398,15 @@ const accountingApi = baseApi.injectEndpoints({
       query: (rows) => ({ url: '/accounting/vendors/upload/apply', method: 'POST', body: { rows } }),
       invalidatesTags: ['BPMaster'],
     }),
+
+    // Bank Bulk Upload
+    previewBankUpload: builder.mutation<{ data: BankUploadPreviewRow[] }, FormData>({
+      query: (formData) => ({ url: '/accounting/banks/upload/preview', method: 'POST', body: formData }),
+    }),
+    applyBankUpload: builder.mutation<{ data: { created: number; updated: number } }, BankUploadPreviewRow[]>({
+      query: (rows) => ({ url: '/accounting/banks/upload/apply', method: 'POST', body: { rows } }),
+      invalidatesTags: ['BPMaster'],
+    }),
   }),
 });
 
@@ -417,4 +442,6 @@ export const {
   useDeleteServiceTypeMutation,
   usePreviewVendorUploadMutation,
   useApplyVendorUploadMutation,
+  usePreviewBankUploadMutation,
+  useApplyBankUploadMutation,
 } = accountingApi;

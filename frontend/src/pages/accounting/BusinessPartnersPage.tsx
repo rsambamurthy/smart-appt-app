@@ -12,7 +12,9 @@ import {
   useListServiceTypesQuery, useCreateServiceTypeMutation,
   useUpdateServiceTypeMutation, useToggleServiceTypeMutation, useDeleteServiceTypeMutation,
   usePreviewVendorUploadMutation, useApplyVendorUploadMutation,
-  BusinessPartner, BPCategory, BalanceType, UnitWithBalance, UnitOBPreviewRow, ServiceType, VendorUploadPreviewRow,
+  usePreviewBankUploadMutation, useApplyBankUploadMutation,
+  BusinessPartner, BPCategory, BalanceType, UnitWithBalance, UnitOBPreviewRow, ServiceType,
+  VendorUploadPreviewRow, BankUploadPreviewRow,
 } from '../../store/api/accountingApi';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -331,6 +333,153 @@ function BPList({
         </>
       )}
     </>
+  );
+}
+
+// ── Bank Upload sub-panel (inline) ────────────────────────────────────────────
+function BankUploadPanel({ token }: { token: string | null }) {
+  const fileRef                       = useRef<HTMLInputElement>(null);
+  const [preview, setPreview]         = useState<BankUploadPreviewRow[] | null>(null);
+  const [uploading, setUploading]     = useState(false);
+  const [uploadErr, setUploadErr]     = useState('');
+  const [result, setResult]           = useState<{ created: number; updated: number } | null>(null);
+  const [previewBanks]                = usePreviewBankUploadMutation();
+  const [applyBanks, { isLoading: applying }] = useApplyBankUploadMutation();
+
+  const handleDownload = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/accounting/banks/template`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = 'SmartAppt_Bank_Template.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { setUploadErr(`Download failed: ${(err as Error).message}`); }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPreview(null); setResult(null); setUploadErr(''); setUploading(true);
+    try {
+      const fd = new FormData(); fd.append('file', file);
+      const res = await previewBanks(fd).unwrap();
+      setPreview(res.data);
+    } catch (err: unknown) {
+      setUploadErr((err as { data?: { message?: string } })?.data?.message ?? 'Failed to parse file');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const handleApply = async () => {
+    if (!preview) return;
+    const toApply = preview.filter(r => r.status === 'create' || r.status === 'update');
+    try {
+      const res = await applyBanks(toApply).unwrap();
+      setResult(res.data); setPreview(null);
+    } catch (err: unknown) {
+      setUploadErr((err as { data?: { message?: string } })?.data?.message ?? 'Failed to apply');
+    }
+  };
+
+  const sBg  = (s: BankUploadPreviewRow['status']) => ({ create: '#f0fdf4', update: '#eff6ff', error: '#fef2f2', skip: '#f8fafc' }[s]);
+  const sClr = (s: BankUploadPreviewRow['status']) => ({ create: '#15803d', update: '#1d4ed8', error: '#dc2626', skip: '#64748b' }[s]);
+  const toApplyCount = preview?.filter(r => r.status === 'create' || r.status === 'update').length ?? 0;
+  const errorCount   = preview?.filter(r => r.status === 'error').length ?? 0;
+
+  return (
+    <div style={{ borderBottom: '1px solid #e2e8f0', background: '#f0f9ff' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 16px', borderBottom: '1px solid #bae6fd' }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#0c4a6e', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          <i className="ti ti-upload" style={{ fontSize: 13, marginRight: 5 }} aria-hidden="true" />
+          Bulk upload
+        </span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={handleDownload} style={btn()}>
+            <i className="ti ti-download" style={{ fontSize: 13 }} aria-hidden="true" /> Template
+          </button>
+          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ ...btn(), opacity: uploading ? 0.7 : 1 }}>
+            <i className="ti ti-file-upload" style={{ fontSize: 13 }} aria-hidden="true" /> {uploading ? 'Reading…' : 'Upload file'}
+          </button>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileChange} />
+        </div>
+      </div>
+
+      {result && (
+        <div style={{ padding: '10px 16px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0', display: 'flex', gap: 16, alignItems: 'center' }}>
+          <i className="ti ti-circle-check" style={{ color: '#15803d', fontSize: 18 }} />
+          <span style={{ fontSize: 13, color: '#15803d', fontWeight: 600 }}>
+            {result.created} bank{result.created !== 1 ? 's' : ''} created · {result.updated} updated
+          </span>
+          <button onClick={() => setResult(null)} style={{ ...btn(), marginLeft: 'auto' }}>Dismiss</button>
+        </div>
+      )}
+      {uploadErr && (
+        <div style={{ padding: '9px 16px', background: '#fef2f2', color: '#dc2626', fontSize: 12.5, borderBottom: '1px solid #fecaca' }}>{uploadErr}</div>
+      )}
+
+      {preview && preview.length > 0 && (
+        <>
+          <div style={{ padding: '9px 16px', background: '#fffbeb', borderBottom: '1px solid #fef08a', display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12.5, color: '#92400e' }}>
+              <strong>{toApplyCount}</strong> will be saved
+              {errorCount > 0 && <> · <strong style={{ color: '#dc2626' }}>{errorCount} error{errorCount !== 1 ? 's' : ''}</strong> (fix and re-upload)</>}
+            </span>
+            {toApplyCount > 0 && (
+              <button onClick={handleApply} disabled={applying} style={{ ...btn(true), marginLeft: 'auto', opacity: applying ? 0.7 : 1 }}>
+                {applying ? 'Saving…' : `Apply ${toApplyCount} row${toApplyCount !== 1 ? 's' : ''}`}
+              </button>
+            )}
+            <button onClick={() => setPreview(null)} style={btn()}>Clear</button>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc' }}>
+                  <th style={th}>Row</th><th style={th}>Status</th>
+                  <th style={th}>Code</th><th style={th}>Name</th>
+                  <th style={th}>Account no.</th><th style={th}>IFSC</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Opening bal</th>
+                  <th style={th}>DR/CR</th><th style={th}>Date</th><th style={th}>Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.map(r => (
+                  <tr key={r.row_num} style={{ borderTop: '1px solid #f1f5f9', background: r.status === 'error' ? '#fff5f5' : undefined }}>
+                    <td style={{ padding: '6px 14px', color: '#94a3b8', fontSize: 11 }}>{r.row_num}</td>
+                    <td style={{ padding: '6px 14px' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: sBg(r.status), color: sClr(r.status), textTransform: 'uppercase' }}>{r.status}</span>
+                    </td>
+                    <td style={{ padding: '6px 14px', fontFamily: 'monospace', fontSize: 12 }}>{r.code}</td>
+                    <td style={{ padding: '6px 14px', fontWeight: 500 }}>{r.name}</td>
+                    <td style={{ padding: '6px 14px', fontFamily: 'monospace', fontSize: 11, color: '#64748b' }}>{r.account_number ?? '—'}</td>
+                    <td style={{ padding: '6px 14px', fontFamily: 'monospace', fontSize: 11, color: '#64748b' }}>{r.ifsc ?? '—'}</td>
+                    <td style={{ padding: '6px 14px', textAlign: 'right', fontFamily: 'monospace', fontSize: 12 }}>
+                      {r.opening_balance != null ? `₹${Number(r.opening_balance).toLocaleString('en-IN')}` : '—'}
+                    </td>
+                    <td style={{ padding: '6px 14px', textAlign: 'center', fontWeight: 700, fontSize: 12, color: r.opening_balance_type === 'DEBIT' ? '#1d4ed8' : r.opening_balance_type === 'CREDIT' ? '#15803d' : '#94a3b8' }}>
+                      {r.opening_balance_type === 'DEBIT' ? 'DR' : r.opening_balance_type === 'CREDIT' ? 'CR' : '—'}
+                    </td>
+                    <td style={{ padding: '6px 14px', fontSize: 11, color: '#64748b' }}>
+                      {r.opening_balance_date ? new Date(r.opening_balance_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                    </td>
+                    <td style={{ padding: '6px 14px', fontSize: 11, color: '#dc2626' }}>{r.error ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {preview && preview.length === 0 && (
+        <div style={{ padding: '10px 16px', fontSize: 12.5, color: '#94a3b8', fontStyle: 'italic' }}>No data rows found in the uploaded file.</div>
+      )}
+    </div>
   );
 }
 
@@ -803,13 +952,28 @@ export default function BusinessPartnersPage() {
   const vendors      = allBPs.filter(bp => bp.bp_category === 'VENDOR');
 
   // Accordion open states — all collapsed by default
-  const [bankOpen,   setBankOpen]   = useState(false);
-  const [vendorOpen, setVendorOpen] = useState(false);
-  const [showST,     setShowST]     = useState(false);
-  const [showUpload, setShowUpload] = useState(false);
-  const [showBankAdd,   setShowBankAdd]   = useState(false);
-  const [showVendorAdd, setShowVendorAdd] = useState(false);
-  const [unitOpen,   setUnitOpen]   = useState(false);
+  const [bankOpen,       setBankOpen]       = useState(false);
+  const [showBankUpload, setShowBankUpload] = useState(false);
+  const [showBankAdd,    setShowBankAdd]    = useState(false);
+  const [vendorOpen,     setVendorOpen]     = useState(false);
+  const [showST,         setShowST]         = useState(false);
+  const [showUpload,     setShowUpload]     = useState(false);
+  const [showVendorAdd,  setShowVendorAdd]  = useState(false);
+  const [unitOpen,       setUnitOpen]       = useState(false);
+
+  const handleBankTemplateDownload = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/accounting/banks/template`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = 'SmartAppt_Bank_Template.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { console.error('[Bank template]', err); }
+  };
 
   const handleVendorTemplateDownload = async () => {
     try {
@@ -846,11 +1010,28 @@ export default function BusinessPartnersPage() {
               title="Banks" subtitle={`${banks.length} record${banks.length !== 1 ? 's' : ''}`}
               isOpen={bankOpen} onToggle={() => setBankOpen(v => !v)}
               headerActions={
-                <button onClick={() => { setBankOpen(true); setShowBankAdd(v => !v); }} style={btn()}>
-                  <i className="ti ti-plus" style={{ fontSize: 13 }} aria-hidden="true" /> Add
-                </button>
+                <>
+                  <button
+                    onClick={handleBankTemplateDownload}
+                    style={btn()}
+                    title="Download bank bulk upload template"
+                  >
+                    <i className="ti ti-download" style={{ fontSize: 13 }} aria-hidden="true" /> Template
+                  </button>
+                  <button
+                    onClick={() => { setBankOpen(true); setShowBankUpload(v => !v); }}
+                    style={{ ...btn(), background: showBankUpload ? '#e0f2fe' : undefined, borderColor: showBankUpload ? '#bae6fd' : undefined }}
+                    title="Bulk upload banks"
+                  >
+                    <i className="ti ti-upload" style={{ fontSize: 13 }} aria-hidden="true" /> Upload
+                  </button>
+                  <button onClick={() => { setBankOpen(true); setShowBankAdd(v => !v); }} style={btn()}>
+                    <i className="ti ti-plus" style={{ fontSize: 13 }} aria-hidden="true" /> Add
+                  </button>
+                </>
               }
             >
+              {showBankUpload && <BankUploadPanel token={token} />}
               <BPList
                 category="BANK" bps={banks} serviceTypes={serviceTypes}
                 showAdd={showBankAdd} onHideAdd={() => setShowBankAdd(false)}
