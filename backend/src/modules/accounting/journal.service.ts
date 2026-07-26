@@ -408,8 +408,37 @@ class JournalService {
 
     const isDebitNormal = DEBIT_NORMAL.has(account.type);
 
-    // Opening balance = all lines BEFORE 'from' date
-    let openingBalance = 0;
+    // ── Base Opening Balance ──────────────────────────────────────────────────
+    // 1. Account-level OB (set via Chart of Accounts)
+    let accountOB = 0;
+    if (account.opening_balance != null) {
+      const amt   = Number(account.opening_balance);
+      const isDR  = account.opening_balance_type === 'DEBIT';
+      // For debit-normal accounts: DR adds to balance, CR subtracts
+      accountOB = isDebitNormal ? (isDR ? amt : -amt) : (isDR ? -amt : amt);
+    }
+
+    // 2. Business Partner OBs for control accounts (set via BP bulk uploads)
+    let bpOB = 0;
+    if (account.is_control_account && account.bp_type_id) {
+      const bps = await prisma.businessPartner.findMany({
+        where: { association_id: associationId, bp_type_id: account.bp_type_id },
+        select: { opening_balance: true, opening_balance_type: true },
+      });
+      for (const bp of bps) {
+        if (bp.opening_balance != null) {
+          const amt  = Number(bp.opening_balance);
+          const isDR = bp.opening_balance_type === 'DEBIT';
+          bpOB += isDebitNormal ? (isDR ? amt : -amt) : (isDR ? -amt : amt);
+        }
+      }
+    }
+
+    // baseOB = account OB + BP OBs — the permanent starting point before any journal entries
+    const baseOB = accountOB + bpOB;
+
+    // ── Journal-based opening balance (lines BEFORE 'from' date) ─────────────
+    let journalOB = 0;
     if (query.from) {
       const before = await prisma.journalLine.findMany({
         where: {
@@ -423,10 +452,13 @@ class JournalService {
       });
       const dr = before.reduce((s, l) => s + Number(l.debit),  0);
       const cr = before.reduce((s, l) => s + Number(l.credit), 0);
-      openingBalance = isDebitNormal ? dr - cr : cr - dr;
+      journalOB = isDebitNormal ? dr - cr : cr - dr;
     }
 
-    // Lines within the range
+    // openingBalance shown in period view = baseOB + journal lines before 'from'
+    const openingBalance = baseOB + journalOB;
+
+    // ── Lines within the range ────────────────────────────────────────────────
     const lines = await prisma.journalLine.findMany({
       where: {
         account_id: accountId,
@@ -444,6 +476,7 @@ class JournalService {
         journal_entry: {
           select: { id: true, entry_date: true, narration: true, reference_type: true, reference_code: true, voucher_type: true, source: true },
         },
+        business_partner: { select: { id: true, name: true, code: true } },
       },
       orderBy: [
         { journal_entry: { entry_date: 'asc' } },
@@ -451,22 +484,23 @@ class JournalService {
       ],
     });
 
-    // Compute running balance
+    // Running balance starts from openingBalance (includes baseOB)
     let balance = openingBalance;
     const rows = lines.map(l => {
       const dr = Number(l.debit);
       const cr = Number(l.credit);
       balance += isDebitNormal ? dr - cr : cr - dr;
       return {
-        id:             l.id,
-        entry_date:     l.journal_entry.entry_date,
-        narration:      l.journal_entry.narration,
-        reference_code: l.journal_entry.reference_code,
-        reference_type: l.journal_entry.reference_type,
-        voucher_type:   l.journal_entry.voucher_type,
-        source:         l.journal_entry.source,
-        debit:          dr,
-        credit:         cr,
+        id:               l.id,
+        entry_date:       l.journal_entry.entry_date,
+        narration:        l.journal_entry.narration,
+        reference_code:   l.journal_entry.reference_code,
+        reference_type:   l.journal_entry.reference_type,
+        voucher_type:     l.journal_entry.voucher_type,
+        source:           l.journal_entry.source,
+        business_partner: l.business_partner ?? null,
+        debit:            dr,
+        credit:           cr,
         balance,
       };
     });
@@ -475,8 +509,9 @@ class JournalService {
       data: {
         account:        { id: account.id, code: account.code, name: account.name, type: account.type, sub_type: account.sub_type },
         isDebitNormal,
-        openingBalance,
-        closingBalance: balance,
+        baseOB,          // account OB + BP OBs — always show as "brought forward"
+        openingBalance,  // baseOB + journal lines before 'from' (period view)
+        closingBalance:  balance,
         rows,
       },
     };

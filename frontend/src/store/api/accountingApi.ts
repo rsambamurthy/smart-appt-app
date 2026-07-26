@@ -59,14 +59,17 @@ export interface JournalLineInput {
 }
 
 export interface LedgerRow {
-  id:             string;
-  entry_date:     string;
-  narration:      string;
-  reference_type: string | null;
-  entry_type:     'AUTO' | 'MANUAL';
-  debit:          number;
-  credit:         number;
-  balance:        number;
+  id:               string;
+  entry_date:       string;
+  narration:        string;
+  reference_type:   string | null;
+  reference_code:   string | null;
+  voucher_type:     string | null;
+  source:           string;
+  business_partner: { id: string; name: string; code: string } | null;
+  debit:            number;
+  credit:           number;
+  balance:          number;
 }
 
 export interface PnLRow {
@@ -117,6 +120,7 @@ export interface BalanceSheetResult {
 export interface LedgerResult {
   account:        { id: string; code: string; name: string; type: string; sub_type: string | null };
   isDebitNormal:  boolean;
+  baseOB:         number;
   openingBalance: number;
   closingBalance: number;
   rows:           LedgerRow[];

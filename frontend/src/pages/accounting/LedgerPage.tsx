@@ -8,7 +8,7 @@ import {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const fmtAmt  = (n: number) => n === 0 ? '—' : `₹${Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+const fmtDate = (d: string | Date) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 
 const TYPE_META: Record<string, { label: string; color: string }> = {
   ASSET:     { label: 'Asset',     color: '#2563eb' },
@@ -60,8 +60,7 @@ export default function LedgerPage() {
     { skip: !applied?.accountId }
   );
 
-  const ledger       = ledgerData?.data;
-  const selectedAcct = accounts.find(a => a.id === accountId);
+  const ledger = ledgerData?.data;
 
   const handleView = () => {
     if (!accountId) return;
@@ -76,11 +75,15 @@ export default function LedgerPage() {
     return acc;
   }, {} as Record<string, Account[]>);
 
+  // Totals for closing row
+  const totalDr = ledger?.rows.reduce((s, r) => s + r.debit,  0) ?? 0;
+  const totalCr = ledger?.rows.reduce((s, r) => s + r.credit, 0) ?? 0;
+
   return (
     <Layout>
       <PageSubHeader crumbs={[{ label: 'Accounting' }, { label: 'Ledger' }]} />
 
-      <div style={{ padding: '1.25rem 1.5rem 3rem', maxWidth: 900 }}>
+      <div style={{ padding: '1.25rem 1.5rem 3rem', maxWidth: 960 }}>
 
         {/* Filter bar */}
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 18px', marginBottom: 20 }}>
@@ -146,6 +149,11 @@ export default function LedgerPage() {
                     ? `Period: ${applied.from ? fmtDate(applied.from) : 'beginning'} — ${applied.to ? fmtDate(applied.to) : 'today'}`
                     : 'All time'}
                   {' · '}{ledger.rows.length} transaction{ledger.rows.length !== 1 ? 's' : ''}
+                  {ledger.baseOB !== 0 && (
+                    <span style={{ marginLeft: 8, padding: '1px 7px', borderRadius: 99, background: '#eff6ff', color: '#2563eb', fontSize: 11, fontWeight: 600 }}>
+                      b/f: <BalanceCell value={ledger.baseOB} isDebitNormal={ledger.isDebitNormal} />
+                    </span>
+                  )}
                 </div>
               </div>
               <button onClick={handlePrint} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12.5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -158,20 +166,41 @@ export default function LedgerPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc' }}>
-                    <th style={{ padding: '9px 14px', textAlign: 'left', fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', width: 100 }}>Date</th>
-                    <th style={{ padding: '9px 14px', textAlign: 'left', fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Narration</th>
-                    <th style={{ padding: '9px 14px', textAlign: 'left', fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', width: 90 }}>Ref</th>
-                    <th style={{ padding: '9px 14px', textAlign: 'right', fontSize: 10.5, fontWeight: 600, color: '#2563eb', textTransform: 'uppercase', letterSpacing: '0.04em', width: 120 }}>Debit (Dr)</th>
-                    <th style={{ padding: '9px 14px', textAlign: 'right', fontSize: 10.5, fontWeight: 600, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '0.04em', width: 120 }}>Credit (Cr)</th>
-                    <th style={{ padding: '9px 14px', textAlign: 'right', fontSize: 10.5, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em', width: 140 }}>Balance</th>
+                    <th style={{ padding: '9px 14px', textAlign: 'left',  fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', width: 100 }}>Date</th>
+                    <th style={{ padding: '9px 14px', textAlign: 'left',  fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Narration / Party</th>
+                    <th style={{ padding: '9px 14px', textAlign: 'left',  fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em', width: 90 }}>Ref</th>
+                    <th style={{ padding: '9px 14px', textAlign: 'right', fontSize: 10.5, fontWeight: 600, color: '#2563eb',  textTransform: 'uppercase', letterSpacing: '0.04em', width: 120 }}>Debit (Dr)</th>
+                    <th style={{ padding: '9px 14px', textAlign: 'right', fontSize: 10.5, fontWeight: 600, color: '#16a34a',  textTransform: 'uppercase', letterSpacing: '0.04em', width: 120 }}>Credit (Cr)</th>
+                    <th style={{ padding: '9px 14px', textAlign: 'right', fontSize: 10.5, fontWeight: 600, color: '#475569',  textTransform: 'uppercase', letterSpacing: '0.04em', width: 140 }}>Balance</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Opening balance row */}
+
+                  {/* Brought-forward row — always shown when baseOB ≠ 0 and no 'from' filter */}
+                  {!applied?.from && ledger.baseOB !== 0 && (
+                    <tr style={{ background: '#eff6ff', borderBottom: '1px solid #bfdbfe' }}>
+                      <td style={{ padding: '9px 14px', color: '#1d4ed8', fontSize: 12, fontWeight: 600 }}>—</td>
+                      <td style={{ padding: '9px 14px', color: '#1d4ed8', fontSize: 12, fontWeight: 600 }} colSpan={4}>
+                        Opening Balance (Brought Forward)
+                      </td>
+                      <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#1d4ed8' }}>
+                        <BalanceCell value={ledger.baseOB} isDebitNormal={ledger.isDebitNormal} />
+                      </td>
+                    </tr>
+                  )}
+
+                  {/* Period opening balance row (when 'from' filter active) */}
                   {applied?.from && (
                     <tr style={{ background: '#fffbeb', borderBottom: '1px solid #fde68a' }}>
                       <td style={{ padding: '9px 14px', color: '#92400e', fontSize: 12, fontWeight: 600 }}>{fmtDate(applied.from)}</td>
-                      <td style={{ padding: '9px 14px', color: '#92400e', fontSize: 12, fontWeight: 600 }} colSpan={4}>Opening Balance</td>
+                      <td style={{ padding: '9px 14px', color: '#92400e', fontSize: 12, fontWeight: 600 }} colSpan={4}>
+                        Opening Balance
+                        {ledger.baseOB !== 0 && (
+                          <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 400, color: '#b45309' }}>
+                            (incl. b/f: <BalanceCell value={ledger.baseOB} isDebitNormal={ledger.isDebitNormal} />)
+                          </span>
+                        )}
+                      </td>
                       <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#92400e' }}>
                         <BalanceCell value={ledger.openingBalance} isDebitNormal={ledger.isDebitNormal} />
                       </td>
@@ -186,13 +215,23 @@ export default function LedgerPage() {
                     </tr>
                   ) : (
                     ledger.rows.map((row, idx) => (
-                      <tr key={row.id} style={{ borderTop: idx === 0 && !applied?.from ? 'none' : '1px solid #f1f5f9' }}>
+                      <tr key={row.id} style={{ borderTop: idx === 0 && !applied?.from && ledger.baseOB === 0 ? 'none' : '1px solid #f1f5f9' }}>
                         <td style={{ padding: '9px 14px', color: '#64748b', fontSize: 12.5, whiteSpace: 'nowrap' }}>{fmtDate(row.entry_date)}</td>
                         <td style={{ padding: '9px 14px', color: '#1e293b' }}>
-                          {row.narration}
-                          <span style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 600, color: row.entry_type === 'AUTO' ? '#2563eb' : '#7c3aed', background: row.entry_type === 'AUTO' ? '#eff6ff' : '#f5f3ff', padding: '1px 5px', borderRadius: 4 }}>
-                            {row.entry_type === 'AUTO' ? 'Auto' : 'Manual'}
-                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            <span>{row.narration}</span>
+                            {row.business_partner && (
+                              <span style={{ fontSize: 11, color: '#64748b', background: '#f1f5f9', padding: '1px 6px', borderRadius: 4 }}>
+                                {row.business_partner.name}
+                              </span>
+                            )}
+                            <span style={{ fontSize: 10.5, fontWeight: 600, color: row.source === 'AUTO' ? '#2563eb' : '#7c3aed', background: row.source === 'AUTO' ? '#eff6ff' : '#f5f3ff', padding: '1px 5px', borderRadius: 4 }}>
+                              {row.source === 'AUTO' ? 'Auto' : 'Manual'}
+                            </span>
+                          </div>
+                          {row.reference_code && (
+                            <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{row.reference_code}</div>
+                          )}
                         </td>
                         <td style={{ padding: '9px 14px', color: '#64748b', fontSize: 12 }}>
                           {row.reference_type ? REF_LABELS[row.reference_type] ?? row.reference_type : '—'}
@@ -216,12 +255,10 @@ export default function LedgerPage() {
                       {applied?.to ? `Closing Balance as of ${fmtDate(applied.to)}` : 'Closing Balance'}
                     </td>
                     <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#2563eb' }}>
-                      {ledger.rows.reduce((s, r) => s + r.debit, 0) > 0
-                        ? fmtAmt(ledger.rows.reduce((s, r) => s + r.debit, 0)) : '—'}
+                      {totalDr > 0 ? fmtAmt(totalDr) : '—'}
                     </td>
                     <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#16a34a' }}>
-                      {ledger.rows.reduce((s, r) => s + r.credit, 0) > 0
-                        ? fmtAmt(ledger.rows.reduce((s, r) => s + r.credit, 0)) : '—'}
+                      {totalCr > 0 ? fmtAmt(totalCr) : '—'}
                     </td>
                     <td style={{ padding: '9px 14px', textAlign: 'right', fontWeight: 700, color: '#1e293b' }}>
                       <BalanceCell value={ledger.closingBalance} isDebitNormal={ledger.isDebitNormal} />
