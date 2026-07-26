@@ -3,7 +3,7 @@ import { baseApi } from './baseApi';
 // ── Account types ─────────────────────────────────────────────────────────────
 export type AccountType = 'ASSET' | 'LIABILITY' | 'INCOME' | 'EXPENSE' | 'EQUITY';
 
-export type BalanceType = 'DR' | 'CR';
+export type BalanceType = 'DEBIT' | 'CREDIT';
 
 export interface Account {
   id:                   string;
