@@ -588,20 +588,22 @@ function VendorUploadPanel({ token }: { token: string | null }) {
   const [previewVendors]              = usePreviewVendorUploadMutation();
   const [applyVendors, { isLoading: applying }] = useApplyVendorUploadMutation();
 
-  const API = (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_BASE_URL ?? '';
-
-  const handleDownload = () => {
-    const a = document.createElement('a');
-    a.href = `${API}/accounting/vendors/template`;
-    const headers = new Headers({ Authorization: `Bearer ${token}` });
-    fetch(a.href, { headers })
-      .then(r => r.blob())
-      .then(blob => {
-        a.href = URL.createObjectURL(blob);
-        a.download = 'SmartAppt_Vendor_Template.xlsx';
-        a.click();
-        URL.revokeObjectURL(a.href);
+  const handleDownload = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/accounting/vendors/template`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'SmartAppt_Vendor_Template.xlsx';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setUploadErr(`Download failed: ${(err as Error).message}`);
+    }
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
