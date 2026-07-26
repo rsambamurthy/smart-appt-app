@@ -11,7 +11,9 @@ import {
   useListUnitsWithBalancesQuery, useApplyUnitOBUploadMutation,
   useListServiceTypesQuery, useCreateServiceTypeMutation,
   useUpdateServiceTypeMutation, useToggleServiceTypeMutation, useDeleteServiceTypeMutation,
+  usePreviewVendorUploadMutation, useApplyVendorUploadMutation,
   BusinessPartner, BPCategory, BalanceType, UnitWithBalance, UnitOBPreviewRow, ServiceType,
+  VendorUploadPreviewRow,
 } from '../../store/api/accountingApi';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -576,6 +578,176 @@ function UnitSection({ token }: { token: string | null }) {
   );
 }
 
+// ── Vendor bulk upload panel ───────────────────────────────────────────────────
+function VendorUploadPanel({ token }: { token: string | null }) {
+  const fileRef                       = useRef<HTMLInputElement>(null);
+  const [preview, setPreview]         = useState<VendorUploadPreviewRow[] | null>(null);
+  const [uploading, setUploading]     = useState(false);
+  const [uploadErr, setUploadErr]     = useState('');
+  const [result, setResult]           = useState<{ created: number; updated: number } | null>(null);
+  const [previewVendors]              = usePreviewVendorUploadMutation();
+  const [applyVendors, { isLoading: applying }] = useApplyVendorUploadMutation();
+
+  const API = (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_BASE_URL ?? '';
+
+  const handleDownload = () => {
+    const a = document.createElement('a');
+    a.href = `${API}/accounting/vendors/template`;
+    const headers = new Headers({ Authorization: `Bearer ${token}` });
+    fetch(a.href, { headers })
+      .then(r => r.blob())
+      .then(blob => {
+        a.href = URL.createObjectURL(blob);
+        a.download = 'SmartAppt_Vendor_Template.xlsx';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPreview(null); setResult(null); setUploadErr(''); setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await previewVendors(fd).unwrap();
+      setPreview(res.data);
+    } catch (err: unknown) {
+      setUploadErr((err as { data?: { message?: string } })?.data?.message ?? 'Failed to parse file');
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const handleApply = async () => {
+    if (!preview) return;
+    const toApply = preview.filter(r => r.status === 'create' || r.status === 'update');
+    try {
+      const res = await applyVendors(toApply).unwrap();
+      setResult(res.data);
+      setPreview(null);
+    } catch (err: unknown) {
+      setUploadErr((err as { data?: { message?: string } })?.data?.message ?? 'Failed to apply');
+    }
+  };
+
+  const statusColor = (s: VendorUploadPreviewRow['status']) =>
+    s === 'create' ? '#15803d' : s === 'update' ? '#1d4ed8' : s === 'error' ? '#dc2626' : '#64748b';
+  const statusBg = (s: VendorUploadPreviewRow['status']) =>
+    s === 'create' ? '#f0fdf4' : s === 'update' ? '#eff6ff' : s === 'error' ? '#fef2f2' : '#f8fafc';
+
+  const toApplyCount = preview?.filter(r => r.status === 'create' || r.status === 'update').length ?? 0;
+  const errorCount   = preview?.filter(r => r.status === 'error').length ?? 0;
+
+  return (
+    <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 14 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 30, height: 30, borderRadius: 8, background: '#e0f2fe', color: '#0369a1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
+            <i className="ti ti-upload" aria-hidden="true" />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>Vendor Bulk Upload</div>
+            <div style={{ fontSize: 11.5, color: '#64748b' }}>Download template → fill → upload to create/update vendors in bulk</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleDownload} style={btn()}>
+            <i className="ti ti-download" style={{ fontSize: 14 }} aria-hidden="true" /> Template
+          </button>
+          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ ...btn(), opacity: uploading ? 0.7 : 1 }}>
+            <i className="ti ti-file-upload" style={{ fontSize: 14 }} aria-hidden="true" /> {uploading ? 'Reading…' : 'Upload'}
+          </button>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileChange} />
+        </div>
+      </div>
+
+      {/* Result */}
+      {result && (
+        <div style={{ padding: '12px 16px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0', display: 'flex', gap: 20, alignItems: 'center' }}>
+          <i className="ti ti-circle-check" style={{ color: '#15803d', fontSize: 20 }} />
+          <span style={{ fontSize: 13, color: '#15803d', fontWeight: 600 }}>
+            Upload applied — {result.created} vendor{result.created !== 1 ? 's' : ''} created, {result.updated} updated.
+          </span>
+          <button onClick={() => setResult(null)} style={{ ...btn(), marginLeft: 'auto' }}>Dismiss</button>
+        </div>
+      )}
+
+      {/* Upload error */}
+      {uploadErr && (
+        <div style={{ padding: '10px 16px', background: '#fef2f2', color: '#dc2626', fontSize: 12.5, borderBottom: '1px solid #fecaca' }}>
+          {uploadErr}
+        </div>
+      )}
+
+      {/* Preview table */}
+      {preview && preview.length > 0 && (
+        <>
+          <div style={{ padding: '10px 16px', background: '#fffbeb', borderBottom: '1px solid #fef08a', display: 'flex', gap: 16, alignItems: 'center' }}>
+            <span style={{ fontSize: 12.5, color: '#92400e' }}>
+              <strong>{toApplyCount}</strong> will be saved
+              {errorCount > 0 && <> · <strong style={{ color: '#dc2626' }}>{errorCount} error{errorCount !== 1 ? 's' : ''}</strong> (fix in the file and re-upload)</>}
+            </span>
+            {toApplyCount > 0 && (
+              <button onClick={handleApply} disabled={applying} style={{ ...btn(true), marginLeft: 'auto', opacity: applying ? 0.7 : 1 }}>
+                {applying ? 'Saving…' : `Apply ${toApplyCount} row${toApplyCount !== 1 ? 's' : ''}`}
+              </button>
+            )}
+            <button onClick={() => setPreview(null)} style={btn()}>Clear</button>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc' }}>
+                  <th style={th}>Row</th><th style={th}>Status</th>
+                  <th style={th}>Code</th><th style={th}>Name</th>
+                  <th style={th}>Service Type</th><th style={th}>GSTIN</th><th style={th}>PAN</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Opening Bal</th>
+                  <th style={th}>DR/CR</th><th style={th}>Date</th><th style={th}>Note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.map((r) => (
+                  <tr key={r.row_num} style={{ borderTop: '1px solid #f1f5f9', background: r.status === 'error' ? '#fff5f5' : undefined }}>
+                    <td style={{ padding: '7px 14px', color: '#94a3b8', fontSize: 11 }}>{r.row_num}</td>
+                    <td style={{ padding: '7px 14px' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 7px', borderRadius: 99, background: statusBg(r.status), color: statusColor(r.status), textTransform: 'uppercase' }}>
+                        {r.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '7px 14px', fontFamily: 'monospace', fontSize: 12 }}>{r.code}</td>
+                    <td style={{ padding: '7px 14px', fontWeight: 500 }}>{r.name}</td>
+                    <td style={{ padding: '7px 14px', color: '#64748b' }}>{r.service_type_name ?? '—'}</td>
+                    <td style={{ padding: '7px 14px', fontFamily: 'monospace', fontSize: 11, color: '#64748b' }}>{r.gstin ?? '—'}</td>
+                    <td style={{ padding: '7px 14px', fontFamily: 'monospace', fontSize: 11, color: '#64748b' }}>{r.pan ?? '—'}</td>
+                    <td style={{ padding: '7px 14px', textAlign: 'right', fontFamily: 'monospace', fontSize: 12 }}>
+                      {r.opening_balance != null ? `₹${Number(r.opening_balance).toLocaleString('en-IN')}` : '—'}
+                    </td>
+                    <td style={{ padding: '7px 14px', textAlign: 'center', fontWeight: 700, fontSize: 12, color: r.opening_balance_type === 'DEBIT' ? '#1d4ed8' : r.opening_balance_type === 'CREDIT' ? '#15803d' : '#94a3b8' }}>
+                      {r.opening_balance_type === 'DEBIT' ? 'DR' : r.opening_balance_type === 'CREDIT' ? 'CR' : '—'}
+                    </td>
+                    <td style={{ padding: '7px 14px', fontSize: 11, color: '#64748b' }}>
+                      {r.opening_balance_date ? new Date(r.opening_balance_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                    </td>
+                    <td style={{ padding: '7px 14px', fontSize: 11, color: '#dc2626' }}>{r.error ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {preview && preview.length === 0 && (
+        <div style={{ padding: '12px 16px', fontSize: 12.5, color: '#94a3b8', fontStyle: 'italic' }}>No data rows found in the uploaded file.</div>
+      )}
+    </div>
+  );
+}
+
 // ── Service Type management panel ─────────────────────────────────────────────
 function ServiceTypesPanel({ serviceTypes }: { serviceTypes: ServiceType[] }) {
   const [showAdd, setShowAdd]   = useState(false);
@@ -732,6 +904,7 @@ export default function BusinessPartnersPage() {
         ) : (
           <>
             <ServiceTypesPanel serviceTypes={serviceTypes} />
+            <VendorUploadPanel token={token} />
             {SECTIONS.map(s => (
               <BPSection
                 key={s.category} {...s}

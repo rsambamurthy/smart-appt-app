@@ -160,6 +160,24 @@ export interface BPType {
   created_at:     string;
 }
 
+// ── Vendor Bulk Upload ────────────────────────────────────────────────────────
+export interface VendorUploadPreviewRow {
+  row_num:              number;
+  code:                 string;
+  name:                 string;
+  phone:                string | null;
+  email:                string | null;
+  gstin:                string | null;
+  pan:                  string | null;
+  service_type_name:    string | null;
+  service_type_id:      string | null;
+  opening_balance:      number | null;
+  opening_balance_type: BalanceType | null;
+  opening_balance_date: string | null;
+  status:               'create' | 'update' | 'skip' | 'error';
+  error?:               string;
+}
+
 // ── Vendor Service Type Master ─────────────────────────────────────────────────
 export interface ServiceType {
   id:             string;
@@ -355,6 +373,15 @@ const accountingApi = baseApi.injectEndpoints({
       query: (id) => ({ url: `/accounting/service-types/${id}`, method: 'DELETE' }),
       invalidatesTags: ['ServiceType'],
     }),
+
+    // Vendor Bulk Upload
+    previewVendorUpload: builder.mutation<{ data: VendorUploadPreviewRow[] }, FormData>({
+      query: (formData) => ({ url: '/accounting/vendors/upload/preview', method: 'POST', body: formData }),
+    }),
+    applyVendorUpload: builder.mutation<{ data: { created: number; updated: number } }, VendorUploadPreviewRow[]>({
+      query: (rows) => ({ url: '/accounting/vendors/upload/apply', method: 'POST', body: { rows } }),
+      invalidatesTags: ['BPMaster'],
+    }),
   }),
 });
 
@@ -388,4 +415,6 @@ export const {
   useUpdateServiceTypeMutation,
   useToggleServiceTypeMutation,
   useDeleteServiceTypeMutation,
+  usePreviewVendorUploadMutation,
+  useApplyVendorUploadMutation,
 } = accountingApi;
