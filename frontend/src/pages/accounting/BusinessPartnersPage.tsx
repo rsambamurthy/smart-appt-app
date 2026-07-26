@@ -735,11 +735,10 @@ function VendorUploadPanel({ token }: { token: string | null }) {
   );
 }
 
-// ── Units / Flats section (inner body) ────────────────────────────────────────
-function UnitBody({ token }: { token: string | null }) {
+// ── Units / Flats Balance section (inner body) ───────────────────────────────
+function UnitBody({ token, showUpload, setShowUpload }: { token: string | null; showUpload: boolean; setShowUpload: (v: boolean | ((p: boolean) => boolean)) => void }) {
   const { data: unitsData, refetch } = useListUnitsWithBalancesQuery();
   const [applyUpload, { isLoading: isApplying }] = useApplyUnitOBUploadMutation();
-  const [showUpload, setShowUpload]     = useState(false);
   const [dragging, setDragging]         = useState(false);
   const [previewRows, setPreviewRows]   = useState<UnitOBPreviewRow[] | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -747,19 +746,6 @@ function UnitBody({ token }: { token: string | null }) {
   const [successMsg, setSuccessMsg]     = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const units = unitsData?.data ?? [];
-
-  const handleDownload = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/accounting/bp-masters/units/template`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) throw new Error('Download failed');
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = url; a.download = 'SmartAppt_UnitOB_Template.xlsx';
-      document.body.appendChild(a); a.click();
-      document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch { setPreviewError('Failed to download template.'); }
-  };
 
   const processFile = async (file: File) => {
     setPreviewLoading(true); setPreviewError(''); setPreviewRows(null);
@@ -808,14 +794,6 @@ function UnitBody({ token }: { token: string | null }) {
 
   return (
     <>
-      {/* Upload sub-panel header buttons */}
-      <div style={{ display: 'flex', gap: 8, padding: '9px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
-        <button className="btn-secondary" onClick={handleDownload} style={btnSm}>⬇ Download template</button>
-        <button className="btn-secondary" onClick={() => { setShowUpload(v => !v); setPreviewRows(null); setPreviewError(''); }} style={btnSm}>
-          📤 Upload balances
-        </button>
-      </div>
-
       {successMsg && (
         <div style={{ padding: '8px 16px', background: '#dcfce7', borderBottom: '1px solid #bbf7d0', fontSize: 13, color: '#15803d', fontWeight: 500 }}>
           <i className="ti ti-circle-check" style={{ marginRight: 6 }} /> {successMsg}
@@ -943,6 +921,7 @@ export default function BusinessPartnersPage() {
   const [showUpload,     setShowUpload]     = useState(false);
   const [showVendorAdd,  setShowVendorAdd]  = useState(false);
   const [unitOpen,       setUnitOpen]       = useState(false);
+  const [showUnitUpload, setShowUnitUpload] = useState(false);
 
   const handleBankTemplateDownload = async () => {
     try {
@@ -970,6 +949,20 @@ export default function BusinessPartnersPage() {
       a.href = url; a.download = 'SmartAppt_Vendor_Template.xlsx'; a.click();
       URL.revokeObjectURL(url);
     } catch (err) { console.error('[Vendor template]', err); }
+  };
+
+  const handleUnitTemplateDownload = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/accounting/bp-masters/units/template`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = 'SmartAppt_UnitOB_Template.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { console.error('[Unit template]', err); }
   };
 
   const onBP = async (body: object) => { await createBP(body as Partial<BusinessPartner>).unwrap(); };
@@ -1063,14 +1056,22 @@ export default function BusinessPartnersPage() {
               />
             </AccordionSection>
 
-            {/* ── Units / Flats ─────────────────────────────────────────── */}
+            {/* ── Units / Flats Balance ─────────────────────────────────── */}
             <AccordionSection
               icon="ti-building" iconBg="#eeedfe" iconColor="#534ab7"
-              title="Units / Flats"
+              title="Units / Flats Balance"
               subtitle="Opening balances &amp; overview"
               isOpen={unitOpen} onToggle={() => setUnitOpen(v => !v)}
+              headerActions={<>
+                <button className="btn-secondary" onClick={handleUnitTemplateDownload} style={btnSm}>⬇ Template</button>
+                <button className="btn-secondary"
+                  onClick={() => { setUnitOpen(true); setShowUnitUpload(v => !v); }}
+                  style={{ ...btnSm, ...(showUnitUpload ? { background: '#dbeafe', borderColor: '#93c5fd', color: '#1d4ed8' } : {}) }}>
+                  📤 Upload balances
+                </button>
+              </>}
             >
-              <UnitBody token={token} />
+              <UnitBody token={token} showUpload={showUnitUpload} setShowUpload={setShowUnitUpload} />
             </AccordionSection>
           </>
         )}
