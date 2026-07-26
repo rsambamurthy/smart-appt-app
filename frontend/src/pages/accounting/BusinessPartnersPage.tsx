@@ -34,15 +34,9 @@ const emptyForm = (): BPForm => ({
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const fl: React.CSSProperties = { fontSize: 10.5, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: 4 };
 const fc: React.CSSProperties = { width: '100%', padding: '6px 9px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 13, color: '#1e293b', background: '#fff', outline: 'none', boxSizing: 'border-box' };
-const btn = (primary?: boolean, danger?: boolean): React.CSSProperties => ({
-  display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 12px', borderRadius: 7,
-  border: primary ? 'none' : danger ? '1px solid #fecaca' : '1px solid #e2e8f0',
-  background: primary ? '#2563eb' : danger ? '#fef2f2' : '#fff',
-  color: primary ? '#fff' : danger ? '#dc2626' : '#475569',
-  fontSize: 12.5, fontWeight: primary ? 500 : 400, cursor: 'pointer', whiteSpace: 'nowrap' as const,
-});
 const th: React.CSSProperties = { padding: '7px 14px', textAlign: 'left', fontSize: 10.5, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em' };
-const btnIcon: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#94a3b8', padding: '2px 5px', borderRadius: 4 };
+// btn() — use CSS classes (btn-secondary / btn-primary / ent-btn-add) on className; these are fallback inline overrides only
+const btnSm: React.CSSProperties = { fontSize: '0.8rem', padding: '5px 11px' };
 
 // ── Accordion shell ───────────────────────────────────────────────────────────
 function AccordionSection({
@@ -147,8 +141,8 @@ function BPFormPanel({
       </div>
       {error && <div style={{ marginTop: 10, fontSize: 12, color: '#dc2626' }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-        <button onClick={onSave} disabled={isSaving} style={{ ...btn(true), opacity: isSaving ? 0.7 : 1 }}>{isSaving ? 'Saving…' : 'Save'}</button>
-        <button onClick={onCancel} style={btn()}>Cancel</button>
+        <button className="btn-primary" onClick={onSave} disabled={isSaving} style={btnSm}>{isSaving ? 'Saving…' : 'Save'}</button>
+        <button className="btn-secondary" onClick={onCancel} style={btnSm}>Cancel</button>
       </div>
     </div>
   );
@@ -301,13 +295,11 @@ function BPList({
                   </td>
                   <td style={{ padding: '10px 14px' }}>
                     <div style={{ display: 'flex', gap: 2 }}>
-                      <button style={btnIcon} title="Edit" onClick={() => startEdit(bp)}><i className="ti ti-pencil" aria-hidden="true" /></button>
-                      <button style={btnIcon} title={bp.is_active ? 'Deactivate' : 'Activate'} onClick={() => onToggle(bp.id)}>
-                        <i className={`ti ${bp.is_active ? 'ti-power' : 'ti-refresh'}`} aria-hidden="true" />
+                      <button className="ent-ia-edit" title="Edit" onClick={() => startEdit(bp)}>✏</button>
+                      <button className="ent-ia-edit" title={bp.is_active ? 'Deactivate' : 'Activate'} onClick={() => onToggle(bp.id)}>
+                        {bp.is_active ? '⏻' : '↺'}
                       </button>
-                      <button style={{ ...btnIcon, color: '#dc2626' }} title="Delete" onClick={() => setDeleteTarget(bp)}>
-                        <i className="ti ti-trash" aria-hidden="true" />
-                      </button>
+                      <button className="ent-ia-del" title="Delete" onClick={() => setDeleteTarget(bp)}>🗑</button>
                     </div>
                   </td>
                 </tr>
@@ -326,8 +318,8 @@ function BPList({
               <strong>{deleteTarget.code} — {deleteTarget.name}</strong><br />Cannot be deleted if journal entries exist.
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => { onDelete(deleteTarget.id); setDeleteTarget(null); }} style={{ flex: 1, padding: 8, borderRadius: 7, border: 'none', background: '#dc2626', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Delete</button>
-              <button onClick={() => setDeleteTarget(null)} style={{ flex: 1, padding: 8, borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+              <button className="btn-danger" onClick={() => { onDelete(deleteTarget.id); setDeleteTarget(null); }} style={{ flex: 1 }}>Delete</button>
+              <button className="btn-secondary" onClick={() => setDeleteTarget(null)} style={{ flex: 1 }}>Cancel</button>
             </div>
           </div>
         </>
@@ -400,11 +392,9 @@ function BankUploadPanel({ token }: { token: string | null }) {
           Bulk upload
         </span>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={handleDownload} style={btn()}>
-            <i className="ti ti-download" style={{ fontSize: 13 }} aria-hidden="true" /> Template
-          </button>
-          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ ...btn(), opacity: uploading ? 0.7 : 1 }}>
-            <i className="ti ti-file-upload" style={{ fontSize: 13 }} aria-hidden="true" /> {uploading ? 'Reading…' : 'Upload file'}
+          <button className="btn-secondary" onClick={handleDownload} style={btnSm}>⬇ Template</button>
+          <button className="btn-secondary" onClick={() => fileRef.current?.click()} disabled={uploading} style={btnSm}>
+            📤 {uploading ? 'Reading…' : 'Upload file'}
           </button>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileChange} />
         </div>
@@ -412,11 +402,10 @@ function BankUploadPanel({ token }: { token: string | null }) {
 
       {result && (
         <div style={{ padding: '10px 16px', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0', display: 'flex', gap: 16, alignItems: 'center' }}>
-          <i className="ti ti-circle-check" style={{ color: '#15803d', fontSize: 18 }} />
           <span style={{ fontSize: 13, color: '#15803d', fontWeight: 600 }}>
-            {result.created} bank{result.created !== 1 ? 's' : ''} created · {result.updated} updated
+            ✓ {result.created} bank{result.created !== 1 ? 's' : ''} created · {result.updated} updated
           </span>
-          <button onClick={() => setResult(null)} style={{ ...btn(), marginLeft: 'auto' }}>Dismiss</button>
+          <button className="btn-secondary" onClick={() => setResult(null)} style={{ ...btnSm, marginLeft: 'auto' }}>Dismiss</button>
         </div>
       )}
       {uploadErr && (
@@ -431,11 +420,11 @@ function BankUploadPanel({ token }: { token: string | null }) {
               {errorCount > 0 && <> · <strong style={{ color: '#dc2626' }}>{errorCount} error{errorCount !== 1 ? 's' : ''}</strong> (fix and re-upload)</>}
             </span>
             {toApplyCount > 0 && (
-              <button onClick={handleApply} disabled={applying} style={{ ...btn(true), marginLeft: 'auto', opacity: applying ? 0.7 : 1 }}>
+              <button className="ent-btn-add" onClick={handleApply} disabled={applying} style={{ marginLeft: 'auto' }}>
                 {applying ? 'Saving…' : `Apply ${toApplyCount} row${toApplyCount !== 1 ? 's' : ''}`}
               </button>
             )}
-            <button onClick={() => setPreview(null)} style={btn()}>Clear</button>
+            <button className="btn-secondary" onClick={() => setPreview(null)} style={btnSm}>Clear</button>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -529,8 +518,8 @@ function ServiceTypesList({ serviceTypes }: { serviceTypes: ServiceType[] }) {
           <i className="ti ti-tag" style={{ fontSize: 13, marginRight: 5 }} aria-hidden="true" />
           Service types — {serviceTypes.length} defined
         </span>
-        <button onClick={() => { setShowAdd(v => !v); setNewName(''); setNewDesc(''); setAddError(''); }} style={btn()}>
-          <i className="ti ti-plus" style={{ fontSize: 13 }} aria-hidden="true" /> Add type
+        <button className="btn-secondary" onClick={() => { setShowAdd(v => !v); setNewName(''); setNewDesc(''); setAddError(''); }} style={btnSm}>
+          + Add type
         </button>
       </div>
 
@@ -542,8 +531,8 @@ function ServiceTypesList({ serviceTypes }: { serviceTypes: ServiceType[] }) {
           </div>
           {addError && <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 6 }}>{addError}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={handleAdd} style={btn(true)}>Save</button>
-            <button onClick={() => setShowAdd(false)} style={btn()}>Cancel</button>
+            <button className="btn-primary" onClick={handleAdd} style={btnSm}>Save</button>
+            <button className="btn-secondary" onClick={() => setShowAdd(false)} style={btnSm}>Cancel</button>
           </div>
         </div>
       )}
@@ -568,8 +557,8 @@ function ServiceTypesList({ serviceTypes }: { serviceTypes: ServiceType[] }) {
                   <td style={{ padding: '8px 14px' }}><input style={fc} value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Description" /></td>
                   <td colSpan={2} style={{ padding: '8px 14px' }}>
                     {editError && <span style={{ fontSize: 12, color: '#dc2626', marginRight: 8 }}>{editError}</span>}
-                    <button onClick={handleSaveEdit} style={btn(true)}>Save</button>
-                    <button onClick={() => setEditId(null)} style={{ ...btn(), marginLeft: 6 }}>Cancel</button>
+                    <button className="btn-primary" onClick={handleSaveEdit} style={btnSm}>Save</button>
+                    <button className="btn-secondary" onClick={() => setEditId(null)} style={{ ...btnSm, marginLeft: 6 }}>Cancel</button>
                   </td>
                 </tr>
               ) : (
@@ -583,13 +572,11 @@ function ServiceTypesList({ serviceTypes }: { serviceTypes: ServiceType[] }) {
                   </td>
                   <td style={{ padding: '8px 14px' }}>
                     <div style={{ display: 'flex', gap: 2 }}>
-                      <button style={btnIcon} title="Edit" onClick={() => startEdit(st)}><i className="ti ti-pencil" aria-hidden="true" /></button>
-                      <button style={btnIcon} title={st.is_active ? 'Deactivate' : 'Activate'} onClick={() => toggleST(st.id)}>
-                        <i className={`ti ${st.is_active ? 'ti-power' : 'ti-refresh'}`} aria-hidden="true" />
+                      <button className="ent-ia-edit" title="Edit" onClick={() => startEdit(st)}>✏</button>
+                      <button className="ent-ia-edit" title={st.is_active ? 'Deactivate' : 'Activate'} onClick={() => toggleST(st.id)}>
+                        {st.is_active ? '⏻' : '↺'}
                       </button>
-                      <button style={{ ...btnIcon, color: '#dc2626' }} title="Delete" onClick={() => deleteST(st.id)}>
-                        <i className="ti ti-trash" aria-hidden="true" />
-                      </button>
+                      <button className="ent-ia-del" title="Delete" onClick={() => deleteST(st.id)}>🗑</button>
                     </div>
                   </td>
                 </tr>
@@ -666,11 +653,9 @@ function VendorUploadPanel({ token }: { token: string | null }) {
           Bulk upload
         </span>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button onClick={handleDownload} style={btn()}>
-            <i className="ti ti-download" style={{ fontSize: 13 }} aria-hidden="true" /> Template
-          </button>
-          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ ...btn(), opacity: uploading ? 0.7 : 1 }}>
-            <i className="ti ti-file-upload" style={{ fontSize: 13 }} aria-hidden="true" /> {uploading ? 'Reading…' : 'Upload file'}
+          <button className="btn-secondary" onClick={handleDownload} style={btnSm}>⬇ Template</button>
+          <button className="btn-secondary" onClick={() => fileRef.current?.click()} disabled={uploading} style={btnSm}>
+            📤 {uploading ? 'Reading…' : 'Upload file'}
           </button>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileChange} />
         </div>
@@ -682,7 +667,7 @@ function VendorUploadPanel({ token }: { token: string | null }) {
           <span style={{ fontSize: 13, color: '#15803d', fontWeight: 600 }}>
             {result.created} vendor{result.created !== 1 ? 's' : ''} created · {result.updated} updated
           </span>
-          <button onClick={() => setResult(null)} style={{ ...btn(), marginLeft: 'auto' }}>Dismiss</button>
+          <button className="btn-secondary" onClick={() => setResult(null)} style={{ ...btnSm, marginLeft: 'auto' }}>Dismiss</button>
         </div>
       )}
       {uploadErr && (
@@ -697,11 +682,11 @@ function VendorUploadPanel({ token }: { token: string | null }) {
               {errorCount > 0 && <> · <strong style={{ color: '#dc2626' }}>{errorCount} error{errorCount !== 1 ? 's' : ''}</strong> (fix and re-upload)</>}
             </span>
             {toApplyCount > 0 && (
-              <button onClick={handleApply} disabled={applying} style={{ ...btn(true), marginLeft: 'auto', opacity: applying ? 0.7 : 1 }}>
+              <button className="ent-btn-add" onClick={handleApply} disabled={applying} style={{ marginLeft: 'auto' }}>
                 {applying ? 'Saving…' : `Apply ${toApplyCount} row${toApplyCount !== 1 ? 's' : ''}`}
               </button>
             )}
-            <button onClick={() => setPreview(null)} style={btn()}>Clear</button>
+            <button className="btn-secondary" onClick={() => setPreview(null)} style={btnSm}>Clear</button>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -825,11 +810,9 @@ function UnitBody({ token }: { token: string | null }) {
     <>
       {/* Upload sub-panel header buttons */}
       <div style={{ display: 'flex', gap: 8, padding: '9px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
-        <button onClick={handleDownload} style={btn()}>
-          <i className="ti ti-download" style={{ fontSize: 13 }} aria-hidden="true" /> Download template
-        </button>
-        <button onClick={() => { setShowUpload(v => !v); setPreviewRows(null); setPreviewError(''); }} style={btn()}>
-          <i className="ti ti-upload" style={{ fontSize: 13 }} aria-hidden="true" /> Upload balances
+        <button className="btn-secondary" onClick={handleDownload} style={btnSm}>⬇ Download template</button>
+        <button className="btn-secondary" onClick={() => { setShowUpload(v => !v); setPreviewRows(null); setPreviewError(''); }} style={btnSm}>
+          📤 Upload balances
         </button>
       </div>
 
@@ -893,11 +876,11 @@ function UnitBody({ token }: { token: string | null }) {
                 </table>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={handleApply} disabled={isApplying || (previewStats.create + previewStats.update === 0)} style={{ ...btn(true), opacity: (isApplying || previewStats.create + previewStats.update === 0) ? 0.6 : 1 }}>
+                <button className="ent-btn-add" onClick={handleApply} disabled={isApplying || (previewStats.create + previewStats.update === 0)}>
                   {isApplying ? 'Applying…' : `Apply (${previewStats.create + previewStats.update} records)`}
                 </button>
-                <button onClick={() => { setPreviewRows(null); setPreviewError(''); }} style={btn()}>← Different file</button>
-                <button onClick={() => { setShowUpload(false); setPreviewRows(null); }} style={btn()}>Cancel</button>
+                <button className="btn-secondary" onClick={() => { setPreviewRows(null); setPreviewError(''); }} style={btnSm}>← Different file</button>
+                <button className="btn-secondary" onClick={() => { setShowUpload(false); setPreviewRows(null); }} style={btnSm}>Cancel</button>
               </div>
             </div>
           )}
@@ -1011,22 +994,19 @@ export default function BusinessPartnersPage() {
               isOpen={bankOpen} onToggle={() => setBankOpen(v => !v)}
               headerActions={
                 <>
-                  <button
-                    onClick={handleBankTemplateDownload}
-                    style={btn()}
-                    title="Download bank bulk upload template"
-                  >
-                    <i className="ti ti-download" style={{ fontSize: 13 }} aria-hidden="true" /> Template
+                  <button className="btn-secondary" onClick={handleBankTemplateDownload} style={btnSm} title="Download bank bulk upload template">
+                    ⬇ Template
                   </button>
                   <button
+                    className="btn-secondary"
                     onClick={() => { setBankOpen(true); setShowBankUpload(v => !v); }}
-                    style={{ ...btn(), background: showBankUpload ? '#e0f2fe' : undefined, borderColor: showBankUpload ? '#bae6fd' : undefined }}
+                    style={{ ...btnSm, ...(showBankUpload ? { background: '#dbeafe', borderColor: '#93c5fd', color: '#1d4ed8' } : {}) }}
                     title="Bulk upload banks"
                   >
-                    <i className="ti ti-upload" style={{ fontSize: 13 }} aria-hidden="true" /> Upload
+                    📤 Bulk Upload
                   </button>
-                  <button onClick={() => { setBankOpen(true); setShowBankAdd(v => !v); }} style={btn()}>
-                    <i className="ti ti-plus" style={{ fontSize: 13 }} aria-hidden="true" /> Add
+                  <button className="ent-btn-add" onClick={() => { setBankOpen(true); setShowBankAdd(v => !v); }}>
+                    + Add
                   </button>
                 </>
               }
@@ -1049,28 +1029,26 @@ export default function BusinessPartnersPage() {
               headerActions={
                 <>
                   <button
+                    className="btn-secondary"
                     onClick={() => { setVendorOpen(true); setShowST(v => !v); setShowUpload(false); }}
-                    style={{ ...btn(), background: showST ? '#fef9c3' : undefined, borderColor: showST ? '#fef08a' : undefined }}
+                    style={{ ...btnSm, ...(showST ? { background: '#fef9c3', borderColor: '#fde68a', color: '#92400e' } : {}) }}
                     title="Manage service types"
                   >
-                    <i className="ti ti-tag" style={{ fontSize: 13 }} aria-hidden="true" /> Service types
+                    🏷 Service types
+                  </button>
+                  <button className="btn-secondary" onClick={handleVendorTemplateDownload} style={btnSm} title="Download vendor bulk upload template">
+                    ⬇ Template
                   </button>
                   <button
-                    onClick={handleVendorTemplateDownload}
-                    style={btn()}
-                    title="Download vendor bulk upload template"
-                  >
-                    <i className="ti ti-download" style={{ fontSize: 13 }} aria-hidden="true" /> Template
-                  </button>
-                  <button
+                    className="btn-secondary"
                     onClick={() => { setVendorOpen(true); setShowUpload(v => !v); setShowST(false); }}
-                    style={{ ...btn(), background: showUpload ? '#e0f2fe' : undefined, borderColor: showUpload ? '#bae6fd' : undefined }}
+                    style={{ ...btnSm, ...(showUpload ? { background: '#dbeafe', borderColor: '#93c5fd', color: '#1d4ed8' } : {}) }}
                     title="Bulk upload vendors"
                   >
-                    <i className="ti ti-upload" style={{ fontSize: 13 }} aria-hidden="true" /> Upload
+                    📤 Bulk Upload
                   </button>
-                  <button onClick={() => { setVendorOpen(true); setShowVendorAdd(v => !v); }} style={btn()}>
-                    <i className="ti ti-plus" style={{ fontSize: 13 }} aria-hidden="true" /> Add
+                  <button className="ent-btn-add" onClick={() => { setVendorOpen(true); setShowVendorAdd(v => !v); }}>
+                    + Add
                   </button>
                 </>
               }
