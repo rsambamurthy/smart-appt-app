@@ -811,6 +811,20 @@ export default function BusinessPartnersPage() {
   const [showVendorAdd, setShowVendorAdd] = useState(false);
   const [unitOpen,   setUnitOpen]   = useState(false);
 
+  const handleVendorTemplateDownload = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/accounting/vendors/template`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = 'SmartAppt_Vendor_Template.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { console.error('[Vendor template]', err); }
+  };
+
   const onBP = async (body: object) => { await createBP(body as Partial<BusinessPartner>).unwrap(); };
   const onBPUpdate = async (id: string, body: object) => { await updateBP({ id, body: body as Partial<BusinessPartner> }).unwrap(); };
 
@@ -859,6 +873,13 @@ export default function BusinessPartnersPage() {
                     title="Manage service types"
                   >
                     <i className="ti ti-tag" style={{ fontSize: 13 }} aria-hidden="true" /> Service types
+                  </button>
+                  <button
+                    onClick={handleVendorTemplateDownload}
+                    style={btn()}
+                    title="Download vendor bulk upload template"
+                  >
+                    <i className="ti ti-download" style={{ fontSize: 13 }} aria-hidden="true" /> Template
                   </button>
                   <button
                     onClick={() => { setVendorOpen(true); setShowUpload(v => !v); setShowST(false); }}
