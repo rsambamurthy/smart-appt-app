@@ -54,9 +54,10 @@ class FYClosureService {
     // FYs from journal entries (graceful — may be empty for fresh associations)
     let entries: { financial_year: string }[] = [];
     try {
-      entries = await prisma.journalEntry.groupBy({
-        by: ['financial_year'],
-        where: { association_id: associationId },
+      entries = await prisma.journalEntry.findMany({
+        where:    { association_id: associationId, financial_year: { not: '' } },
+        select:   { financial_year: true },
+        distinct: ['financial_year'],
       });
     } catch { /* table may not exist yet */ }
 
