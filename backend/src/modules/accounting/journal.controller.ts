@@ -36,6 +36,25 @@ class JournalController {
     } catch (err) { next(err); }
   };
 
+  getAllLedger = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const { from, to } = req.query as Record<string, string>;
+      const result = await journalService.getLedgerAll(associationId, { from, to });
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
+  getSubLedger = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const { account_id, from, to } = req.query as Record<string, string>;
+      if (!account_id) { res.status(400).json({ message: 'account_id is required' }); return; }
+      const result = await journalService.getSubLedger(associationId, account_id, { from, to });
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
   backfill = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const associationId = (req as never as { user: { association_id: string } }).user.association_id;
