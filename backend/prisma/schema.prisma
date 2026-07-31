@@ -205,8 +205,9 @@ model Association {
   bp_types           BPType[]
   service_types      ServiceType[]
   business_partners  BusinessPartner[]
-  voucher_sequences  VoucherSequence[]
-  mobile_config      MobileConfig?
+  voucher_sequences   VoucherSequence[]
+  mobile_config       MobileConfig?
+  fy_closes           FinancialYearClose[]
 
   @@map("associations")
 }
@@ -306,6 +307,8 @@ model User {
   je_created          JournalEntry[]      @relation("JECreatedBy")
   je_posted           JournalEntry[]      @relation("JEPostedBy")
   je_cancelled        JournalEntry[]      @relation("JECancelledBy")
+  fy_closed           FinancialYearClose[] @relation("FYClosedBy")
+  fy_reopened         FinancialYearClose[] @relation("FYReopenedBy")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
   invite_received     UserInvite?         @relation("InvitedUser")
@@ -1151,4 +1154,26 @@ model MobileConfig {
   updated_at            DateTime    @updatedAt @db.Timestamptz
 
   @@map("mobile_config")
+}
+
+// ── Financial Year Closure ─────────────────────────────────────────────────────
+
+model FinancialYearClose {
+  id                 String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id     String      @db.Uuid
+  association        Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  financial_year     String      @db.VarChar(7)   // e.g. "2024-25"
+  status             String      @default("CLOSED") @db.VarChar(20)  // CLOSED | REOPENED
+  net_surplus        Decimal     @db.Decimal(15, 2)
+  closing_entry_id   String?     @db.Uuid          // JE reference_code of closing entry
+  notes              String?     @db.Text
+  closed_by_id       String?     @db.Uuid
+  closed_by          User?       @relation("FYClosedBy", fields: [closed_by_id], references: [id])
+  closed_at          DateTime    @default(now()) @db.Timestamptz
+  reopened_by_id     String?     @db.Uuid
+  reopened_by        User?       @relation("FYReopenedBy", fields: [reopened_by_id], references: [id])
+  reopened_at        DateTime?   @db.Timestamptz
+
+  @@unique([association_id, financial_year])
+  @@map("financial_year_closes")
 }

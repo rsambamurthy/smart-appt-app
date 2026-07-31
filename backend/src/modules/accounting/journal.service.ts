@@ -3,17 +3,15 @@ import prisma from '../../config/database';
 import { NotFoundError, UnprocessableError } from '../../utils/errors';
 import { CreateJournalEntryBody } from './journal.schema';
 import logger from '../../utils/logger';
+import { fyClosureService, getFinancialYear } from './fy-closure.service';
 
 // Account types whose normal balance is DEBIT (DR increases balance)
 const DEBIT_NORMAL = new Set<string>(['ASSET', 'EXPENSE']);
 
-// ── Financial year helpers ─────────────────────────────────────────────────────
-// Returns "2024-25" style string; fyStartMonth = 4 means April (Indian FY)
-function getFinancialYear(date: Date, fyStartMonth = 4): string {
-  const m = date.getMonth() + 1; // 1–12
-  const y = date.getFullYear();
-  const startYear = m >= fyStartMonth ? y : y - 1;
-  return `${startYear}-${String(startYear + 1).slice(-2)}`;
+// DB-aware FY helper: reads start month from association config
+async function getFY(associationId: string, date: Date): Promise<string> {
+  const cfg = await fyClosureService.getConfig(associationId);
+  return getFinancialYear(date, cfg.financial_year_start_month);
 }
 
 // Atomically increments VoucherSequence and returns the next reference code
@@ -121,7 +119,7 @@ class JournalService {
       );
     }
 
-    const financial_year  = getFinancialYear(opts.entry_date);
+    const financial_year  = await getFY(associationId, opts.entry_date);
     const reference_code  = await nextReferenceCode(associationId, opts.voucher_type, financial_year);
 
     return prisma.journalEntry.create({
@@ -1115,6 +1113,12 @@ class JournalService {
     }
 
     await this.validateControlAccounts(body.lines);
+
+    // Guard: cannot post to a closed financial year
+    const entryFY = await getFY(associationId, new Date(body.entry_date));
+    if (await fyClosureService.isYearClosed(associationId, entryFY)) {
+      throw new UnprocessableError(`Financial year ${entryFY} is closed. Reopen it before posting new entries.`);
+    }
 
     const voucherType = await this.inferManualVoucherType(body.lines);
 

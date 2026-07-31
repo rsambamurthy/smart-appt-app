@@ -140,6 +140,39 @@ export interface SubLedgerResult {
   bps:           SubLedgerBP[];
 }
 
+// ── Financial Year ────────────────────────────────────────────────────────────
+export interface FYStatus {
+  financial_year: string;
+  is_current:     boolean;
+  is_closed:      boolean;
+  status:         'OPEN' | 'CLOSED' | 'REOPENED';
+  net_surplus:    number | null;
+  closed_at:      string | null;
+  closed_by:      string | null;
+  closing_entry_id: string | null;
+}
+
+export interface FYListResult {
+  data:           FYStatus[];
+  current_fy:     string;
+  fy_start_month: number;
+}
+
+export interface FYPreviewLine {
+  account: { id: string; code: string; name: string; type: string; sub_type: string | null };
+  balance: number;
+}
+
+export interface FYPreviewResult {
+  financial_year:  string;
+  total_income:    number;
+  total_expense:   number;
+  net_surplus:     number;
+  income_lines:    FYPreviewLine[];
+  expense_lines:   FYPreviewLine[];
+  equity_accounts: { id: string; code: string; name: string }[];
+}
+
 // ── BP Types ──────────────────────────────────────────────────────────────────
 export type BPSide     = 'RECEIVABLE' | 'PAYABLE' | 'BOTH';
 export type BPCategory = 'BANK' | 'VENDOR' | 'UNIT';
@@ -376,6 +409,32 @@ const accountingApi = baseApi.injectEndpoints({
       query: () => ({ url: '/accounting/journal/backfill-bp-tags', method: 'POST' }),
       invalidatesTags: ['Journal'],
     }),
+
+    // Financial Year
+    getFYConfig: builder.query<{ data: { financial_year_start_month: number } }, void>({
+      query: () => '/accounting/fy/config',
+      providesTags: ['Journal'],
+    }),
+    updateFYConfig: builder.mutation<{ data: { financial_year_start_month: number } }, { financial_year_start_month: number }>({
+      query: (body) => ({ url: '/accounting/fy/config', method: 'PATCH', body }),
+      invalidatesTags: ['Journal'],
+    }),
+    listFYs: builder.query<FYListResult, void>({
+      query: () => '/accounting/fy/list',
+      providesTags: ['Journal'],
+    }),
+    previewFYClosure: builder.query<{ data: FYPreviewResult }, { fy: string }>({
+      query: ({ fy }) => `/accounting/fy/preview?fy=${encodeURIComponent(fy)}`,
+      providesTags: ['Journal'],
+    }),
+    closeFY: builder.mutation<{ data: { financial_year: string; net_surplus: number; closing_entry_id: string | null } }, { fy: string; surplus_account_id: string; notes?: string }>({
+      query: (body) => ({ url: '/accounting/fy/close', method: 'POST', body }),
+      invalidatesTags: ['Journal'],
+    }),
+    reopenFY: builder.mutation<{ data: { financial_year: string; status: string } }, { fy: string }>({
+      query: (body) => ({ url: '/accounting/fy/reopen', method: 'POST', body }),
+      invalidatesTags: ['Journal'],
+    }),
     getBalanceSheet: builder.query<{ data: BalanceSheetResult }, { asOf: string }>({
       query: ({ asOf }) => `/accounting/journal/balance-sheet?asOf=${asOf}`,
       providesTags: ['Journal'],
@@ -473,6 +532,12 @@ export const {
   useUpdateJournalEntryMutation,
   useBackfillTransactionsMutation,
   useBackfillBPTagsMutation,
+  useGetFYConfigQuery,
+  useUpdateFYConfigMutation,
+  useListFYsQuery,
+  usePreviewFYClosureQuery,
+  useCloseFYMutation,
+  useReopenFYMutation,
   useGetBalanceSheetQuery,
   useGetLedgerQuery,
   useGetAllLedgerQuery,

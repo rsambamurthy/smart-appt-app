@@ -85,6 +85,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'ledger',          label: 'Ledger',          path: '/accounting/ledger',          roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#16a34a', end: true },
       { id: 'pnl',             label: 'Profit & Loss',   path: '/accounting/pnl',             roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#f59e0b', end: true },
       { id: 'balance_sheet',   label: 'Balance Sheet',   path: '/accounting/balance-sheet',   roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#7c3aed', end: true },
+      { id: 'fy_closure',      label: 'FY Closure',      path: '/accounting/fy-closure',       roles: ['SUPER_USER', 'MANAGER', 'TREASURER'], dot: '#dc2626', end: true },
     ],
   },
   {

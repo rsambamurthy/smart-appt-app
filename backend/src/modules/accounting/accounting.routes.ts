@@ -7,6 +7,7 @@ import { unitOBController }      from './unit-ob.controller';
 import { serviceTypeController }  from './service-type.controller';
 import { vendorUploadController } from './vendor-upload.controller';
 import { bankUploadController }   from './bank-upload.controller';
+import { fyClosureController }    from './fy-closure.controller';
 import { authenticate }  from '../../middleware/auth';
 import { requireRoles }  from '../../middleware/rbac';
 import { UserRole }      from '@prisma/client';
@@ -61,6 +62,14 @@ router.post('/vendors/upload/apply',    requireRoles(...managerRoles), vendorUpl
 router.get ('/banks/template',        requireRoles(...managerRoles), bankUploadController.downloadTemplate);
 router.post('/banks/upload/preview',  requireRoles(...managerRoles), upload.single('file'), bankUploadController.previewUpload);
 router.post('/banks/upload/apply',    requireRoles(...managerRoles), bankUploadController.applyUpload);
+
+// ── Financial Year Config & Closure ───────────────────────────────────────────
+router.get  ('/fy/config',    requireRoles(...viewRoles),    fyClosureController.getConfig);
+router.patch('/fy/config',    requireRoles(...managerRoles), fyClosureController.updateConfig);
+router.get  ('/fy/list',      requireRoles(...viewRoles),    fyClosureController.listFYs);
+router.get  ('/fy/preview',   requireRoles(...managerRoles), fyClosureController.previewClosure);
+router.post ('/fy/close',     requireRoles(...managerRoles), fyClosureController.closeFY);
+router.post ('/fy/reopen',    requireRoles(...managerRoles), fyClosureController.reopenFY);
 
 // ── Journal Entries ───────────────────────────────────────────────────────────
 router.get ('/journal',         requireRoles(...viewRoles),    journalController.list);
