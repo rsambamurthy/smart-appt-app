@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.smartappt.app',
-  appName: 'SmartAppt',
+  appId: 'com.smartappt.gold',
+  appName: 'SmartAppt Gold',
   webDir: 'dist',
   server: {
     // For development with ngrok: set VITE_API_URL to your ngrok URL

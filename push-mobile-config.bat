@@ -1,48 +1,44 @@
 @echo off
-echo ============================================================
-echo  Pushing: Mobile App System Settings
-echo ============================================================
-echo.
-echo  SQL TO RUN ON RAILWAY BEFORE DEPLOYING:
-echo  ------------------------------------------
-echo  CREATE TABLE "mobile_config" (
-echo    "id"                    UUID        NOT NULL DEFAULT gen_random_uuid(),
-echo    "association_id"        UUID        NOT NULL,
-echo    "feature_bills"         BOOLEAN     NOT NULL DEFAULT true,
-echo    "feature_announcements" BOOLEAN     NOT NULL DEFAULT true,
-echo    "feature_complaints"    BOOLEAN     NOT NULL DEFAULT true,
-echo    "feature_visitors"      BOOLEAN     NOT NULL DEFAULT true,
-echo    "push_dues_reminder"    BOOLEAN     NOT NULL DEFAULT true,
-echo    "push_announcements"    BOOLEAN     NOT NULL DEFAULT true,
-echo    "push_visitor_alerts"   BOOLEAN     NOT NULL DEFAULT true,
-echo    "login_mpin_enabled"    BOOLEAN     NOT NULL DEFAULT true,
-echo    "login_biometric"       BOOLEAN     NOT NULL DEFAULT false,
-echo    "login_otp_only"        BOOLEAN     NOT NULL DEFAULT false,
-echo    "app_name"              VARCHAR(100),
-echo    "theme_color"           VARCHAR(7),
-echo    "logo_url"              TEXT,
-echo    "created_at"            TIMESTAMPTZ NOT NULL DEFAULT now(),
-echo    "updated_at"            TIMESTAMPTZ NOT NULL DEFAULT now(),
-echo    CONSTRAINT "mobile_config_pkey" PRIMARY KEY ("id")
-echo  );
-echo  CREATE UNIQUE INDEX "mobile_config_association_id_key"
-echo    ON "mobile_config"("association_id");
-echo  ALTER TABLE "mobile_config" ADD CONSTRAINT "mobile_config_association_id_fkey"
-echo    FOREIGN KEY ("association_id") REFERENCES "associations"("id")
-echo    ON DELETE CASCADE ON UPDATE CASCADE;
-echo  ------------------------------------------
-echo.
+setlocal
 cd /d "%~dp0"
-git add backend/prisma/schema.prisma
-git add backend/prisma/migrations/20260724000002_add_mobile_config/migration.sql
-git add backend/src/modules/system/system.service.ts
-git add backend/src/modules/system/system.controller.ts
-git add backend/src/modules/system/system.routes.ts
-git add frontend/src/store/api/systemApi.ts
-git add frontend/src/store/api/baseApi.ts
-git add frontend/src/pages/admin/MenuConfigPage.tsx
-git commit -m "feat: Mobile App system settings — feature toggles, push config, login options, branding"
-git push
+
+echo === SmartAppt: Mobile App Configuration matrix (backend + frontend) ===
 echo.
-echo Done!
+
+git checkout feature/accounting-v2
+if errorlevel 1 ( echo ERROR: Could not switch to feature/accounting-v2 & pause & exit /b 1 )
+
+echo --- Stage files ---
+git add backend/prisma/schema.prisma
+git add backend/prisma/migrations/20260731000003_add_mobile_menu_items/migration.sql
+git add backend/src/modules/system/system.service.ts
+git add frontend/src/store/api/systemApi.ts
+git add frontend/src/contexts/MobileConfigContext.tsx
+git add frontend/src/components/organisms/Layout.tsx
+git add frontend/src/App.tsx
+git add frontend/src/pages/admin/MobileConfigPage.tsx
+git add frontend/src/pages/admin/MenuConfigPage.tsx
+git add railway-apply-fy-migrations.sql
+
+git status
+echo.
+echo Files staged. Press any key to commit and push, or Ctrl+C to abort.
+pause > nul
+
+git commit -m "feat: Mobile App Config matrix — per-menu-item enabled/can_post control for Super User"
+if errorlevel 1 ( echo ERROR: commit failed & pause & exit /b 1 )
+
+git push origin feature/accounting-v2
+if errorlevel 1 ( echo ERROR: push failed & pause & exit /b 1 )
+
+echo.
+echo === Done! ===
+echo.
+echo IMPORTANT — run railway-apply-fy-migrations.sql in Railway Postgres console if not done yet.
+echo It now also adds the menu_items column to mobile_config.
+echo.
+echo After Railway deploys, go to:
+echo   System Settings ^> Mobile App Config
+echo to configure the mobile menu matrix per association.
 pause
+endlocal

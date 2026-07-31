@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "SmartAppt Lite",
+    "slug": "smart-appt-lite",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0095db"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.smartappt.lite"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0095db"
+      },
+      "package": "com.smartappt.lite"
+    },
+    "extra": {
+      "apiUrl": "https://smart-appt-app-production.up.railway.app/api/v1",
+      "eas": {
+        "projectId": "smart-appt"
+      }
+    },
+    "plugins": ["expo-secure-store", "expo-font"]
+  }
+}

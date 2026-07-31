@@ -70,7 +70,7 @@ export function useRazorpay() {
           order_id,
           amount: Math.round(Number(amount) * 100),
           currency: 'INR',
-          name: 'SmartAppt',
+          name: 'SmartAppt Gold',
           description: 'Maintenance Dues Payment',
           prefill: {
             name: opts.userName,
