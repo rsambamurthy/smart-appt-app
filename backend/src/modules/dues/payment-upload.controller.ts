@@ -6,7 +6,8 @@ class PaymentUploadController {
   // GET /dues/payments/upload/template
   async downloadTemplate(req: Request, res: Response, next: NextFunction) {
     try {
-      const buf = await paymentUploadService.generateTemplate();
+      const associationId = req.user!.association_id;
+      const buf = await paymentUploadService.generateTemplate(associationId);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', 'attachment; filename="SmartAppt_PaymentUpload_Template.xlsx"');
       res.send(buf);

@@ -29,13 +29,26 @@ function errRow(row_num: number, flat_number: string, error: string): PaymentUpl
 
 class PaymentUploadService {
 
-  // ── Generate Excel Template ──────────────────────────────────────────────────
-  async generateTemplate(): Promise<Buffer> {
+  // ── Generate Excel Template (pre-filled with unpaid/partial bills) ───────────
+  async generateTemplate(associationId: string): Promise<Buffer> {
+    // Fetch all unpaid / partial bills with their unit info
+    const bills = await prisma.bill.findMany({
+      where: {
+        association_id: associationId,
+        status: { in: [BillStatus.UNPAID, BillStatus.PARTIAL] },
+      },
+      include: { unit: { select: { flat_number: true, block: true } } },
+      orderBy: [{ period_year: 'asc' }, { period_month: 'asc' }, { unit: { flat_number: 'asc' } }],
+    });
+
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Payments');
 
-    // Header row
-    const headers = ['Flat Number', 'Block', 'Month (1-12)', 'Year', 'Amount (₹)', 'Mode', 'Payment Date', 'Reference No'];
+    // ── Header row ──────────────────────────────────────────────────────────────
+    const headers = [
+      'Flat Number', 'Block', 'Month (1-12)', 'Year',
+      'Amount (₹)', 'Mode', 'Payment Date', 'Reference No',
+    ];
     const headerRow = ws.getRow(1);
     headers.forEach((h, i) => {
       const cell = headerRow.getCell(i + 1);
@@ -47,66 +60,99 @@ class PaymentUploadService {
     });
     ws.getRow(1).height = 22;
 
-    // Mode dropdown (col F = column 6)
-    for (let r = 2; r <= 201; r++) {
-      const modeCell = ws.getCell(r, 6);
-      modeCell.dataValidation = {
-        type: 'list',
-        allowBlank: true,
+    // Column widths
+    const widths = [14, 10, 14, 8, 14, 16, 14, 18];
+    widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+
+    // ── Pre-filled data rows ────────────────────────────────────────────────────
+    const today = new Date().toISOString().split('T')[0];
+    const preFilledFill: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFe8f4ff' } };
+
+    bills.forEach((bill, idx) => {
+      const r = idx + 2;
+      const row = ws.getRow(r);
+
+      // Pre-filled columns (light blue background, locked values)
+      const flatCell = row.getCell(1);
+      flatCell.value = bill.unit.flat_number;
+      flatCell.fill = preFilledFill;
+      flatCell.font = { bold: true, color: { argb: 'FF1e40af' } };
+
+      const blockCell = row.getCell(2);
+      blockCell.value = bill.unit.block ?? '';
+      blockCell.fill = preFilledFill;
+      blockCell.font = { color: { argb: 'FF1e40af' } };
+
+      const monthCell = row.getCell(3);
+      monthCell.value = bill.period_month;
+      monthCell.fill = preFilledFill;
+      monthCell.font = { color: { argb: 'FF1e40af' } };
+
+      const yearCell = row.getCell(4);
+      yearCell.value = bill.period_year;
+      yearCell.fill = preFilledFill;
+      yearCell.font = { color: { argb: 'FF1e40af' } };
+
+      // User-fillable columns — Amount pre-filled with outstanding balance
+      const totalAmount = Number(bill.total_amount);
+      const amtCell = row.getCell(5);
+      amtCell.value = totalAmount;
+      amtCell.numFmt = '#,##0.00';
+
+      // Mode dropdown
+      row.getCell(6).dataValidation = {
+        type: 'list', allowBlank: true,
         formulae: ['"CASH,CHEQUE,BANK_TRANSFER,ONLINE"'],
         showErrorMessage: true,
         error: 'Choose from: CASH, CHEQUE, BANK_TRANSFER, ONLINE',
         errorTitle: 'Invalid Mode',
       };
-    }
 
-    // Column widths
-    const widths = [14, 10, 14, 8, 14, 16, 14, 18];
-    widths.forEach((w, i) => { ws.getColumn(i + 1).width = w; });
-
-    // Sample rows (2 examples, greyed out)
-    const examples = [
-      ['A101', 'Block A', 6, 2025, 2500, 'CASH', '2025-06-10', ''],
-      ['B202', '',        6, 2025, 2500, 'CHEQUE', '2025-06-12', 'CHQ001234'],
-    ];
-    examples.forEach((ex, ri) => {
-      const row = ws.getRow(ri + 2);
-      ex.forEach((v, ci) => {
-        const cell = row.getCell(ci + 1);
-        cell.value = v;
-        cell.font = { color: { argb: 'FF94a3b8' }, italic: true };
-      });
-      // Format date column
+      // Payment date defaults to today
       const dateCell = row.getCell(7);
+      dateCell.value = today;
       dateCell.numFmt = 'yyyy-mm-dd';
+
+      // Reference No — blank
+      row.getCell(8).value = '';
     });
 
-    // Notes sheet
+    // If no unpaid bills, add one blank example row
+    if (bills.length === 0) {
+      const row = ws.getRow(2);
+      row.getCell(1).value = '';
+      row.getCell(2).value = '';
+      row.getCell(3).value = '';
+      row.getCell(4).value = '';
+      row.getCell(6).dataValidation = {
+        type: 'list', allowBlank: true,
+        formulae: ['"CASH,CHEQUE,BANK_TRANSFER,ONLINE"'],
+        showErrorMessage: true, error: 'Choose from: CASH, CHEQUE, BANK_TRANSFER, ONLINE', errorTitle: 'Invalid Mode',
+      };
+    }
+
+    // ── Notes sheet ─────────────────────────────────────────────────────────────
     const notes = wb.addWorksheet('Notes');
-    notes.getColumn(1).width = 60;
+    notes.getColumn(1).width = 65;
     const noteLines = [
-      'PAYMENT BULK UPLOAD — INSTRUCTIONS',
+      `PAYMENT BULK UPLOAD — Pre-filled with ${bills.length} unpaid / partial bill${bills.length !== 1 ? 's' : ''}`,
       '',
-      'Column Guide:',
-      '• Flat Number  — exact flat/unit number (e.g. A101, 202B)',
-      '• Block        — block or tower (leave blank if not applicable)',
-      '• Month        — billing period month (1–12)',
-      '• Year         — billing period year (e.g. 2025)',
-      '• Amount       — payment amount in ₹',
-      '• Mode         — CASH / CHEQUE / BANK_TRANSFER / ONLINE',
-      '• Payment Date — date payment was received (YYYY-MM-DD)',
-      '• Reference No — cheque number, UTR, etc. (optional)',
+      'Blue cells (Flat, Block, Month, Year) are pre-filled — do not change.',
+      'Fill in: Amount (₹), Mode, Payment Date, Reference No (optional).',
+      '',
+      'Mode values: CASH / CHEQUE / BANK_TRANSFER / ONLINE',
+      'Payment Date format: YYYY-MM-DD',
       '',
       'Rules:',
-      '• The bill for the given Flat / Month / Year must already exist.',
-      '• Bills already marked PAID will be skipped.',
-      '• Partial payments are allowed.',
-      '• Delete the 2 example rows before uploading.',
+      '• Delete rows you do not want to record.',
+      '• Partial payments are allowed — change the Amount.',
+      '• Bills already PAID are not included in this download.',
     ];
     noteLines.forEach((line, i) => {
       const cell = notes.getCell(i + 1, 1);
       cell.value = line;
       if (i === 0) cell.font = { bold: true, size: 12 };
+      else if (i === 2) cell.font = { color: { argb: 'FF1e40af' }, italic: true };
     });
 
     ws.state = 'visible';

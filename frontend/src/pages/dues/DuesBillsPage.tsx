@@ -1,6 +1,9 @@
 import { useState, useRef } from 'react';
+import { useSelector } from 'react-redux';
+import type { RootState } from '../../store';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
+import { API_BASE } from '../../store/api/baseApi';
 import {
   useListBillsQuery,
   useGenerateBillsMutation,
@@ -11,8 +14,6 @@ import {
   useApplyPaymentUploadMutation,
   type PaymentUploadRow,
 } from '../../store/api/duesApi';
-
-const API_BASE = import.meta.env.VITE_API_URL ?? '/api';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -189,9 +190,7 @@ export default function DuesBillsPage() {
   const [previewPaymentUpload] = usePreviewPaymentUploadMutation();
   const [applyPaymentUpload] = useApplyPaymentUploadMutation();
 
-  const token = typeof window !== 'undefined'
-    ? (localStorage.getItem('token') ?? sessionStorage.getItem('token'))
-    : null;
+  const token = useSelector((s: RootState) => s.auth.access_token);
 
   const handleBulkTemplateDownload = async () => {
     try {
