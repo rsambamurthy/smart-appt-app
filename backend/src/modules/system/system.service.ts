@@ -1,7 +1,14 @@
 import prisma from '../../config/database';
-import { MobileConfig } from '@prisma/client';
+import { MobileConfig, Prisma } from '@prisma/client';
 
 export type MobileConfigBody = Omit<MobileConfig, 'id' | 'association_id' | 'created_at' | 'updated_at'>;
+
+/** Shape stored in the menu_items JSON column. */
+export interface MenuItemConfig {
+  enabled: boolean;
+  can_post: boolean;
+}
+export type MenuItemsMap = Record<string, MenuItemConfig>;
 
 const MOBILE_DEFAULTS: MobileConfigBody = {
   feature_bills: true,
@@ -17,6 +24,7 @@ const MOBILE_DEFAULTS: MobileConfigBody = {
   app_name: null,
   theme_color: null,
   logo_url: null,
+  menu_items: Prisma.DbNull,
 };
 
 export class SystemService {

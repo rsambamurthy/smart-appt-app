@@ -60,7 +60,8 @@ const NAV_GROUPS: NavGroup[] = [
     icon: '🔧',
     roles: ['SUPER_USER'],
     items: [
-      { id: 'system_menu_config', label: 'Menu Configuration', path: '/admin/menu-config', roles: ['SUPER_USER'], dot: '#0095db', end: true },
+      { id: 'system_menu_config',   label: 'Menu Configuration',    path: '/admin/menu-config',    roles: ['SUPER_USER'], dot: '#0095db', end: true },
+      { id: 'system_mobile_config', label: 'Mobile App Config',     path: '/admin/mobile-config',  roles: ['SUPER_USER'], dot: '#7c3aed', end: true },
     ],
   },
   {

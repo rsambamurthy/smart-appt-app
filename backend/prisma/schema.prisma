@@ -1145,6 +1145,9 @@ model MobileConfig {
   login_biometric       Boolean     @default(false)
   login_otp_only        Boolean     @default(false)
 
+  // Per-menu-item visibility + permissions (JSON map of itemId → {enabled, can_post})
+  menu_items            Json?
+
   // Branding
   app_name              String?     @db.VarChar(100)
   theme_color           String?     @db.VarChar(7)

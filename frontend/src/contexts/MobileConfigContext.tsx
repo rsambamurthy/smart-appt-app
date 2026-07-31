@@ -18,6 +18,7 @@ const DEFAULT_CONFIG: MobileConfig = {
   app_name: null,
   theme_color: null,
   logo_url: null,
+  menu_items: null,
 };
 
 const MobileConfigContext = createContext<MobileConfig>(DEFAULT_CONFIG);

@@ -227,7 +227,7 @@ const MOBILE_DEFAULTS: MobileConfig = {
   feature_bills: true, feature_announcements: true, feature_complaints: true, feature_visitors: true,
   push_dues_reminder: true, push_announcements: true, push_visitor_alerts: true,
   login_mpin_enabled: true, login_biometric: false, login_otp_only: false,
-  app_name: null, theme_color: null, logo_url: null,
+  app_name: null, theme_color: null, logo_url: null, menu_items: null,
 };
 
 function MobileAppTab() {

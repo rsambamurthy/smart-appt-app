@@ -2,6 +2,12 @@ import { baseApi } from './baseApi';
 
 export type MenuConfig = Record<string, Record<string, boolean>>;
 
+export interface MenuItemConfig {
+  enabled: boolean;
+  can_post: boolean;
+}
+export type MenuItemsMap = Record<string, MenuItemConfig>;
+
 export interface MobileConfig {
   association_id?: string;
   feature_bills: boolean;
@@ -17,6 +23,8 @@ export interface MobileConfig {
   app_name: string | null;
   theme_color: string | null;
   logo_url: string | null;
+  /** Per-menu-item visibility and post permission for the mobile app */
+  menu_items: MenuItemsMap | null;
 }
 
 export const systemApi = baseApi.injectEndpoints({
