@@ -188,7 +188,7 @@ class FYClosureService {
     const surplusAccount = await prisma.account.findFirst({
       where: { id: surplusAccountId, association_id: associationId, type: 'EQUITY', is_active: true },
     });
-    if (!surplusAccount) throw new NotFoundError('Surplus/Deficit account not found or is not an Equity account.');
+    if (!surplusAccount) throw new UnprocessableError('Surplus/Deficit account not found or is not an Equity account.');
 
     const preview = (await this.previewClosure(associationId, fy)).data;
 
@@ -208,67 +208,74 @@ class FYClosureService {
 
     let closingEntryCode: string | null = null;
 
-    if (lines.length > 0 || preview.net_surplus !== 0) {
-      // Add net surplus/deficit plug to equity account
-      if (preview.net_surplus > 0) {
-        lines.push({ account_id: surplusAccountId, debit: 0, credit: preview.net_surplus, narration: `Net Surplus transferred — FY ${fy}` });
-      } else if (preview.net_surplus < 0) {
-        lines.push({ account_id: surplusAccountId, debit: -preview.net_surplus, credit: 0, narration: `Net Deficit transferred — FY ${fy}` });
-      }
+    try {
+      await prisma.$transaction(async (tx) => {
+        if (lines.length > 0 || preview.net_surplus !== 0) {
+          // Add net surplus/deficit plug to equity account
+          if (preview.net_surplus > 0) {
+            lines.push({ account_id: surplusAccountId, debit: 0, credit: preview.net_surplus, narration: `Net Surplus transferred — FY ${fy}` });
+          } else if (preview.net_surplus < 0) {
+            lines.push({ account_id: surplusAccountId, debit: -preview.net_surplus, credit: 0, narration: `Net Deficit transferred — FY ${fy}` });
+          }
 
-      // Use FY's last day as entry date
-      const cfg         = await this.getConfig(associationId);
-      const entryDate   = getLastDayOfFY(fy, cfg.financial_year_start_month);
+          // Use FY's last day as entry date
+          const cfg       = await this.getConfig(associationId);
+          const entryDate = getLastDayOfFY(fy, cfg.financial_year_start_month);
 
-      // Voucher number
-      const seq = await prisma.voucherSequence.upsert({
-        where: { association_id_voucher_type_financial_year: { association_id: associationId, voucher_type: VoucherType.JV, financial_year: fy } },
-        update: { last_sequence: { increment: 1 } },
-        create: { association_id: associationId, voucher_type: VoucherType.JV, financial_year: fy, last_sequence: 1 },
+          // Voucher number
+          const seq = await tx.voucherSequence.upsert({
+            where: { association_id_voucher_type_financial_year: { association_id: associationId, voucher_type: VoucherType.JV, financial_year: fy } },
+            update: { last_sequence: { increment: 1 } },
+            create: { association_id: associationId, voucher_type: VoucherType.JV, financial_year: fy, last_sequence: 1 },
+          });
+          closingEntryCode = `JV-${fy}-${String(seq.last_sequence).padStart(4, '0')}`;
+
+          await tx.journalEntry.create({
+            data: {
+              association_id:  associationId,
+              reference_code:  closingEntryCode,
+              voucher_type:    VoucherType.JV,
+              financial_year:  fy,
+              entry_date:      entryDate,
+              narration:       `Year Closing Entry — FY ${fy}`,
+              status:          JournalStatus.POSTED,
+              source:          JournalEntrySource.AUTO,
+              reference_type:  'YEAR_CLOSE',
+              created_by_id:   closedById,
+              lines:           { create: lines },
+            },
+          });
+        }
+
+        // Record closure
+        await tx.financialYearClose.upsert({
+          where: { association_id_financial_year: { association_id: associationId, financial_year: fy } },
+          update: {
+            status:           'CLOSED',
+            net_surplus:      preview.net_surplus,
+            closing_entry_id: closingEntryCode,
+            closed_by_id:     closedById,
+            closed_at:        new Date(),
+            notes:            notes ?? null,
+            reopened_by_id:   null,
+            reopened_at:      null,
+          },
+          create: {
+            association_id:   associationId,
+            financial_year:   fy,
+            status:           'CLOSED',
+            net_surplus:      preview.net_surplus,
+            closing_entry_id: closingEntryCode,
+            closed_by_id:     closedById,
+            notes:            notes ?? null,
+          },
+        });
       });
-      const yyYY  = fy.replace('-', '-');
-      closingEntryCode = `JV-${yyYY}-${String(seq.last_sequence).padStart(4, '0')}`;
-
-      await prisma.journalEntry.create({
-        data: {
-          association_id:  associationId,
-          reference_code:  closingEntryCode,
-          voucher_type:    VoucherType.JV,
-          financial_year:  fy,
-          entry_date:      entryDate,
-          narration:       `Year Closing Entry — FY ${fy}`,
-          status:          JournalStatus.POSTED,
-          source:          JournalEntrySource.AUTO,
-          reference_type:  'YEAR_CLOSE',
-          created_by_id:   closedById,
-          lines:           { create: lines },
-        },
-      });
+    } catch (err: any) {
+      if (err instanceof NotFoundError || err instanceof UnprocessableError) throw err;
+      // Surface the actual Prisma/DB error so it's visible in the UI
+      throw new UnprocessableError(`FY closure failed: ${err?.message ?? String(err)}`);
     }
-
-    // Record closure
-    await prisma.financialYearClose.upsert({
-      where: { association_id_financial_year: { association_id: associationId, financial_year: fy } },
-      update: {
-        status:           'CLOSED',
-        net_surplus:      preview.net_surplus,
-        closing_entry_id: closingEntryCode,
-        closed_by_id:     closedById,
-        closed_at:        new Date(),
-        notes:            notes ?? null,
-        reopened_by_id:   null,
-        reopened_at:      null,
-      },
-      create: {
-        association_id:   associationId,
-        financial_year:   fy,
-        status:           'CLOSED',
-        net_surplus:      preview.net_surplus,
-        closing_entry_id: closingEntryCode,
-        closed_by_id:     closedById,
-        notes:            notes ?? null,
-      },
-    });
 
     return {
       data: {
