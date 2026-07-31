@@ -51,18 +51,24 @@ class FYClosureService {
     const startMonth = cfg.financial_year_start_month;
     const currentFY  = getFinancialYear(new Date(), startMonth);
 
-    // FYs from journal entries
-    const entries = await prisma.journalEntry.groupBy({
-      by: ['financial_year'],
-      where: { association_id: associationId },
-    });
+    // FYs from journal entries (graceful — may be empty for fresh associations)
+    let entries: { financial_year: string }[] = [];
+    try {
+      entries = await prisma.journalEntry.groupBy({
+        by: ['financial_year'],
+        where: { association_id: associationId },
+      });
+    } catch { /* table may not exist yet */ }
 
-    // Closures
-    const closures = await prisma.financialYearClose.findMany({
-      where: { association_id: associationId },
-      include: { closed_by: { select: { name: true } } },
-    });
-    const closedMap = new Map(closures.map(c => [c.financial_year, c]));
+    // Closures (graceful — table may not exist until migration runs)
+    let closures: any[] = [];
+    try {
+      closures = await prisma.financialYearClose.findMany({
+        where: { association_id: associationId },
+        include: { closed_by: { select: { name: true } } },
+      });
+    } catch { /* migration pending — treat all years as open */ }
+    const closedMap = new Map(closures.map((c: any) => [c.financial_year, c]));
 
     const fySet = new Set([...entries.map(e => e.financial_year), currentFY]);
     const sorted = Array.from(fySet).sort();
@@ -89,9 +95,12 @@ class FYClosureService {
   // ── Preview Closure ────────────────────────────────────────────────────────
 
   async previewClosure(associationId: string, fy: string) {
-    const existing = await prisma.financialYearClose.findUnique({
-      where: { association_id_financial_year: { association_id: associationId, financial_year: fy } },
-    });
+    let existing: any = null;
+    try {
+      existing = await prisma.financialYearClose.findUnique({
+        where: { association_id_financial_year: { association_id: associationId, financial_year: fy } },
+      });
+    } catch { /* table not yet created — treat as open */ }
     if (existing?.status === 'CLOSED') throw new UnprocessableError(`FY ${fy} is already closed.`);
 
     // Collect all income/expense lines for the year
