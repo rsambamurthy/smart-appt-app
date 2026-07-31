@@ -39,6 +39,48 @@ const grid3: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 
 const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px', marginTop: 18 };
 const hint: React.CSSProperties = { fontSize: 11.5, color: '#94a3b8', marginTop: 5 };
 
+/* ── Card wrapper — defined OUTSIDE the page component so it is stable across re-renders ── */
+function Card({
+  icon, iconColor, title, subtitle, accent, children,
+}: {
+  icon: string; iconColor: string;
+  title: string; subtitle: string;
+  accent?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{
+      background: '#fff',
+      border: `1px solid ${accent ? accent : '#e2e8f0'}`,
+      borderLeft: accent ? `4px solid ${accent}` : '1px solid #e2e8f0',
+      borderRadius: 12,
+      padding: '20px 24px',
+      marginBottom: 16,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <i className={`ti ${icon}`} style={{ fontSize: 18, color: iconColor }} aria-hidden="true" />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{title}</div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{subtitle}</div>
+        </div>
+        {accent && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            background: '#dcfce7', color: '#15803d',
+            border: '1px solid #86efac',
+            borderRadius: 99, padding: '4px 12px',
+            fontSize: 12, fontWeight: 600, flexShrink: 0,
+          }}>
+            <i className="ti ti-circle-check" style={{ fontSize: 14 }} aria-hidden="true" />
+            Enabled
+          </div>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export default function DuesConfigPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useGetDuesConfigQuery();
@@ -89,48 +131,6 @@ export default function DuesConfigPage() {
       setError(err?.data?.message ?? err?.data?.detail ?? 'Failed to save.');
     }
   };
-
-  /* ── Card wrapper ── */
-  const Card = ({
-    icon, iconColor, title, subtitle,
-    accent, children,
-  }: {
-    icon: string; iconColor: string;
-    title: string; subtitle: string;
-    accent?: string;
-    children: React.ReactNode;
-  }) => (
-    <div style={{
-      background: '#fff',
-      border: `1px solid ${accent ? accent : '#e2e8f0'}`,
-      borderLeft: accent ? `4px solid ${accent}` : '1px solid #e2e8f0',
-      borderRadius: 12,
-      padding: '20px 24px',
-      marginBottom: 16,
-    }}>
-      {/* Card header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-        <i className={`ti ${icon}`} style={{ fontSize: 18, color: iconColor }} aria-hidden="true" />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{title}</div>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{subtitle}</div>
-        </div>
-        {accent && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 5,
-            background: '#dcfce7', color: '#15803d',
-            border: '1px solid #86efac',
-            borderRadius: 99, padding: '4px 12px',
-            fontSize: 12, fontWeight: 600, flexShrink: 0,
-          }}>
-            <i className="ti ti-circle-check" style={{ fontSize: 14 }} aria-hidden="true" />
-            Enabled
-          </div>
-        )}
-      </div>
-      {children}
-    </div>
-  );
 
   return (
     <Layout>
