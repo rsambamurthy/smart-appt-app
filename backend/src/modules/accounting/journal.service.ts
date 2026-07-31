@@ -553,6 +553,68 @@ class JournalService {
     };
   }
 
+  // ── BACKFILL BP TAGS: tag control-account journal lines with business_partner_id ─
+  async backfillBPTags(associationId: string) {
+    let tagged = 0;
+
+    // Helper: update untagged control-account lines for an entry with a given BP
+    const tagEntry = async (entryId: string, bpId: string) => {
+      // Find lines on control accounts that still have no BP tag
+      const lines = await prisma.journalLine.findMany({
+        where: {
+          journal_entry_id: entryId,
+          business_partner_id: null,
+          account: { is_control_account: true },
+        },
+        select: { id: true },
+      });
+      if (lines.length === 0) return;
+      await prisma.journalLine.updateMany({
+        where: { id: { in: lines.map(l => l.id) } },
+        data: { business_partner_id: bpId },
+      });
+      tagged += lines.length;
+    };
+
+    // 1. DUES_BILL entries
+    const billEntries = await prisma.journalEntry.findMany({
+      where: { association_id: associationId, reference_type: 'DUES_BILL', reference_id: { not: null } },
+      select: { id: true, reference_id: true },
+    });
+    for (const entry of billEntries) {
+      try {
+        const bill = await prisma.bill.findUnique({ where: { id: entry.reference_id! }, select: { unit_id: true } });
+        if (!bill?.unit_id) continue;
+        const bp = await prisma.businessPartner.findFirst({
+          where: { association_id: associationId, unit_id: bill.unit_id },
+          select: { id: true },
+        });
+        if (!bp) continue;
+        await tagEntry(entry.id, bp.id);
+      } catch { /* non-fatal */ }
+    }
+
+    // 2. PAYMENT entries
+    const paymentEntries = await prisma.journalEntry.findMany({
+      where: { association_id: associationId, reference_type: 'PAYMENT', reference_id: { not: null } },
+      select: { id: true, reference_id: true },
+    });
+    for (const entry of paymentEntries) {
+      try {
+        const payment = await prisma.payment.findUnique({ where: { id: entry.reference_id! }, select: { unit_id: true } });
+        if (!payment?.unit_id) continue;
+        const bp = await prisma.businessPartner.findFirst({
+          where: { association_id: associationId, unit_id: payment.unit_id },
+          select: { id: true },
+        });
+        if (!bp) continue;
+        await tagEntry(entry.id, bp.id);
+      } catch { /* non-fatal */ }
+    }
+
+    return { data: { tagged } };
+  }
+
   // ── LEDGER ALL: every non-group account ─────────────────────────────────────
   async getLedgerAll(associationId: string, query: { from?: string; to?: string }) {
     const accounts = await prisma.account.findMany({

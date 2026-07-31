@@ -6,6 +6,7 @@ import {
   useGetLedgerQuery,
   useGetAllLedgerQuery,
   useGetSubLedgerQuery,
+  useBackfillBPTagsMutation,
   type Account,
   type LedgerResult,
   type SubLedgerBP,
@@ -258,6 +259,18 @@ export default function LedgerPage() {
 
   const isLoading = loadingLedger || loadingAll || loadingSub || fetchingLedger || fetchingAll || fetchingSub;
 
+  const [backfillBPTags, { isLoading: syncing }] = useBackfillBPTagsMutation();
+  const [syncMsg, setSyncMsg] = useState('');
+
+  const handleSyncBPTags = async () => {
+    setSyncMsg('');
+    const res = await backfillBPTags().unwrap().catch(() => null);
+    if (res) {
+      setSyncMsg(`✓ Tagged ${res.data.tagged} journal line${res.data.tagged !== 1 ? 's' : ''} with business partners. Reload to see updated sub-ledger.`);
+      if (applied) setApplied({ ...applied }); // re-trigger query
+    }
+  };
+
   const handleView = () => {
     if (!accountId) return;
     setApplied({ accountId, from, to, mode: accountId === ALL_ACCOUNTS ? 'ledger' : mode });
@@ -449,8 +462,16 @@ export default function LedgerPage() {
                     {(applied?.from || applied?.to) && ` · Period: ${applied!.from ? fmtDate(applied!.from) : 'beginning'} — ${applied!.to ? fmtDate(applied!.to) : 'today'}`}
                   </div>
                 </div>
-                {/* Summary totals */}
-                <div style={{ display: 'flex', gap: 20, fontSize: 13 }}>
+                {/* Sync + Summary */}
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 13 }}>
+                  <button
+                    onClick={handleSyncBPTags}
+                    disabled={syncing}
+                    title="Tag existing bills/payments with business partners so they appear in the sub-ledger"
+                    style={{ padding: '5px 11px', borderRadius: 6, border: '1px solid #ddd6fe', background: '#f5f3ff', color: '#7c3aed', fontSize: 11.5, fontWeight: 600, cursor: syncing ? 'wait' : 'pointer', whiteSpace: 'nowrap' }}
+                  >
+                    {syncing ? '⟳ Syncing…' : '⟳ Sync BP Tags'}
+                  </button>
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', marginBottom: 2 }}>Total Closing</div>
                     <div style={{ fontWeight: 700, color: '#7c3aed' }}>
@@ -463,6 +484,12 @@ export default function LedgerPage() {
                 </div>
               </div>
             </div>
+
+            {syncMsg && (
+              <div style={{ margin: '8px 0', padding: '7px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 7, fontSize: 12.5, color: '#15803d', fontWeight: 500 }}>
+                {syncMsg}
+              </div>
+            )}
 
             {subLedger.bps.length === 0 ? (
               <div style={{ color: '#94a3b8', padding: '2rem', textAlign: 'center', fontSize: 13, background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0' }}>

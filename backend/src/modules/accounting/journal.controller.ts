@@ -63,6 +63,14 @@ class JournalController {
     } catch (err) { next(err); }
   };
 
+  backfillBPTags = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const result = await journalService.backfillBPTags(associationId);
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
   getBalanceSheet = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const associationId = (req as never as { user: { association_id: string } }).user.association_id;

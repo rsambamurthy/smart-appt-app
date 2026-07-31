@@ -372,6 +372,10 @@ const accountingApi = baseApi.injectEndpoints({
       query: () => ({ url: '/accounting/journal/backfill', method: 'POST' }),
       invalidatesTags: ['Journal'],
     }),
+    backfillBPTags: builder.mutation<{ data: { tagged: number } }, void>({
+      query: () => ({ url: '/accounting/journal/backfill-bp-tags', method: 'POST' }),
+      invalidatesTags: ['Journal'],
+    }),
     getBalanceSheet: builder.query<{ data: BalanceSheetResult }, { asOf: string }>({
       query: ({ asOf }) => `/accounting/journal/balance-sheet?asOf=${asOf}`,
       providesTags: ['Journal'],
@@ -468,6 +472,7 @@ export const {
   useCreateJournalEntryMutation,
   useUpdateJournalEntryMutation,
   useBackfillTransactionsMutation,
+  useBackfillBPTagsMutation,
   useGetBalanceSheetQuery,
   useGetLedgerQuery,
   useGetAllLedgerQuery,
