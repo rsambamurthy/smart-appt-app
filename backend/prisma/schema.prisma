@@ -1165,7 +1165,7 @@ model FinancialYearClose {
   financial_year     String      @db.VarChar(7)   // e.g. "2024-25"
   status             String      @default("CLOSED") @db.VarChar(20)  // CLOSED | REOPENED
   net_surplus        Decimal     @db.Decimal(15, 2)
-  closing_entry_id   String?     @db.Uuid          // JE reference_code of closing entry
+  closing_entry_id   String?     @db.VarChar(30)   // JE reference_code of closing entry (e.g. "JV-2025-26-0012")
   notes              String?     @db.Text
   closed_by_id       String?     @db.Uuid
   closed_by          User?       @relation("FYClosedBy", fields: [closed_by_id], references: [id])
