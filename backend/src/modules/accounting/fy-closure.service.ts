@@ -178,37 +178,37 @@ class FYClosureService {
     closedById:    string,
     notes?:        string,
   ) {
-    // Guard: already closed
-    const existing = await prisma.financialYearClose.findUnique({
-      where: { association_id_financial_year: { association_id: associationId, financial_year: fy } },
-    });
-    if (existing?.status === 'CLOSED') throw new UnprocessableError(`FY ${fy} is already closed.`);
-
-    // Surplus account must exist and be EQUITY
-    const surplusAccount = await prisma.account.findFirst({
-      where: { id: surplusAccountId, association_id: associationId, type: 'EQUITY', is_active: true },
-    });
-    if (!surplusAccount) throw new UnprocessableError('Surplus/Deficit account not found or is not an Equity account.');
-
-    const preview = (await this.previewClosure(associationId, fy)).data;
-
-    // Build closing journal lines
-    const lines: { account_id: string; debit: number; credit: number; narration: string }[] = [];
-
-    for (const l of preview.income_lines) {
-      if (l.balance > 0) {
-        lines.push({ account_id: l.account.id, debit: l.balance, credit: 0, narration: `Year closing — ${l.account.name}` });
-      }
-    }
-    for (const l of preview.expense_lines) {
-      if (l.balance > 0) {
-        lines.push({ account_id: l.account.id, debit: 0, credit: l.balance, narration: `Year closing — ${l.account.name}` });
-      }
-    }
-
-    let closingEntryCode: string | null = null;
-
     try {
+      // Guard: already closed
+      const existing = await prisma.financialYearClose.findUnique({
+        where: { association_id_financial_year: { association_id: associationId, financial_year: fy } },
+      });
+      if (existing?.status === 'CLOSED') throw new UnprocessableError(`FY ${fy} is already closed.`);
+
+      // Surplus account must exist and be EQUITY
+      const surplusAccount = await prisma.account.findFirst({
+        where: { id: surplusAccountId, association_id: associationId, type: 'EQUITY' as any, is_active: true },
+      });
+      if (!surplusAccount) throw new UnprocessableError('Surplus/Deficit account not found or is not an Equity account.');
+
+      const preview = (await this.previewClosure(associationId, fy)).data;
+
+      // Build closing journal lines
+      const lines: { account_id: string; debit: number; credit: number; narration: string }[] = [];
+
+      for (const l of preview.income_lines) {
+        if (l.balance > 0) {
+          lines.push({ account_id: l.account.id, debit: l.balance, credit: 0, narration: `Year closing — ${l.account.name}` });
+        }
+      }
+      for (const l of preview.expense_lines) {
+        if (l.balance > 0) {
+          lines.push({ account_id: l.account.id, debit: 0, credit: l.balance, narration: `Year closing — ${l.account.name}` });
+        }
+      }
+
+      let closingEntryCode: string | null = null;
+
       await prisma.$transaction(async (tx) => {
         if (lines.length > 0 || preview.net_surplus !== 0) {
           // Add net surplus/deficit plug to equity account
@@ -224,7 +224,7 @@ class FYClosureService {
 
           // Voucher number
           const seq = await tx.voucherSequence.upsert({
-            where: { association_id_voucher_type_financial_year: { association_id: associationId, voucher_type: VoucherType.JV, financial_year: fy } },
+            where:  { association_id_voucher_type_financial_year: { association_id: associationId, voucher_type: VoucherType.JV, financial_year: fy } },
             update: { last_sequence: { increment: 1 } },
             create: { association_id: associationId, voucher_type: VoucherType.JV, financial_year: fy, last_sequence: 1 },
           });
@@ -271,21 +271,22 @@ class FYClosureService {
           },
         });
       });
-    } catch (err: any) {
-      if (err instanceof NotFoundError || err instanceof UnprocessableError) throw err;
-      // Surface the actual Prisma/DB error so it's visible in the UI
-      throw new UnprocessableError(`FY closure failed: ${err?.message ?? String(err)}`);
-    }
 
-    return {
-      data: {
-        financial_year:   fy,
-        net_surplus:      preview.net_surplus,
-        closing_entry_id: closingEntryCode,
-        income_accounts:  preview.income_lines.length,
-        expense_accounts: preview.expense_lines.length,
-      },
-    };
+      return {
+        data: {
+          financial_year:   fy,
+          net_surplus:      preview.net_surplus,
+          closing_entry_id: closingEntryCode,
+          income_accounts:  preview.income_lines.length,
+          expense_accounts: preview.expense_lines.length,
+        },
+      };
+
+    } catch (err: any) {
+      // Re-throw known app errors unchanged; convert all Prisma/unknown errors so the real message is visible
+      if (err instanceof UnprocessableError || err instanceof NotFoundError) throw err;
+      throw new UnprocessableError(`FY closure error: ${err?.message ?? String(err)}`);
+    }
   }
 
   // ── Reopen FY (undo closure, remove closing entry) ─────────────────────────
