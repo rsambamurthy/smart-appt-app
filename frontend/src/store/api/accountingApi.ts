@@ -126,6 +126,20 @@ export interface LedgerResult {
   rows:           LedgerRow[];
 }
 
+export interface SubLedgerBP {
+  bp:             { id: string; name: string; code: string };
+  baseOB:         number;
+  openingBalance: number;
+  closingBalance: number;
+  rows:           Omit<LedgerRow, 'business_partner'>[];
+}
+
+export interface SubLedgerResult {
+  account:       { id: string; code: string; name: string; type: string; sub_type: string | null };
+  isDebitNormal: boolean;
+  bps:           SubLedgerBP[];
+}
+
 // ── BP Types ──────────────────────────────────────────────────────────────────
 export type BPSide     = 'RECEIVABLE' | 'PAYABLE' | 'BOTH';
 export type BPCategory = 'BANK' | 'VENDOR' | 'UNIT';
@@ -371,6 +385,24 @@ const accountingApi = baseApi.injectEndpoints({
       },
       providesTags: ['Journal'],
     }),
+    getAllLedger: builder.query<{ data: LedgerResult[] }, { from?: string; to?: string }>({
+      query: ({ from, to }) => {
+        const q = new URLSearchParams();
+        if (from) q.set('from', from);
+        if (to)   q.set('to',   to);
+        return `/accounting/journal/ledger/all?${q.toString()}`;
+      },
+      providesTags: ['Journal'],
+    }),
+    getSubLedger: builder.query<{ data: SubLedgerResult }, { account_id: string; from?: string; to?: string }>({
+      query: ({ account_id, from, to }) => {
+        const q = new URLSearchParams({ account_id });
+        if (from) q.set('from', from);
+        if (to)   q.set('to',   to);
+        return `/accounting/journal/ledger/sub?${q.toString()}`;
+      },
+      providesTags: ['Journal'],
+    }),
 
     // Service Types
     listServiceTypes: builder.query<{ data: ServiceType[] }, void>({
@@ -438,6 +470,8 @@ export const {
   useBackfillTransactionsMutation,
   useGetBalanceSheetQuery,
   useGetLedgerQuery,
+  useGetAllLedgerQuery,
+  useGetSubLedgerQuery,
   useGetPnLQuery,
   useListServiceTypesQuery,
   useCreateServiceTypeMutation,

@@ -171,6 +171,19 @@ class JournalService {
         this.getAccount(associationId, '1004'),
         this.getAccount(associationId, '3001'),
       ]);
+      // Best-effort: look up unit BP so sub-ledger can track per-unit balances
+      let unitBPId: string | null = null;
+      try {
+        const bill = await prisma.bill.findUnique({ where: { id: billId }, select: { unit_id: true } });
+        if (bill?.unit_id) {
+          const bp = await prisma.businessPartner.findFirst({
+            where: { association_id: associationId, unit_id: bill.unit_id },
+            select: { id: true },
+          });
+          unitBPId = bp?.id ?? null;
+        }
+      } catch { /* non-fatal */ }
+
       await this.post(associationId, {
         entry_date:     new Date(),
         narration,
@@ -179,7 +192,7 @@ class JournalService {
         voucher_type:   VoucherType.JV,
         source:         JournalEntrySource.AUTO,
         lines: [
-          { account_id: duesReceivable.id,   debit: amount, credit: 0,      narration: 'Dues billed' },
+          { account_id: duesReceivable.id,   business_partner_id: unitBPId, debit: amount, credit: 0,      narration: 'Dues billed' },
           { account_id: maintenanceIncome.id, debit: 0,      credit: amount, narration: 'Maintenance income' },
         ],
       });
@@ -212,6 +225,19 @@ class JournalService {
         this.getAccount(associationId, cashOrBankCode(paymentMode)),
         this.getAccount(associationId, '1004'),
       ]);
+      // Best-effort: look up unit BP for sub-ledger tracking
+      let unitBPId: string | null = null;
+      try {
+        const payment = await prisma.payment.findUnique({ where: { id: paymentId }, select: { unit_id: true } });
+        if (payment?.unit_id) {
+          const bp = await prisma.businessPartner.findFirst({
+            where: { association_id: associationId, unit_id: payment.unit_id },
+            select: { id: true },
+          });
+          unitBPId = bp?.id ?? null;
+        }
+      } catch { /* non-fatal */ }
+
       await this.post(associationId, {
         entry_date:     entryDate ?? new Date(),
         narration,
@@ -221,7 +247,7 @@ class JournalService {
         source:         JournalEntrySource.AUTO,
         lines: [
           { account_id: cashOrBank.id,     debit: amount, credit: 0,      narration: 'Payment received' },
-          { account_id: duesReceivable.id, debit: 0,      credit: amount, narration: 'Dues cleared' },
+          { account_id: duesReceivable.id, business_partner_id: unitBPId, debit: 0, credit: amount, narration: 'Dues cleared' },
         ],
       });
     } catch (err) {
@@ -523,6 +549,127 @@ class JournalService {
         openingBalance,  // baseOB + journal lines before 'from' (period view)
         closingBalance:  balance,
         rows,
+      },
+    };
+  }
+
+  // ── LEDGER ALL: every non-group account ─────────────────────────────────────
+  async getLedgerAll(associationId: string, query: { from?: string; to?: string }) {
+    const accounts = await prisma.account.findMany({
+      where: { association_id: associationId, is_group: false, is_active: true },
+      orderBy: [{ type: 'asc' }, { code: 'asc' }],
+    });
+    const results = [];
+    for (const account of accounts) {
+      const ledger = await this.getLedger(associationId, account.id, query);
+      results.push(ledger.data);
+    }
+    return { data: results };
+  }
+
+  // ── SUB-LEDGER: control account broken down by Business Partner ──────────────
+  async getSubLedger(associationId: string, accountId: string, query: { from?: string; to?: string }) {
+    const account = await prisma.account.findFirst({
+      where: { id: accountId, association_id: associationId },
+    });
+    if (!account) throw new NotFoundError('Account not found.');
+    if (!account.is_control_account || !account.bp_type_id) {
+      throw new UnprocessableError('Account is not a control account with a linked BP type.');
+    }
+
+    const isDebitNormal = DEBIT_NORMAL.has(account.type);
+
+    const bps = await prisma.businessPartner.findMany({
+      where: { association_id: associationId, bp_type_id: account.bp_type_id },
+      orderBy: [{ code: 'asc' }],
+    });
+
+    const bpLedgers = await Promise.all(bps.map(async (bp) => {
+      // BP-level opening balance (from bulk upload)
+      let baseOB = 0;
+      if (bp.opening_balance != null) {
+        const amt  = Number(bp.opening_balance);
+        const isDR = bp.opening_balance_type === 'DEBIT';
+        baseOB = isDebitNormal ? (isDR ? amt : -amt) : (isDR ? -amt : amt);
+      }
+
+      // Journal lines before 'from' date (for period opening balance)
+      let journalOB = 0;
+      if (query.from) {
+        const before = await prisma.journalLine.findMany({
+          where: {
+            account_id: accountId,
+            business_partner_id: bp.id,
+            journal_entry: { association_id: associationId, entry_date: { lt: new Date(query.from) } },
+          },
+          select: { debit: true, credit: true },
+        });
+        const dr = before.reduce((s, l) => s + Number(l.debit),  0);
+        const cr = before.reduce((s, l) => s + Number(l.credit), 0);
+        journalOB = isDebitNormal ? dr - cr : cr - dr;
+      }
+
+      const openingBalance = baseOB + journalOB;
+
+      // Lines within range for this BP
+      const lines = await prisma.journalLine.findMany({
+        where: {
+          account_id: accountId,
+          business_partner_id: bp.id,
+          journal_entry: {
+            association_id: associationId,
+            ...(query.from || query.to ? {
+              entry_date: {
+                ...(query.from ? { gte: new Date(query.from) } : {}),
+                ...(query.to   ? { lte: new Date(query.to)   } : {}),
+              },
+            } : {}),
+          },
+        },
+        include: {
+          journal_entry: {
+            select: { id: true, entry_date: true, narration: true, reference_type: true, reference_code: true, voucher_type: true, source: true },
+          },
+        },
+        orderBy: [
+          { journal_entry: { entry_date: 'asc' } },
+          { journal_entry: { created_at: 'asc' } },
+        ],
+      });
+
+      let balance = openingBalance;
+      const rows = lines.map(l => {
+        const dr = Number(l.debit);
+        const cr = Number(l.credit);
+        balance += isDebitNormal ? dr - cr : cr - dr;
+        return {
+          id:             l.id,
+          entry_date:     l.journal_entry.entry_date,
+          narration:      l.journal_entry.narration,
+          reference_code: l.journal_entry.reference_code,
+          reference_type: l.journal_entry.reference_type,
+          voucher_type:   l.journal_entry.voucher_type,
+          source:         l.journal_entry.source,
+          debit:  dr,
+          credit: cr,
+          balance,
+        };
+      });
+
+      return {
+        bp: { id: bp.id, name: bp.name, code: bp.code },
+        baseOB,
+        openingBalance,
+        closingBalance: balance,
+        rows,
+      };
+    }));
+
+    return {
+      data: {
+        account: { id: account.id, code: account.code, name: account.name, type: account.type, sub_type: account.sub_type },
+        isDebitNormal,
+        bps: bpLedgers,
       },
     };
   }

@@ -65,7 +65,9 @@ router.post('/banks/upload/apply',    requireRoles(...managerRoles), bankUploadC
 // ── Journal Entries ───────────────────────────────────────────────────────────
 router.get ('/journal',         requireRoles(...viewRoles),    journalController.list);
 router.post('/journal',         requireRoles(...managerRoles), ...journalController.createManual);
-router.get ('/journal/ledger',  requireRoles(...viewRoles),    journalController.getLedger);
+router.get ('/journal/ledger',     requireRoles(...viewRoles), journalController.getLedger);
+router.get ('/journal/ledger/all', requireRoles(...viewRoles), journalController.getAllLedger);
+router.get ('/journal/ledger/sub', requireRoles(...viewRoles), journalController.getSubLedger);
 router.get ('/journal/pnl',           requireRoles(...viewRoles), journalController.getPnL);
 router.get ('/journal/balance-sheet', requireRoles(...viewRoles),    journalController.getBalanceSheet);
 router.post('/journal/backfill',      requireRoles(...managerRoles), journalController.backfill);
