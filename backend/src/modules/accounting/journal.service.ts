@@ -573,16 +573,45 @@ class JournalService {
       where: { id: accountId, association_id: associationId },
     });
     if (!account) throw new NotFoundError('Account not found.');
-    if (!account.is_control_account || !account.bp_type_id) {
-      throw new UnprocessableError('Account is not a control account with a linked BP type.');
+    if (!account.is_control_account) {
+      throw new UnprocessableError('Account is not a control account.');
     }
 
     const isDebitNormal = DEBIT_NORMAL.has(account.type);
 
-    const bps = await prisma.businessPartner.findMany({
-      where: { association_id: associationId, bp_type_id: account.bp_type_id },
-      orderBy: [{ code: 'asc' }],
+    // Source 1: BPs of the linked bp_type (for opening balance support)
+    const bpMap = new Map<string, { id: string; name: string; code: string; opening_balance: any; opening_balance_type: string | null }>();
+    if (account.bp_type_id) {
+      const typeBPs = await prisma.businessPartner.findMany({
+        where: { association_id: associationId, bp_type_id: account.bp_type_id, is_active: true },
+        select: { id: true, name: true, code: true, opening_balance: true, opening_balance_type: true },
+        orderBy: [{ code: 'asc' }],
+      });
+      typeBPs.forEach(bp => bpMap.set(bp.id, bp));
+    }
+
+    // Source 2: BPs that appear in journal lines for this account (for actual activity)
+    const lineBPRecords = await prisma.journalLine.findMany({
+      where: {
+        account_id: accountId,
+        business_partner_id: { not: null },
+        journal_entry: { association_id: associationId },
+      },
+      select: { business_partner_id: true },
+      distinct: ['business_partner_id'],
     });
+    const unseenIds = lineBPRecords
+      .map(l => l.business_partner_id!)
+      .filter(id => !bpMap.has(id));
+    if (unseenIds.length > 0) {
+      const extraBPs = await prisma.businessPartner.findMany({
+        where: { id: { in: unseenIds } },
+        select: { id: true, name: true, code: true, opening_balance: true, opening_balance_type: true },
+      });
+      extraBPs.forEach(bp => bpMap.set(bp.id, bp));
+    }
+
+    const bps = Array.from(bpMap.values()).sort((a, b) => a.code.localeCompare(b.code));
 
     const bpLedgers = await Promise.all(bps.map(async (bp) => {
       // BP-level opening balance (from bulk upload)
