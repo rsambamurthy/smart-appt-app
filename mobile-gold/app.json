@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "SmartAppt Gold",
+    "slug": "smart-appt-gold",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#F5F3FF"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.smartappt.gold"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#7C3AED"
+      },
+      "package": "com.smartappt.gold"
+    },
+    "extra": {
+      "apiUrl": "https://smart-appt-app-production.up.railway.app/api/v1",
+      "eas": {
+        "projectId": "smart-appt-gold"
+      }
+    },
+    "plugins": ["expo-secure-store", "expo-font"]
+  }
+}
