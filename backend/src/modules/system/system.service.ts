@@ -24,8 +24,25 @@ const MOBILE_DEFAULTS: MobileConfigBody = {
   app_name: null,
   theme_color: null,
   logo_url: null,
-  menu_items: Prisma.DbNull,
+  menu_items: null,
 };
+
+/**
+ * Prisma's nullable JSON fields require `Prisma.DbNull` (not JS `null`) in
+ * create/update inputs. This helper converts the output-typed body into a
+ * safe Prisma input object.
+ */
+function toJsonInput(
+  body: Partial<MobileConfigBody>,
+  defaults?: MobileConfigBody,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...(defaults ?? {}), ...body };
+  // For every key that is null and came from a Json? column, use Prisma.DbNull
+  if ('menu_items' in result && result['menu_items'] === null) {
+    result['menu_items'] = Prisma.DbNull;
+  }
+  return result;
+}
 
 export class SystemService {
   async getMenuConfig() {
@@ -64,10 +81,13 @@ export class SystemService {
   }
 
   async saveMobileConfig(associationId: string, body: Partial<MobileConfigBody>) {
-    const config = await prisma.mobileConfig.upsert({
-      where: { association_id: associationId },
-      create: { association_id: associationId, ...MOBILE_DEFAULTS, ...body },
-      update: body,
+    const createData = toJsonInput(body, MOBILE_DEFAULTS);
+    const updateData = toJsonInput(body);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const config = await (prisma.mobileConfig.upsert as any)({
+      where:  { association_id: associationId },
+      create: { association_id: associationId, ...createData },
+      update: updateData,
     });
     return { data: config };
   }
