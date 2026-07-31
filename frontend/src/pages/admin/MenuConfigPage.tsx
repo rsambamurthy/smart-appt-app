@@ -225,6 +225,8 @@ function WebMenuTab() {
 
 const MOBILE_DEFAULTS: MobileConfig = {
   feature_bills: true, feature_announcements: true, feature_complaints: true, feature_visitors: true,
+  feature_journal: true, feature_ledger: true, feature_pnl: true,
+  feature_balance_sheet: true, feature_coa: true, feature_fy_closure: true,
   push_dues_reminder: true, push_announcements: true, push_visitor_alerts: true,
   login_mpin_enabled: true, login_biometric: false, login_otp_only: false,
   app_name: null, theme_color: null, logo_url: null, menu_items: null,
@@ -300,6 +302,16 @@ function MobileAppTab() {
               <ToggleRow label="Announcements & Feed" description="Community notices, polls, and posts" on={form.feature_announcements} onChange={() => set('feature_announcements', !form.feature_announcements)} />
               <ToggleRow label="Complaints & Maintenance" description="Raise and track service requests" on={form.feature_complaints} onChange={() => set('feature_complaints', !form.feature_complaints)} />
               <ToggleRow label="Visitor Management" description="Approve and log gate visitors" on={form.feature_visitors} onChange={() => set('feature_visitors', !form.feature_visitors)} />
+            </SectionCard>
+
+            {/* Accounting (Gold mobile) */}
+            <SectionCard title="Accounting (Gold)" icon="📒">
+              <ToggleRow label="Journal Entries" description="View and create accounting journal entries" on={form.feature_journal} onChange={() => set('feature_journal', !form.feature_journal)} />
+              <ToggleRow label="Ledger" description="Account-wise ledger view" on={form.feature_ledger} onChange={() => set('feature_ledger', !form.feature_ledger)} />
+              <ToggleRow label="P&L Report" description="Profit & Loss statement by financial year" on={form.feature_pnl} onChange={() => set('feature_pnl', !form.feature_pnl)} />
+              <ToggleRow label="Balance Sheet" description="Assets, liabilities and equity summary" on={form.feature_balance_sheet} onChange={() => set('feature_balance_sheet', !form.feature_balance_sheet)} />
+              <ToggleRow label="Chart of Accounts" description="View the chart of accounts" on={form.feature_coa} onChange={() => set('feature_coa', !form.feature_coa)} />
+              <ToggleRow label="FY Closure" description="Financial year close-out tool" on={form.feature_fy_closure} onChange={() => set('feature_fy_closure', !form.feature_fy_closure)} />
             </SectionCard>
 
             {/* Push Notifications */}

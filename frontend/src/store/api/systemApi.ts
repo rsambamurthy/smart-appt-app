@@ -14,6 +14,13 @@ export interface MobileConfig {
   feature_announcements: boolean;
   feature_complaints: boolean;
   feature_visitors: boolean;
+  // Accounting feature flags (Gold mobile)
+  feature_journal: boolean;
+  feature_ledger: boolean;
+  feature_pnl: boolean;
+  feature_balance_sheet: boolean;
+  feature_coa: boolean;
+  feature_fy_closure: boolean;
   push_dues_reminder: boolean;
   push_announcements: boolean;
   push_visitor_alerts: boolean;
