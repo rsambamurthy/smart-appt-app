@@ -165,7 +165,8 @@ class PaymentUploadService {
   // ── Preview Upload ───────────────────────────────────────────────────────────
   async previewUpload(associationId: string, fileBuffer: Buffer): Promise<PaymentUploadPreviewRow[]> {
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(fileBuffer);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await wb.xlsx.load(fileBuffer as any);
 
     const ws = wb.getWorksheet('Payments');
     if (!ws) throw new Error('Sheet "Payments" not found. Please use the provided template.');
