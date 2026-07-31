@@ -1135,6 +1135,14 @@ model MobileConfig {
   feature_complaints    Boolean     @default(true)
   feature_visitors      Boolean     @default(true)
 
+  // Accounting feature flags (Gold mobile only)
+  feature_journal       Boolean     @default(true)
+  feature_ledger        Boolean     @default(true)
+  feature_pnl           Boolean     @default(true)
+  feature_balance_sheet Boolean     @default(true)
+  feature_coa           Boolean     @default(true)
+  feature_fy_closure    Boolean     @default(true)
+
   // Push notification categories
   push_dues_reminder    Boolean     @default(true)
   push_announcements    Boolean     @default(true)
