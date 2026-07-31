@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { UserRole } from '@prisma/client';
 import { duesController } from './dues.controller';
+import { paymentUploadController } from './payment-upload.controller';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
 import { validate } from '../../middleware/validate';
@@ -10,6 +12,8 @@ import {
   oneTimeDueSchema, updateOneTimeDueSchema, generateOneTimeDueBillsSchema,
 } from './dues.schema';
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const treasurerOrManagerRoles = [UserRole.SUPER_USER, UserRole.TREASURER, UserRole.MANAGER];
 
 // Razorpay webhook — no auth, raw body
 router.post('/payments/webhook', (req, res, next) =>
@@ -51,6 +55,16 @@ router.post('/payments/verify', (req, res, next) =>
 
 router.post('/payments/offline', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(offlinePaymentSchema), (req, res, next) =>
   duesController.offlinePayment(req as never, res, next));
+
+// ── Bulk Payment Upload ───────────────────────────────────────────────────────
+router.get('/payments/upload/template', requireRoles(...treasurerOrManagerRoles), (req, res, next) =>
+  paymentUploadController.downloadTemplate(req, res, next));
+
+router.post('/payments/upload/preview', requireRoles(...treasurerOrManagerRoles), upload.single('file'), (req, res, next) =>
+  paymentUploadController.previewUpload(req as never, res, next));
+
+router.post('/payments/upload/apply', requireRoles(...treasurerOrManagerRoles), (req, res, next) =>
+  paymentUploadController.applyUpload(req as never, res, next));
 
 router.get('/arrears', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   duesController.arrears(req as never, res, next));

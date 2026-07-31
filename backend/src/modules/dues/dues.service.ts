@@ -383,6 +383,16 @@ export class DuesService {
 
     await prisma.bill.update({ where: { id: billId }, data: { status: BillStatus.PAID } });
 
+    // Auto-post: DR Bank Account / CR Dues Receivable (idempotent — safe even if verifyPayment already fired)
+    journalService.postPaymentReceived(
+      bill.association_id,
+      paid.id,
+      Number(paid.amount),
+      'BANK',
+      `Online payment received (webhook) — Bill ${billId}`,
+      new Date(payment.created_at * 1000),
+    );
+
     await notificationService.dispatch({
       type: 'PAYMENT_RECEIVED',
       channels: ['PUSH', 'EMAIL'],
@@ -425,13 +435,14 @@ export class DuesService {
     const newStatus = totalAmount >= billTotal ? BillStatus.PAID : BillStatus.PARTIAL;
     await prisma.bill.update({ where: { id: body.bill_id }, data: { status: newStatus } });
 
-    // Auto-post: DR Cash/Bank / CR Dues Receivable
+    // Auto-post: DR Cash/Bank / CR Dues Receivable (use actual payment date)
     journalService.postPaymentReceived(
       associationId,
       payment.id,
       body.amount,
       body.mode,
       `Dues payment received — Flat ${bill.unit?.flat_number ?? ''}`,
+      new Date(body.payment_date),
     );
 
     return { data: payment };

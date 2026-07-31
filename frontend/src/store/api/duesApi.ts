@@ -1,5 +1,22 @@
 import { baseApi } from './baseApi';
 
+export interface PaymentUploadRow {
+  row_num:        number;
+  flat_number:    string;
+  block:          string | null;
+  period_month:   number | null;
+  period_year:    number | null;
+  amount:         number | null;
+  mode:           string | null;
+  payment_date:   string | null;
+  reference_no:   string | null;
+  bill_id:        string | null;
+  unit_id:        string | null;
+  current_status: string | null;
+  status:         'create' | 'skip' | 'error';
+  error?:         string;
+}
+
 export const duesApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getDuesConfig: builder.query<{ data: unknown }, void>({ query: () => '/dues/config', providesTags: ['Bill'] }),
@@ -24,6 +41,14 @@ export const duesApi = baseApi.injectEndpoints({
     closeOneTimeDue: builder.mutation<{ data: unknown }, string>({ query: (id) => ({ url: `/dues/one-time-dues/${id}/close`, method: 'POST', body: {} }), invalidatesTags: ['Bill'] }),
     getRazorpayConfig: builder.query<{ data: { razorpay_key_id: string | null; has_key_secret: boolean } }, void>({ query: () => '/dues/razorpay-config', providesTags: ['Bill'] }),
     saveRazorpayConfig: builder.mutation<{ data: unknown }, { razorpay_key_id: string; razorpay_key_secret: string }>({ query: (body) => ({ url: '/dues/razorpay-config', method: 'PUT', body }), invalidatesTags: ['Bill'] }),
+    // Bulk Payment Upload
+    previewPaymentUpload: builder.mutation<{ data: PaymentUploadRow[] }, FormData>({
+      query: (formData) => ({ url: '/dues/payments/upload/preview', method: 'POST', body: formData }),
+    }),
+    applyPaymentUpload: builder.mutation<{ data: { created: number } }, PaymentUploadRow[]>({
+      query: (rows) => ({ url: '/dues/payments/upload/apply', method: 'POST', body: { rows } }),
+      invalidatesTags: ['Bill', 'Payment'],
+    }),
   }),
 });
 
@@ -35,4 +60,5 @@ export const {
   useListOneTimeDuesQuery, useCreateOneTimeDueMutation, useUpdateOneTimeDueMutation,
   useDeleteOneTimeDueMutation, useGenerateOneTimeDueBillsMutation, useDeleteOneTimeDueBillsMutation, useCloseOneTimeDueMutation,
   useGetRazorpayConfigQuery, useSaveRazorpayConfigMutation,
+  usePreviewPaymentUploadMutation, useApplyPaymentUploadMutation,
 } = duesApi;

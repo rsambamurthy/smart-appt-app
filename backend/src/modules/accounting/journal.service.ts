@@ -196,22 +196,32 @@ class JournalService {
     amount:        number,
     paymentMode:   string,
     narration:     string,
+    entryDate?:    Date,   // use actual payment date; defaults to now
   ) {
     try {
+      // Idempotency: skip if a JE already exists for this payment
+      const existing = await prisma.journalEntry.findFirst({
+        where: { association_id: associationId, reference_type: 'PAYMENT', reference_id: paymentId },
+      });
+      if (existing) {
+        logger.info('postPaymentReceived: JE already exists, skipping', { paymentId, jeId: existing.id });
+        return;
+      }
+
       const [cashOrBank, duesReceivable] = await Promise.all([
         this.getAccount(associationId, cashOrBankCode(paymentMode)),
         this.getAccount(associationId, '1004'),
       ]);
       await this.post(associationId, {
-        entry_date:     new Date(),
+        entry_date:     entryDate ?? new Date(),
         narration,
         reference_type: 'PAYMENT',
         reference_id:   paymentId,
         voucher_type:   VoucherType.RV,
         source:         JournalEntrySource.AUTO,
         lines: [
-          { account_id: cashOrBank.id,      debit: amount, credit: 0,      narration: 'Payment received' },
-          { account_id: duesReceivable.id,  debit: 0,      credit: amount, narration: 'Dues cleared' },
+          { account_id: cashOrBank.id,     debit: amount, credit: 0,      narration: 'Payment received' },
+          { account_id: duesReceivable.id, debit: 0,      credit: amount, narration: 'Dues cleared' },
         ],
       });
     } catch (err) {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
@@ -7,7 +7,12 @@ import {
   useRollbackBillsMutation,
   useRecordOfflinePaymentMutation,
   useGetDuesDashboardQuery,
+  usePreviewPaymentUploadMutation,
+  useApplyPaymentUploadMutation,
+  type PaymentUploadRow,
 } from '../../store/api/duesApi';
+
+const API_BASE = import.meta.env.VITE_API_URL ?? '/api';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -173,6 +178,75 @@ export default function DuesBillsPage() {
     }
   };
 
+  // ── Bulk Payment Upload ──────────────────────────────────────────────────────
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [bulkPreviewRows, setBulkPreviewRows] = useState<PaymentUploadRow[] | null>(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkApplying, setBulkApplying] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ created: number } | null>(null);
+  const [bulkError, setBulkError] = useState('');
+  const bulkFileRef = useRef<HTMLInputElement>(null);
+  const [previewPaymentUpload] = usePreviewPaymentUploadMutation();
+  const [applyPaymentUpload] = useApplyPaymentUploadMutation();
+
+  const token = typeof window !== 'undefined'
+    ? (localStorage.getItem('token') ?? sessionStorage.getItem('token'))
+    : null;
+
+  const handleBulkTemplateDownload = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/dues/payments/upload/template`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'SmartAppt_PaymentUpload_Template.xlsx'; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) { console.error('[Payment template]', err); }
+  };
+
+  const handleBulkFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkError('');
+    setBulkPreviewRows(null);
+    setBulkResult(null);
+    setBulkUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await previewPaymentUpload(fd).unwrap();
+      setBulkPreviewRows(res.data);
+    } catch (err: unknown) {
+      const e2 = err as { data?: { message?: string } };
+      setBulkError(e2?.data?.message ?? 'Preview failed.');
+    } finally {
+      setBulkUploading(false);
+      if (bulkFileRef.current) bulkFileRef.current.value = '';
+    }
+  };
+
+  const handleBulkApply = async () => {
+    if (!bulkPreviewRows) return;
+    const createRows = bulkPreviewRows.filter(r => r.status === 'create');
+    if (createRows.length === 0) return;
+    setBulkApplying(true);
+    setBulkError('');
+    try {
+      const res = await applyPaymentUpload(createRows).unwrap();
+      setBulkResult(res.data);
+      setBulkPreviewRows(null);
+      refetch();
+    } catch (err: unknown) {
+      const e2 = err as { data?: { message?: string } };
+      setBulkError(e2?.data?.message ?? 'Apply failed.');
+    } finally {
+      setBulkApplying(false);
+    }
+  };
+
   // ── Compute amounts paid for display ────────────────────────────────────────
   const paidAmount = (bill: Bill) =>
     bill.payments.reduce((s, p) => s + Number(p.amount), 0);
@@ -309,9 +383,109 @@ export default function DuesBillsPage() {
 
         {/* ── Bills Table ── */}
         <div className="ent-section">
-          <div className="ent-section-hdr">
+          <div className="ent-section-hdr" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span className="ent-section-title">Bills</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleBulkTemplateDownload}
+                style={{ padding: '5px 12px', fontSize: 12, borderRadius: 6, border: '1px solid #cbd5e1', background: '#f8fafc', color: '#475569', cursor: 'pointer', fontWeight: 600 }}
+              >⬇ Template</button>
+              <button
+                onClick={() => { setShowBulkUpload(v => !v); setBulkPreviewRows(null); setBulkResult(null); setBulkError(''); }}
+                style={{ padding: '5px 12px', fontSize: 12, borderRadius: 6, border: '1px solid #93c5fd', background: showBulkUpload ? '#dbeafe' : '#eff6ff', color: '#1d4ed8', cursor: 'pointer', fontWeight: 600 }}
+              >📤 Bulk Upload</button>
+            </div>
           </div>
+
+          {/* ── Bulk Upload Panel ── */}
+          {showBulkUpload && (
+            <div style={{ margin: '0 1.25rem 1rem', padding: '1rem 1.25rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>Bulk Payment Upload</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+                Download the template, fill in payment details (Flat, Month, Year, Amount, Mode, Date), then upload for preview before applying.
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <input
+                  ref={bulkFileRef}
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={handleBulkFileChange}
+                  style={{ fontSize: 12, cursor: 'pointer' }}
+                  disabled={bulkUploading}
+                />
+                {bulkUploading && <span style={{ fontSize: 12, color: '#64748b' }}>Parsing file…</span>}
+              </div>
+
+              {bulkError && (
+                <div style={{ marginTop: 10, padding: '8px 12px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#dc2626', fontSize: 12 }}>
+                  {bulkError}
+                </div>
+              )}
+
+              {bulkResult && (
+                <div style={{ marginTop: 10, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, color: '#15803d', fontSize: 12, fontWeight: 600 }}>
+                  ✓ {bulkResult.created} payment{bulkResult.created !== 1 ? 's' : ''} recorded successfully.
+                </div>
+              )}
+
+              {bulkPreviewRows && bulkPreviewRows.length > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
+                      Preview — {bulkPreviewRows.filter(r => r.status === 'create').length} to create,{' '}
+                      {bulkPreviewRows.filter(r => r.status === 'skip').length} to skip,{' '}
+                      {bulkPreviewRows.filter(r => r.status === 'error').length} errors
+                    </div>
+                    {bulkPreviewRows.some(r => r.status === 'create') && (
+                      <button
+                        onClick={handleBulkApply}
+                        disabled={bulkApplying}
+                        style={{ padding: '5px 16px', fontSize: 12, borderRadius: 6, border: 'none', background: '#2563eb', color: '#fff', fontWeight: 700, cursor: bulkApplying ? 'not-allowed' : 'pointer' }}
+                      >
+                        {bulkApplying ? 'Applying…' : '✓ Apply & Record Payments'}
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+                      <thead>
+                        <tr style={{ background: '#f1f5f9', position: 'sticky', top: 0 }}>
+                          <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>#</th>
+                          <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Flat</th>
+                          <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Period</th>
+                          <th style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700, color: '#475569' }}>Amount</th>
+                          <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Mode</th>
+                          <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 700, color: '#475569' }}>Date</th>
+                          <th style={{ padding: '6px 10px', textAlign: 'center', fontWeight: 700, color: '#475569' }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bulkPreviewRows.map((row) => {
+                          const statusColor = row.status === 'create' ? '#15803d' : row.status === 'skip' ? '#d97706' : '#dc2626';
+                          const statusBg    = row.status === 'create' ? '#f0fdf4' : row.status === 'skip' ? '#fffbeb' : '#fef2f2';
+                          return (
+                            <tr key={row.row_num} style={{ borderTop: '1px solid #f1f5f9' }}>
+                              <td style={{ padding: '5px 10px', color: '#94a3b8' }}>{row.row_num}</td>
+                              <td style={{ padding: '5px 10px', fontWeight: 600 }}>{row.flat_number}{row.block ? ` / ${row.block}` : ''}</td>
+                              <td style={{ padding: '5px 10px', color: '#475569' }}>{row.period_month && row.period_year ? `${row.period_month}/${row.period_year}` : '—'}</td>
+                              <td style={{ padding: '5px 10px', textAlign: 'right' }}>{row.amount != null ? `₹${row.amount.toLocaleString()}` : '—'}</td>
+                              <td style={{ padding: '5px 10px', color: '#475569' }}>{row.mode ?? '—'}</td>
+                              <td style={{ padding: '5px 10px', color: '#475569' }}>{row.payment_date ?? '—'}</td>
+                              <td style={{ padding: '5px 10px', textAlign: 'center' }}>
+                                <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, background: statusBg, color: statusColor, fontWeight: 700, fontSize: 11 }}>
+                                  {row.status === 'create' ? '✓ Create' : row.status === 'skip' ? '⊘ Skip' : `✗ ${row.error}`}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Toolbar */}
           <div className="ent-toolbar" style={{ padding: '0.75rem 1.25rem', gap: '0.75rem', flexWrap: 'wrap' }}>
