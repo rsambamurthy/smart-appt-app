@@ -44,6 +44,7 @@ import OtherReceiptsPage from './pages/receipts/OtherReceiptsPage';
 import MenuConfigPage from './pages/admin/MenuConfigPage';
 import MobileConfigPage from './pages/admin/MobileConfigPage';
 import AuditLogPage from './pages/admin/AuditLogPage';
+import InsightsPage from './pages/reports/InsightsPage';
 import ChangeMpinPage from './pages/ChangeMpinPage';
 import TransactionsDashboardPage from './pages/transactions/TransactionsDashboardPage';
 import ReportsPage from './pages/transactions/ReportsPage';
@@ -138,6 +139,7 @@ export default function App() {
         {!IS_NATIVE && <Route path="/admin/menu-config"    element={<RoleRoute roles={['SUPER_USER']}><MenuConfigPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/admin/mobile-config" element={<RoleRoute roles={['SUPER_USER']}><MobileConfigPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/admin/audit-log" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><AuditLogPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/reports/insights" element={<RoleRoute roles={['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE']}><InsightsPage /></RoleRoute>} />}
 
         {/* Transactions */}
         {!IS_NATIVE && <Route path="/transactions/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><TransactionsDashboardPage /></RoleRoute>} />}
