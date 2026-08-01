@@ -375,16 +375,21 @@ class JournalService {
   // ── P&L: Income & Expenditure statement for a period ─────────────────────────
   async getPnL(associationId: string, query: { from: string; to: string }) {
     // Sum journal lines grouped by account for INCOME + EXPENSE accounts in period
-    type Row = { id: string; code: string; name: string; sub_type: string | null; total_debit: bigint; total_credit: bigint };
+    // NOTE: amounts are cast to float8, not bigint — Decimal(15,2) rounded to
+    // bigint discards paise and makes reports disagree with the ledger.
+    // NOTE: only POSTED entries count. DRAFT entries are not yet accounts, and
+    // CANCELLED entries have been reversed out.
+    type Row = { id: string; code: string; name: string; sub_type: string | null; total_debit: number; total_credit: number };
     const rows = await prisma.$queryRaw<Row[]>`
       SELECT
         a.id, a.code, a.name, a.sub_type,
-        COALESCE(SUM(jl.debit),  0)::bigint AS total_debit,
-        COALESCE(SUM(jl.credit), 0)::bigint AS total_credit
+        COALESCE(SUM(jl.debit),  0)::float8 AS total_debit,
+        COALESCE(SUM(jl.credit), 0)::float8 AS total_credit
       FROM accounts a
       LEFT JOIN journal_lines jl ON jl.account_id = a.id
       LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
         AND je.association_id = ${associationId}::uuid
+        AND je.status = 'POSTED'::"JournalStatus"
         AND je.entry_date BETWEEN ${new Date(query.from)} AND ${new Date(query.to)}
       WHERE a.association_id = ${associationId}::uuid
         AND a.type IN ('INCOME','EXPENSE')
@@ -480,6 +485,7 @@ class JournalService {
           account_id:    accountId,
           journal_entry: {
             association_id: associationId,
+            status:         JournalStatus.POSTED,
             entry_date:     { lt: new Date(query.from) },
           },
         },
@@ -499,6 +505,7 @@ class JournalService {
         account_id: accountId,
         journal_entry: {
           association_id: associationId,
+          status:         JournalStatus.POSTED,
           ...(query.from || query.to ? {
             entry_date: {
               ...(query.from ? { gte: new Date(query.from) } : {}),
@@ -656,7 +663,7 @@ class JournalService {
       where: {
         account_id: accountId,
         business_partner_id: { not: null },
-        journal_entry: { association_id: associationId },
+        journal_entry: { association_id: associationId, status: JournalStatus.POSTED },
       },
       select: { business_partner_id: true },
       distinct: ['business_partner_id'],
@@ -690,7 +697,11 @@ class JournalService {
           where: {
             account_id: accountId,
             business_partner_id: bp.id,
-            journal_entry: { association_id: associationId, entry_date: { lt: new Date(query.from) } },
+            journal_entry: {
+              association_id: associationId,
+              status:         JournalStatus.POSTED,
+              entry_date:     { lt: new Date(query.from) },
+            },
           },
           select: { debit: true, credit: true },
         });
@@ -708,6 +719,7 @@ class JournalService {
           business_partner_id: bp.id,
           journal_entry: {
             association_id: associationId,
+            status:         JournalStatus.POSTED,
             ...(query.from || query.to ? {
               entry_date: {
                 ...(query.from ? { gte: new Date(query.from) } : {}),
@@ -772,18 +784,21 @@ class JournalService {
     type Row = {
       id: string; code: string; name: string;
       sub_type: string | null; type: string;
-      total_debit: bigint; total_credit: bigint;
+      total_debit: number; total_credit: number;
     };
 
+    // float8 preserves paise (bigint rounded them away); POSTED only, so that
+    // cancelling an entry actually removes it from the balance sheet.
     const rows = await prisma.$queryRaw<Row[]>`
       SELECT
         a.id, a.code, a.name, a.sub_type, a.type,
-        COALESCE(SUM(jl.debit),  0)::bigint AS total_debit,
-        COALESCE(SUM(jl.credit), 0)::bigint AS total_credit
+        COALESCE(SUM(jl.debit),  0)::float8 AS total_debit,
+        COALESCE(SUM(jl.credit), 0)::float8 AS total_credit
       FROM accounts a
       LEFT JOIN journal_lines jl ON jl.account_id = a.id
       LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
         AND je.association_id = ${associationId}::uuid
+        AND je.status = 'POSTED'::"JournalStatus"
         AND je.entry_date <= ${asOfDate}
       WHERE a.association_id = ${associationId}::uuid
         AND a.type IN ('ASSET','LIABILITY','EQUITY','INCOME','EXPENSE')
