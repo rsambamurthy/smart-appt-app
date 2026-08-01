@@ -19,7 +19,7 @@ export default function MoreScreen() {
   const user       = useAppSelector(s => s.auth.user);
   const config     = useAppSelector(s => s.auth.mobileConfig);
 
-  const categories = visibleCategories(config);
+  const categories = visibleCategories(config, user?.role);
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure?', [

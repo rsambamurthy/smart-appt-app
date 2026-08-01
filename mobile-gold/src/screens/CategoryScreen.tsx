@@ -14,6 +14,7 @@ export default function CategoryScreen() {
   const navigation = useNavigation<any>();
   const route      = useRoute<any>();
   const config     = useAppSelector(s => s.auth.mobileConfig);
+  const user       = useAppSelector(s => s.auth.user);
 
   const categoryId = route.params?.categoryId as string | undefined;
   const category   = CATEGORIES.find(c => c.id === categoryId);
@@ -26,7 +27,7 @@ export default function CategoryScreen() {
     );
   }
 
-  const items = enabledItems(category, config);
+  const items = enabledItems(category, config, user?.role);
 
   return (
     <ScrollView style={s.container} contentContainerStyle={s.content}>

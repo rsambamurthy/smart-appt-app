@@ -119,7 +119,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: 'V',
     roles: ['SUPER_USER', 'MANAGER', 'COMMITTEE', 'TREASURER', 'GATE_STAFF', 'RESIDENT'],
     items: [
-      { id: 'visitors_log',        label: 'Visitor Log',    path: '/visitors',           roles: ['SUPER_USER', 'MANAGER', 'GATE_STAFF'],                                dot: '#22c55e', end: true },
+      { id: 'visitors_log',        label: 'Visitor Log',    path: '/visitors',           roles: ALL_ROLES,                                                              dot: '#22c55e', end: true },
       { id: 'visitors_preapprove', label: 'Pre-Approve',    path: '/visitors/preapprove',roles: ['SUPER_USER', 'RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER'],        dot: '#0095db', end: true },
       { id: 'visitors_gate',       label: 'Gate Dashboard', path: '/gate',               roles: ['SUPER_USER', 'GATE_STAFF'],            dot: '#f59e0b', end: true },
     ],

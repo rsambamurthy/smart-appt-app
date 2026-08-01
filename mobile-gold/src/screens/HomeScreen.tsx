@@ -22,7 +22,7 @@ export default function HomeScreen() {
   const user       = useAppSelector(s => s.auth.user);
   const config     = useAppSelector(s => s.auth.mobileConfig);
 
-  const categories = visibleCategories(config);
+  const categories = visibleCategories(config, user?.role);
 
   const handleLogout = async () => {
     await SecureStore.deleteItemAsync('access_token').catch(() => {});
@@ -61,7 +61,7 @@ export default function HomeScreen() {
       ) : (
         <View style={s.grid}>
           {categories.map(cat => {
-            const count = enabledItems(cat, config).length;
+            const count = enabledItems(cat, config, user?.role).length;
             return (
               <TouchableOpacity
                 key={cat.id}

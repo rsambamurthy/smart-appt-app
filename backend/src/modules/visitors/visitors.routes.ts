@@ -23,7 +23,9 @@ router.post('/walkin', requireRoles(UserRole.GATE_STAFF), async (req: AuthReques
   catch (err) { next(err); }
 });
 
-router.get('/log', requireRoles(UserRole.MANAGER, UserRole.GATE_STAFF), async (req: AuthRequest, res, next) => {
+// Visitor log is readable by every authenticated member of the association.
+// (Write actions — walk-in, approve, check-in/out — remain role-restricted.)
+router.get('/log', async (req: AuthRequest, res, next) => {
   try {
     const { cursor, limit } = parsePagination(req.query as never);
     res.json(await visitorsService.getLog(req.user!.association_id, {
