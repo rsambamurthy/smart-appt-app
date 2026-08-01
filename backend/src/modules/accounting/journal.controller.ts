@@ -116,6 +116,36 @@ class JournalController {
     } catch (err) { next(err); }
   };
 
+  uploadAttachment = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const file = (req as never as { file?: { buffer: Buffer; originalname: string; mimetype: string } }).file;
+      if (!file) { res.status(400).json({ message: 'No file uploaded' }); return; }
+      const result = await journalService.attachDocument(associationId, req.params.id, file);
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
+  downloadAttachment = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const entry = await journalService.getAttachment(associationId, req.params.id);
+      const filename = entry.file_name ?? `${entry.reference_code}.bin`;
+      res.setHeader('Content-Type', entry.mime_type ?? 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+      res.setHeader('Content-Length', entry.file_data!.length);
+      res.end(entry.file_data);
+    } catch (err) { next(err); }
+  };
+
+  deleteAttachment = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const result = await journalService.removeAttachment(associationId, req.params.id);
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
   getIncomeExpenditure = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const associationId = (req as never as { user: { association_id: string } }).user.association_id;

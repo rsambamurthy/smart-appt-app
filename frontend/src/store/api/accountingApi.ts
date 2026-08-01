@@ -48,6 +48,10 @@ export interface JournalEntry {
   created_by:     string | null;
   created_at:     string;
   lines:          JournalLine[];
+  // Supporting document. The bytes are never sent with the entry — presence of
+  // file_name is what tells the UI there is something to download.
+  file_name?:     string | null;
+  mime_type?:     string | null;
 }
 
 export interface JournalLineInput {
@@ -551,6 +555,26 @@ const accountingApi = baseApi.injectEndpoints({
       query: ({ id, ...body }) => ({ url: `/accounting/journal/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['Journal'],
     }),
+    uploadJournalAttachment: builder.mutation<{ data: { file_name: string; mime_type: string; size: number } }, { id: string; file: File }>({
+      query: ({ id, file }) => {
+        const form = new FormData();
+        form.append('file', file);
+        return { url: `/accounting/journal/${id}/attachment`, method: 'POST', body: form };
+      },
+      invalidatesTags: ['Journal'],
+    }),
+    deleteJournalAttachment: builder.mutation<{ data: { removed: boolean } }, { id: string }>({
+      query: ({ id }) => ({ url: `/accounting/journal/${id}/attachment`, method: 'DELETE' }),
+      invalidatesTags: ['Journal'],
+    }),
+    // Fetched as a blob so the browser download carries the auth header.
+    downloadJournalAttachment: builder.mutation<Blob, { id: string }>({
+      query: ({ id }) => ({
+        url: `/accounting/journal/${id}/attachment`,
+        method: 'GET',
+        responseHandler: (response: Response) => response.blob(),
+      }),
+    }),
     getPnL: builder.query<{ data: PnLResult }, { from: string; to: string }>({
       query: ({ from, to }) => `/accounting/journal/pnl?from=${from}&to=${to}`,
       providesTags: ['Journal'],
@@ -725,6 +749,9 @@ export const {
   useListJournalEntriesQuery,
   useCreateJournalEntryMutation,
   useUpdateJournalEntryMutation,
+  useUploadJournalAttachmentMutation,
+  useDeleteJournalAttachmentMutation,
+  useDownloadJournalAttachmentMutation,
   useBackfillTransactionsMutation,
   useBackfillBPTagsMutation,
   useGetFYConfigQuery,

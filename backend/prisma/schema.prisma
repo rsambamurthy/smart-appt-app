@@ -1095,6 +1095,12 @@ model JournalEntry {
   reference_type      String?            @db.VarChar(50)
   reference_id        String?            @db.Uuid
 
+  // Supporting document — invoice, receipt, bank slip. Stored in the row like
+  // Document.file_data. NEVER select this in list queries; it is megabytes.
+  file_data           Bytes?
+  file_name           String?            @db.VarChar(255)
+  mime_type           String?            @db.VarChar(100)
+
   // Workflow
   created_by_id       String?            @db.Uuid
   created_by          User?              @relation("JECreatedBy", fields: [created_by_id], references: [id])

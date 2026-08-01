@@ -4,6 +4,9 @@ import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
   useListJournalEntriesQuery, useCreateJournalEntryMutation,
   useUpdateJournalEntryMutation,
+  useUploadJournalAttachmentMutation,
+  useDeleteJournalAttachmentMutation,
+  useDownloadJournalAttachmentMutation,
   useListAccountsQuery,
   useListBPMastersQuery,
   useListBPTypesQuery,
@@ -124,6 +127,9 @@ export default function JournalEntriesPage() {
   const [direction,    setDirection]    = useState<Direction>('RECEIPT');
   const [moneyAccount, setMoneyAccount] = useState('');
 
+  // Supporting document, uploaded after the entry is saved (it needs an id).
+  const [attachment, setAttachment] = useState<File | null>(null);
+
   // ── Data ──────────────────────────────────────────────────────────────────
   const { data, isLoading, refetch } = useListJournalEntriesQuery({
     type: filter.type || undefined,
@@ -135,7 +141,27 @@ export default function JournalEntriesPage() {
   const { data: bpTypesData }  = useListBPTypesQuery();
   const [createEntry, { isLoading: isCreating }] = useCreateJournalEntryMutation();
   const [updateEntry, { isLoading: isUpdating }] = useUpdateJournalEntryMutation();
-  const isSaving = isCreating || isUpdating;
+  const [uploadAttachment,   { isLoading: isUploading }] = useUploadJournalAttachmentMutation();
+  const [deleteAttachment]   = useDeleteJournalAttachmentMutation();
+  const [downloadAttachment] = useDownloadJournalAttachmentMutation();
+
+  // Fetched as a blob so the request carries the auth header, then handed to
+  // the browser as a download.
+  const handleDownload = async (entry: JournalEntry) => {
+    try {
+      const blob = await downloadAttachment({ id: entry.id }).unwrap();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = entry.file_name ?? `${entry.reference_code ?? 'voucher'}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Nothing to download, or the file was removed.
+    }
+  };
+  // Uploading counts as saving: the button stays busy until the document lands.
+  const isSaving = isCreating || isUpdating || isUploading;
 
   const entries  = data?.data ?? [];
   const accounts = accountsData?.data ?? [];
@@ -165,6 +191,7 @@ export default function JournalEntriesPage() {
     setVoucherClass('BANK');
     setDirection('RECEIPT');
     setMoneyAccount('');
+    setAttachment(null);
     // Money vouchers start with a single contra line; the money side is added
     // on save. A journal voucher needs the usual two-line grid.
     setLines([emptyLine()]);
@@ -183,6 +210,7 @@ export default function JournalEntriesPage() {
   const openEditForm = (entry: JournalEntry) => {
     setSelectedId(entry.id);
     setEditTarget(entry);
+    setAttachment(null);
     setEntryDate(entry.entry_date.slice(0, 10));
     setNarration(entry.narration);
 
@@ -310,7 +338,26 @@ export default function JournalEntriesPage() {
       } else {
         result = await createEntry(payload).unwrap();
       }
+      // The entry must exist before a file can hang off it.
+      if (attachment) {
+        try {
+          await uploadAttachment({ id: result.data.id, file: attachment }).unwrap();
+        } catch (e: unknown) {
+          // The entry itself saved — say so rather than implying it failed.
+          const err = e as { data?: { detail?: string; message?: string } };
+          setSelectedId(result.data.id);
+          setAttachment(null);
+          refetch();
+          setFormError(
+            `Entry saved, but the document did not upload: ${err?.data?.detail ?? err?.data?.message ?? 'unknown error'}. ` +
+            'Open the entry and try attaching it again.',
+          );
+          return;
+        }
+      }
+
       setSelectedId(result.data.id);
+      setAttachment(null);
       closeForm();
       refetch();
     } catch (e: unknown) {
@@ -621,6 +668,53 @@ export default function JournalEntriesPage() {
       </table>
 
       {/* Error */}
+      {/* ── Supporting document ── */}
+      <div style={{ marginTop: 14, padding: '11px 14px', border: '1px dashed #cbd5e1', borderRadius: 8, background: '#fafafa' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Supporting document
+          </span>
+
+          {/* Already attached, and no replacement chosen */}
+          {editTarget?.file_name && !attachment && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#1e293b' }}>
+              <i className="ti ti-paperclip" style={{ fontSize: 14, color: '#64748b' }} />
+              {editTarget.file_name}
+              <button type="button" onClick={() => handleDownload(editTarget)}
+                style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                Download
+              </button>
+              <button type="button"
+                onClick={async () => {
+                  await deleteAttachment({ id: editTarget.id });
+                  refetch();
+                  closeForm();
+                }}
+                style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                Remove
+              </button>
+            </span>
+          )}
+
+          <input
+            type="file"
+            accept="application/pdf,image/jpeg,image/png,image/webp,image/heic"
+            onChange={e => setAttachment(e.target.files?.[0] ?? null)}
+            style={{ fontSize: 12.5, color: '#475569' }}
+          />
+
+          {attachment && (
+            <span style={{ fontSize: 12, color: '#15803d' }}>
+              {attachment.name} · {(attachment.size / 1024).toFixed(0)} KB
+              {editTarget?.file_name && ' (replaces the existing file)'}
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 5 }}>
+          PDF or image, up to 5 MB. Optional — attached after the voucher is saved.
+        </div>
+      </div>
+
       {formError && (
         <div style={{ fontSize: 12.5, color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '9px 13px', marginTop: 12 }}>
           {formError}
@@ -737,6 +831,18 @@ export default function JournalEntriesPage() {
             </tfoot>
           </table>
         </div>
+
+        {/* Supporting document */}
+        {entry.file_name && (
+          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+            <i className="ti ti-paperclip" style={{ fontSize: 15, color: '#64748b' }} />
+            <span style={{ fontSize: 12.5, color: '#1e293b', flex: 1 }}>{entry.file_name}</span>
+            <button type="button" onClick={() => handleDownload(entry)}
+              style={{ padding: '4px 11px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#2563eb', fontSize: 12, cursor: 'pointer' }}>
+              Download
+            </button>
+          </div>
+        )}
       </div>
     );
   };

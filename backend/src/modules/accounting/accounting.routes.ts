@@ -86,6 +86,11 @@ router.get ('/journal/receipts-payments', requireRoles(...viewRoles), journalCon
 router.get ('/journal/income-expenditure', requireRoles(...viewRoles), journalController.getIncomeExpenditure);
 router.post('/journal/backfill',         requireRoles(...managerRoles), journalController.backfill);
 router.post('/journal/backfill-bp-tags', requireRoles(...managerRoles), journalController.backfillBPTags);
+// Supporting document for a voucher — invoice, receipt, bank slip.
+router.post  ('/journal/:id/attachment', requireRoles(...managerRoles), upload.single('file'), journalController.uploadAttachment);
+router.get   ('/journal/:id/attachment', requireRoles(...viewRoles),    journalController.downloadAttachment);
+router.delete('/journal/:id/attachment', requireRoles(...managerRoles), journalController.deleteAttachment);
+
 router.patch('/journal/:id',          requireRoles(...managerRoles), ...journalController.updateEntry);
 
 export default router;

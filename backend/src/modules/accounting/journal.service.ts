@@ -9,6 +9,20 @@ import { fyClosureService, getFinancialYear } from './fy-closure.service';
 // Account types whose normal balance is DEBIT (DR increases balance)
 const DEBIT_NORMAL = new Set<string>(['ASSET', 'EXPENSE']);
 
+// Every scalar on a journal entry EXCEPT file_data. Prisma's `include` pulls
+// all scalars, which would ship the attachment bytes with every list response,
+// so list queries select these explicitly instead. has_attachment tells the UI
+// whether to show a download link without transferring the file.
+const ENTRY_FIELDS = {
+  id: true, association_id: true, reference_code: true, voucher_type: true,
+  financial_year: true, entry_date: true, narration: true, status: true,
+  source: true, reference_type: true, reference_id: true,
+  created_by_id: true, posted_by_id: true, posted_at: true,
+  cancelled_by_id: true, cancelled_at: true, cancellation_reason: true,
+  created_at: true, updated_at: true,
+  file_name: true, mime_type: true,
+} as const;
+
 // DB-aware FY helper: reads start month from association config
 async function getFY(associationId: string, date: Date): Promise<string> {
   const cfg = await fyClosureService.getConfig(associationId);
@@ -444,7 +458,8 @@ class JournalService {
 
     const entries = await prisma.journalEntry.findMany({
       where: where as never,
-      include: {
+      select: {
+        ...ENTRY_FIELDS,
         lines: {
           include: {
             account:          { select: { code: true, name: true, type: true } },
@@ -462,6 +477,98 @@ class JournalService {
   }
 
   // ── P&L: Income & Expenditure statement for a period ─────────────────────────
+  // ── ATTACHMENT: upload ───────────────────────────────────────────────────────
+  // One supporting document per entry — invoice, receipt, bank slip. Uploading
+  // again replaces what is there. A cancelled or closed-year entry is left
+  // alone: its paperwork is part of the record.
+  async attachDocument(
+    associationId: string,
+    entryId: string,
+    file: { buffer: Buffer; originalname: string; mimetype: string },
+  ) {
+    const entry = await prisma.journalEntry.findFirst({
+      where:  { id: entryId, association_id: associationId },
+      select: { id: true, status: true, financial_year: true, reference_code: true },
+    });
+    if (!entry) throw new NotFoundError('Journal entry not found.');
+
+    if (entry.status === JournalStatus.CANCELLED) {
+      throw new UnprocessableError('This entry is cancelled — its attachment cannot be changed.');
+    }
+    if (await fyClosureService.isYearClosed(associationId, entry.financial_year)) {
+      throw new UnprocessableError(
+        `Financial year ${entry.financial_year} is closed. Reopen it to change attachments.`,
+      );
+    }
+
+    const ALLOWED = [
+      'application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic',
+    ];
+    if (!ALLOWED.includes(file.mimetype)) {
+      throw new UnprocessableError(
+        `${file.mimetype} is not an accepted file type. Upload a PDF or an image.`,
+      );
+    }
+
+    await prisma.journalEntry.update({
+      where: { id: entryId },
+      data:  {
+        file_data: file.buffer,
+        file_name: file.originalname.slice(0, 255),
+        mime_type: file.mimetype,
+      },
+    });
+
+    await auditService.record({
+      entity_type: 'journal_entry',
+      entity_id:   entryId,
+      action:      AuditAction.UPDATE,
+      summary:     `Attached ${file.originalname} to ${entry.reference_code}`,
+    });
+
+    return { data: { file_name: file.originalname, mime_type: file.mimetype, size: file.buffer.length } };
+  }
+
+  // ── ATTACHMENT: fetch for download ───────────────────────────────────────────
+  async getAttachment(associationId: string, entryId: string) {
+    const entry = await prisma.journalEntry.findFirst({
+      where:  { id: entryId, association_id: associationId },
+      select: { file_data: true, file_name: true, mime_type: true, reference_code: true },
+    });
+    if (!entry)            throw new NotFoundError('Journal entry not found.');
+    if (!entry.file_data)  throw new NotFoundError('This entry has no attachment.');
+    return entry;
+  }
+
+  // ── ATTACHMENT: remove ───────────────────────────────────────────────────────
+  async removeAttachment(associationId: string, entryId: string) {
+    const entry = await prisma.journalEntry.findFirst({
+      where:  { id: entryId, association_id: associationId },
+      select: { id: true, file_name: true, financial_year: true, reference_code: true },
+    });
+    if (!entry) throw new NotFoundError('Journal entry not found.');
+
+    if (await fyClosureService.isYearClosed(associationId, entry.financial_year)) {
+      throw new UnprocessableError(
+        `Financial year ${entry.financial_year} is closed. Reopen it to change attachments.`,
+      );
+    }
+
+    await prisma.journalEntry.update({
+      where: { id: entryId },
+      data:  { file_data: null, file_name: null, mime_type: null },
+    });
+
+    await auditService.record({
+      entity_type: 'journal_entry',
+      entity_id:   entryId,
+      action:      AuditAction.UPDATE,
+      summary:     `Removed attachment ${entry.file_name ?? ''} from ${entry.reference_code}`,
+    });
+
+    return { data: { removed: true } };
+  }
+
   // ── SHARED: per-account totals over a period ─────────────────────────────────
   // One definition of "what a period balance is", used by the Income &
   // Expenditure account, the Balance Sheet and their comparatives, so those
@@ -1270,7 +1377,8 @@ class JournalService {
         status:         JournalStatus.POSTED,
         entry_date:     { gte: new Date(query.from), lte: new Date(query.to) },
       },
-      include: {
+      select: {
+        ...ENTRY_FIELDS,
         lines: {
           include: {
             account:          { select: { id: true, code: true, name: true } },
