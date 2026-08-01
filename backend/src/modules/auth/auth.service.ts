@@ -251,8 +251,24 @@ export class AuthService {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundError('User');
     if (!user.mpin_hash) throw new UnauthorizedError('No M-PIN set. Use set M-PIN instead.');
-    if (user.mpin_hash !== hashMpin(currentMpin)) throw new UnauthorizedError('Current M-PIN is incorrect.');
+
+    if (user.mpin_hash !== hashMpin(currentMpin)) {
+      // A wrong current M-PIN is a failed credential-change attempt.
+      await auditService.record({
+        entity_type: 'auth', action: AuditAction.LOGIN_FAILED,
+        actor_label: user.phone, performed_by: user.id, association_id: user.association_id,
+        summary: 'M-PIN change failed — current M-PIN incorrect',
+      });
+      throw new UnauthorizedError('Current M-PIN is incorrect.');
+    }
+
     await prisma.user.update({ where: { id: userId }, data: { mpin_hash: hashMpin(newMpin) } });
+
+    await auditService.record({
+      entity_type: 'auth', action: AuditAction.MPIN_RESET,
+      actor_label: user.phone, performed_by: user.id, association_id: user.association_id,
+      summary: 'M-PIN changed (with current M-PIN)',
+    });
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────────

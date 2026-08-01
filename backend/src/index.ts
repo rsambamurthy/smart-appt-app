@@ -33,6 +33,29 @@ const start = async () => {
     logger.error('Database connection failed', { error: err.message });
   }
 
+  // ── Audit trail self-test ──────────────────────────────────────────────────
+  // Audit writes are intentionally non-fatal, which means a broken audit table
+  // fails silently. This writes one row at boot and reports the outcome loudly,
+  // so a misconfiguration is obvious in the deploy log instead of invisible.
+  try {
+    const before = await prisma.auditLog.count();
+    await prisma.auditLog.create({
+      data: {
+        entity_type: 'system',
+        action: 'CREATE',
+        summary: `Backend started (${process.env.NODE_ENV ?? 'unknown'})`,
+      },
+    });
+    const after = await prisma.auditLog.count();
+    logger.info(`AUDIT SELF-TEST OK — audit_logs rows: ${before} -> ${after}`);
+  } catch (err: any) {
+    logger.error('AUDIT SELF-TEST FAILED — audit trail is NOT recording', {
+      error: err?.message ?? String(err),
+      code: err?.code,
+      meta: err?.meta,
+    });
+  }
+
   // Initialize scheduled jobs
   initScheduler();
 
