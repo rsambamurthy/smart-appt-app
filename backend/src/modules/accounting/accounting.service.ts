@@ -2,6 +2,7 @@ import { AccountType, BPSide } from '@prisma/client';
 import prisma from '../../config/database';
 import { ConflictError, NotFoundError } from '../../utils/errors';
 import { CreateAccountBody, UpdateAccountBody } from './accounting.schema';
+import { auditService } from '../../services/audit.service';
 
 // ── Standard housing-society chart of accounts ───────────────────────────────
 type SeedAccount = {
@@ -92,6 +93,12 @@ class AccountingService {
         opening_balance_date: opening_balance_date ? new Date(opening_balance_date) : null,
       },
     });
+
+    await auditService.create(
+      'account', account.id, body,
+      `Created account ${account.code} — ${account.name}`,
+    );
+
     return { data: account };
   }
 
@@ -120,6 +127,21 @@ class AccountingService {
         };
 
     const updated = await prisma.account.update({ where: { id }, data });
+
+    await auditService.update(
+      'account', id,
+      {
+        name: account.name, description: account.description,
+        is_control_account: account.is_control_account, bp_type_id: account.bp_type_id,
+        opening_balance: account.opening_balance,
+        opening_balance_type: account.opening_balance_type,
+        opening_balance_date: account.opening_balance_date,
+        is_active: account.is_active,
+      },
+      data,
+      `Updated account ${account.code} — ${account.name}`,
+    );
+
     return { data: updated };
   }
 
@@ -133,6 +155,14 @@ class AccountingService {
       where: { id },
       data: { is_active: !account.is_active },
     });
+
+    await auditService.update(
+      'account', id,
+      { is_active: account.is_active },
+      { is_active: updated.is_active },
+      `${updated.is_active ? 'Activated' : 'Deactivated'} account ${account.code} — ${account.name}`,
+    );
+
     return { data: updated };
   }
 
@@ -143,6 +173,13 @@ class AccountingService {
     if (account.is_system) throw new ConflictError('System accounts cannot be deleted.');
 
     await prisma.account.delete({ where: { id } });
+
+    // The row is gone — old_value is the only remaining record of it.
+    await auditService.delete(
+      'account', id, account,
+      `Deleted account ${account.code} — ${account.name}`,
+    );
+
     return { data: { deleted: true } };
   }
 

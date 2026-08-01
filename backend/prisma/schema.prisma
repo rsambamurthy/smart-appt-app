@@ -150,6 +150,19 @@ enum AuditAction {
   DELETE
   APPROVE
   REJECT
+  // Financial lifecycle
+  CANCEL
+  CLOSE
+  REOPEN
+  GENERATE
+  ROLLBACK
+  UPLOAD
+  // Authentication / access
+  LOGIN
+  LOGIN_FAILED
+  LOGOUT
+  MPIN_SET
+  MPIN_RESET
 }
 
 enum InviteStatus {
@@ -836,22 +849,36 @@ model FrequentVisitor {
 // ─── Audit Log ───────────────────────────────────────────────────────────────
 
 model AuditLog {
-  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  association_id String      @db.Uuid
-  association    Association @relation(fields: [association_id], references: [id])
-  entity_type    String      @db.VarChar(50)
-  entity_id      String      @db.Uuid
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  // Nullable: a failed login can occur before we know the association/user.
+  association_id String?      @db.Uuid
+  association    Association? @relation(fields: [association_id], references: [id])
+
+  entity_type    String       @db.VarChar(50)
+  // Nullable: some events (e.g. LOGIN_FAILED, bulk GENERATE) have no single row id.
+  entity_id      String?      @db.Uuid
   action         AuditAction
-  performed_by   String      @db.Uuid
-  performer      User        @relation(fields: [performed_by], references: [id])
-  ip_address     String?     @db.VarChar(45)
+
+  performed_by   String?      @db.Uuid
+  performer      User?        @relation(fields: [performed_by], references: [id])
+  /** Free-text actor label for events with no user row (e.g. the phone that failed login). */
+  actor_label    String?      @db.VarChar(120)
+
+  ip_address     String?      @db.VarChar(45)
+  user_agent     String?      @db.VarChar(255)
+  /** Short human-readable summary, e.g. "Closed FY 2025-26". */
+  summary        String?      @db.VarChar(255)
+
   old_value      Json?
   new_value      Json?
-  created_at     DateTime    @default(now()) @db.Timestamptz
+  created_at     DateTime     @default(now()) @db.Timestamptz
 
   @@index([entity_type, entity_id])
   @@index([performed_by])
   @@index([created_at])
+  @@index([association_id, created_at])
+  @@index([action])
   @@map("audit_logs")
 }
 

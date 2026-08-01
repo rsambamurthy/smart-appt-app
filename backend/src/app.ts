@@ -9,6 +9,7 @@ import { Server as SocketServer } from 'socket.io';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { ipLimiter } from './middleware/rateLimiter';
 import { requestId } from './middleware/auth';
+import { requestContext } from './utils/request-context';
 import logger from './utils/logger';
 
 // Module routers
@@ -80,6 +81,9 @@ app.use(compression());
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(requestId);
+// Opens the per-request context (IP, user-agent) that the audit trail reads.
+// Must come before the routers so every handler runs inside it.
+app.use(requestContext);
 app.use(
   morgan('combined', {
     stream: { write: (msg) => logger.info(msg.trim()) },

@@ -9,7 +9,8 @@ import {
   InitiatePaymentBody, CreateLevyBody,
   OneTimeDueBody, UpdateOneTimeDueBody, GenerateOneTimeDueBillsBody,
 } from './dues.schema';
-import { BillStatus, ExpenseStatus, OneTimeDueStatus, PaymentMode, UserRole } from '@prisma/client';
+import { AuditAction, BillStatus, ExpenseStatus, OneTimeDueStatus, PaymentMode, UserRole } from '@prisma/client';
+import { auditService } from '../../services/audit.service';
 import { journalService } from '../accounting/journal.service';
 
 // Default platform Razorpay instance (fallback if association has no own keys)
@@ -56,6 +57,10 @@ export class DuesService {
     // Chart of Accounts / Business Partners). These fields are legacy: when the
     // caller omits them we must leave the stored values untouched rather than
     // nulling them out, and we must not re-sync the opening-balance journal entry.
+    const existingConfig = await prisma.duesConfig.findUnique({
+      where: { association_id: associationId },
+    });
+
     const { cash_balance_as_on, cash_balance, ...rest } = body;
     const cashTouched = cash_balance !== undefined || cash_balance_as_on !== undefined;
 
@@ -71,6 +76,15 @@ export class DuesService {
       where: { association_id: associationId },
       update: data,
       create: { association_id: associationId, ...data },
+    });
+
+    await auditService.record({
+      entity_type: 'dues_config',
+      entity_id:   config.id,
+      action:      AuditAction.UPDATE,
+      summary:     'Updated fee configuration',
+      old_value:   existingConfig ?? undefined,
+      new_value:   data,
     });
 
     // Only re-sync the opening-balance journal entry if the caller actually
@@ -113,6 +127,17 @@ export class DuesService {
       where: { association_id: associationId },
       data: { razorpay_key_id: body.razorpay_key_id, razorpay_key_secret: body.razorpay_key_secret, updated_by: updatedBy },
     });
+
+    // Record that credentials changed WITHOUT storing them. The audit service
+    // also redacts *_secret defensively, but we never pass it in the first place.
+    await auditService.record({
+      entity_type: 'razorpay_config',
+      action:      AuditAction.UPDATE,
+      summary:     'Updated Razorpay payment credentials',
+      old_value:   { razorpay_key_id: existing.razorpay_key_id, key_secret_set: !!existing.razorpay_key_secret },
+      new_value:   { razorpay_key_id: body.razorpay_key_id, key_secret_set: true },
+    });
+
     return { data: { razorpay_key_id: config.razorpay_key_id, has_key_secret: true } };
   }
 
@@ -194,6 +219,17 @@ export class DuesService {
       data: { month: body.month, year: body.year, due_date: dueDate },
     });
 
+    await auditService.record({
+      entity_type: 'bill_run',
+      action:      AuditAction.GENERATE,
+      summary:     `Generated ${created.length} bill(s) for ${body.month}/${body.year} (${skipped.length} skipped)`,
+      new_value:   {
+        period_month: body.month, period_year: body.year,
+        created: created.length, skipped: skipped.length,
+        created_units: created, skipped_units: skipped,
+      },
+    });
+
     return { data: { created: created.length, skipped: skipped.length } };
   }
 
@@ -224,6 +260,21 @@ export class DuesService {
     // Safe to delete — no payments on any bill
     const { count } = await prisma.bill.deleteMany({
       where: { association_id: associationId, period_month: body.month, period_year: body.year },
+    });
+
+    // Deleted financial records: keep the full "before" state as evidence.
+    await auditService.record({
+      entity_type: 'bill_run',
+      action:      AuditAction.ROLLBACK,
+      summary:     `Rolled back ${count} bill(s) for ${body.month}/${body.year}`,
+      old_value:   {
+        period_month: body.month, period_year: body.year,
+        deleted: count,
+        bills: bills.map(b => ({
+          id: b.id, unit_id: b.unit_id,
+          total_amount: b.total_amount, status: b.status, due_date: b.due_date,
+        })),
+      },
     });
 
     return { data: { deleted: count, month: body.month, year: body.year } };
@@ -359,6 +410,19 @@ export class DuesService {
       data: { payment_id: payment.id, amount: Number(payment.amount), bill_id: body.bill_id },
     });
 
+    await auditService.record({
+      entity_type: 'payment',
+      entity_id:   payment.id,
+      action:      AuditAction.CREATE,
+      summary:     `Online payment ₹${Number(payment.amount).toFixed(2)} received for bill ${body.bill_id}`,
+      new_value:   {
+        bill_id: body.bill_id,
+        amount: Number(payment.amount),
+        mode: 'ONLINE',
+        gateway_txn_id: body.razorpay_payment_id,
+      },
+    });
+
     return { data: { status: 'success', payment_id: payment.id } };
   }
 
@@ -462,6 +526,22 @@ export class DuesService {
       `Dues payment received — Flat ${bill.unit?.flat_number ?? ''}`,
       new Date(body.payment_date),
     );
+
+    // Offline payments are manually entered, so they are the highest-risk
+    // payment path and most important to attribute.
+    await auditService.record({
+      entity_type: 'payment',
+      entity_id:   payment.id,
+      action:      AuditAction.CREATE,
+      summary:     `Offline ${body.mode} payment ₹${Number(body.amount).toFixed(2)} — Flat ${bill.unit?.flat_number ?? '—'}`,
+      new_value:   {
+        bill_id: body.bill_id,
+        amount: body.amount,
+        mode: body.mode,
+        payment_date: body.payment_date,
+        recorded_by: recordedBy,
+      },
+    });
 
     return { data: payment };
   }

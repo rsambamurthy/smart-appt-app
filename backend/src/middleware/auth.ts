@@ -3,6 +3,7 @@ import { verifyToken } from '../config/jwt';
 import { UnauthorizedError } from '../utils/errors';
 import { AuthRequest } from '../types';
 import prisma from '../config/database';
+import { setContext } from '../utils/request-context';
 
 export const authenticate = async (
   req: AuthRequest,
@@ -32,6 +33,14 @@ export const authenticate = async (
       phone: user.phone,
       name: user.name,
     };
+
+    // Publish the identified actor so the audit trail can attribute actions
+    // without every service needing the user passed in.
+    setContext({
+      userId: user.id,
+      associationId: user.association_id,
+      role: user.role,
+    });
 
     next();
   } catch (err) {

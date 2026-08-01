@@ -34,6 +34,39 @@ export interface MobileConfig {
   menu_items: MenuItemsMap | null;
 }
 
+// ── Audit trail ───────────────────────────────────────────────────────────────
+
+export interface AuditLogEntry {
+  id: string;
+  association_id: string | null;
+  entity_type: string;
+  entity_id: string | null;
+  action: string;
+  performed_by: string | null;
+  actor_label: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  summary: string | null;
+  old_value: unknown;
+  new_value: unknown;
+  created_at: string;
+  performer?: { id: string; name: string; phone: string; role: string } | null;
+  association?: { id: string; name: string } | null;
+}
+
+export interface AuditLogFilters {
+  entity_type?: string;
+  entity_id?: string;
+  action?: string;
+  performed_by?: string;
+  date_from?: string;
+  date_to?: string;
+  search?: string;
+  association_id?: string;
+  cursor?: string;
+  limit?: number;
+}
+
 export const systemApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getMenuConfig: builder.query<{ data: MenuConfig }, void>({
@@ -59,6 +92,27 @@ export const systemApi = baseApi.injectEndpoints({
       query: ({ associationId, body }) => ({ url: `/system/mobile-config/${associationId}`, method: 'PUT', body }),
       invalidatesTags: (_r, _e, { associationId }) => [{ type: 'MobileConfig', id: associationId }, 'MobileConfig'],
     }),
+
+    // ── Audit trail (read-only) ───────────────────────────────────────────────
+    listAuditLogs: builder.query<
+      { data: AuditLogEntry[]; meta: { next_cursor: string | null; count: number } },
+      AuditLogFilters
+    >({
+      query: (filters) => {
+        const params = new URLSearchParams();
+        Object.entries(filters).forEach(([k, v]) => {
+          if (v !== undefined && v !== null && v !== '') params.append(k, String(v));
+        });
+        return `/system/audit-logs?${params.toString()}`;
+      },
+    }),
+    getAuditFacets: builder.query<
+      { data: { entity_types: string[]; actions: string[] } },
+      string | void
+    >({
+      query: (associationId) =>
+        `/system/audit-logs/facets${associationId ? `?association_id=${associationId}` : ''}`,
+    }),
   }),
 });
 
@@ -68,4 +122,6 @@ export const {
   useGetMyMobileConfigQuery,
   useGetMobileConfigQuery,
   useSaveMobileConfigMutation,
+  useListAuditLogsQuery,
+  useGetAuditFacetsQuery,
 } = systemApi;

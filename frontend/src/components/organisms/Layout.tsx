@@ -62,6 +62,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'system_menu_config',   label: 'Menu Configuration',    path: '/admin/menu-config',    roles: ['SUPER_USER'], dot: '#0095db', end: true },
       { id: 'system_mobile_config', label: 'Mobile App Config',     path: '/admin/mobile-config',  roles: ['SUPER_USER'], dot: '#7c3aed', end: true },
+      { id: 'system_audit_log',     label: 'Audit Trail',           path: '/admin/audit-log',      roles: ['SUPER_USER', 'MANAGER'], dot: '#dc2626', end: true },
     ],
   },
   {

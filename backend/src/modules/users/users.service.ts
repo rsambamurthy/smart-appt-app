@@ -2,6 +2,7 @@ import prisma from '../../config/database';
 import { ConflictError, NotFoundError } from '../../utils/errors';
 import { normalisePhone, generateToken, paginatedResponse } from '../../utils/helpers';
 import { smsService } from '../../services/sms.service';
+import { auditService } from '../../services/audit.service';
 import {
   CreateUserBody, UpdateUserBody, CreateUnitBody, InviteUserBody,
 } from './users.schema';
@@ -45,6 +46,14 @@ export class UsersService {
     const unit = await prisma.unit.findFirst({ where: { id: unitId, association_id: associationId, deleted_at: null } });
     if (!unit) throw new NotFoundError('Unit');
     await prisma.unit.update({ where: { id: unitId }, data: { deleted_at: new Date() } });
+
+    // Soft-deleted units disappear from Manage Units — without this record there
+    // is no trace of who removed one, or when.
+    await auditService.delete(
+      'unit', unitId, unit,
+      `Deleted unit ${unit.block ? unit.block + '-' : ''}${unit.flat_number}`,
+    );
+
     return { data: { message: 'Unit deleted' } };
   }
 

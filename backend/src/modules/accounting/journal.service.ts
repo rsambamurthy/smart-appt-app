@@ -1,8 +1,9 @@
-import { AccountType, JournalEntrySource, JournalStatus, VoucherType, ExpenseStatus } from '@prisma/client';
+import { AccountType, AuditAction, JournalEntrySource, JournalStatus, VoucherType, ExpenseStatus } from '@prisma/client';
 import prisma from '../../config/database';
 import { NotFoundError, UnprocessableError } from '../../utils/errors';
 import { CreateJournalEntryBody } from './journal.schema';
 import logger from '../../utils/logger';
+import { auditService } from '../../services/audit.service';
 import { fyClosureService, getFinancialYear } from './fy-closure.service';
 
 // Account types whose normal balance is DEBIT (DR increases balance)
@@ -873,8 +874,11 @@ class JournalService {
 
   // ── UPDATE entry: replace narration, date and lines ────────────────────────
   async updateEntry(id: string, associationId: string, body: CreateJournalEntryBody) {
+    // Include lines: they are deleted below, so this is the only chance to
+    // capture the "before" state for the audit trail.
     const entry = await prisma.journalEntry.findFirst({
       where: { id, association_id: associationId },
+      include: { lines: true },
     });
     if (!entry) throw new NotFoundError('Journal entry not found.');
 
@@ -916,6 +920,26 @@ class JournalService {
           },
         },
       },
+    });
+
+    await auditService.record({
+      entity_type: 'journal_entry',
+      entity_id:   id,
+      action:      AuditAction.UPDATE,
+      summary:     `Edited ${entry.reference_code} — ₹${totalDebit.toFixed(2)}`,
+      old_value:   {
+        entry_date:   entry.entry_date,
+        narration:    entry.narration,
+        voucher_type: entry.voucher_type,
+        lines: entry.lines.map(l => ({
+          account_id:          l.account_id,
+          business_partner_id: l.business_partner_id,
+          debit:               Number(l.debit),
+          credit:              Number(l.credit),
+          narration:           l.narration,
+        })),
+      },
+      new_value:   { ...body, voucher_type: voucherType },
     });
 
     return { data: updated };
@@ -1136,6 +1160,14 @@ class JournalService {
         credit:              l.credit ?? 0,
         narration:           l.narration,
       })),
+    });
+
+    await auditService.record({
+      entity_type: 'journal_entry',
+      entity_id:   entry.id,
+      action:      AuditAction.CREATE,
+      summary:     `Manual ${voucherType} ${entry.reference_code} — ₹${totalDebit.toFixed(2)}`,
+      new_value:   { ...body, voucher_type: voucherType, financial_year: entryFY },
     });
 
     return { data: entry };

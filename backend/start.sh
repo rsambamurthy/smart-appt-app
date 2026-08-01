@@ -22,7 +22,8 @@ if [ $MIGRATION_EXIT -ne 0 ]; then
   #    DROP NOT NULL), so running them repeatedly is safe and non-destructive.
   for f in \
     prisma/migrations/20260801000003_add_accounting_feature_flags/migration.sql \
-    prisma/migrations/20260801000004_ticket_unit_optional/migration.sql
+    prisma/migrations/20260801000004_ticket_unit_optional/migration.sql \
+    prisma/migrations/20260801000005_audit_log_expansion/migration.sql
   do
     if [ -f "$f" ]; then
       echo "--- applying $f"

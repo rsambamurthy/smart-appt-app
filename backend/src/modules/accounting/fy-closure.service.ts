@@ -1,6 +1,7 @@
-import { VoucherType, JournalEntrySource, JournalStatus } from '@prisma/client';
+import { AuditAction, VoucherType, JournalEntrySource, JournalStatus } from '@prisma/client';
 import prisma from '../../config/database';
 import { NotFoundError, UnprocessableError } from '../../utils/errors';
+import { auditService } from '../../services/audit.service';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -272,6 +273,21 @@ class FYClosureService {
         });
       });
 
+      await auditService.record({
+        entity_type: 'financial_year',
+        action:      AuditAction.CLOSE,
+        summary:     `Closed FY ${fy} — net surplus ₹${Number(preview.net_surplus).toFixed(2)}`,
+        new_value: {
+          financial_year:    fy,
+          net_surplus:       preview.net_surplus,
+          closing_entry_id:  closingEntryCode,
+          surplus_account_id: surplusAccountId,
+          income_accounts:   preview.income_lines.length,
+          expense_accounts:  preview.expense_lines.length,
+          notes:             notes ?? null,
+        },
+      });
+
       return {
         data: {
           financial_year:   fy,
@@ -312,6 +328,20 @@ class FYClosureService {
         reopened_at:     new Date(),
         closing_entry_id: null,
       },
+    });
+
+    await auditService.record({
+      entity_type: 'financial_year',
+      action:      AuditAction.REOPEN,
+      summary:     `Reopened FY ${fy} (closing entry ${closure.closing_entry_id ?? '—'} removed)`,
+      old_value: {
+        financial_year:   fy,
+        status:           'CLOSED',
+        net_surplus:      closure.net_surplus,
+        closing_entry_id: closure.closing_entry_id,
+        closed_at:        closure.closed_at,
+      },
+      new_value: { financial_year: fy, status: 'REOPENED' },
     });
 
     return { data: { financial_year: fy, status: 'REOPENED' } };

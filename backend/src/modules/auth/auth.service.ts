@@ -8,6 +8,8 @@ import { generateOtp, generateToken, hashToken, normalisePhone } from '../../uti
 import { UnauthorizedError, ConflictError, RateLimitError, NotFoundError, UnprocessableError } from '../../utils/errors';
 import { whatsAppService } from '../../services/whatsapp.service';
 import logger from '../../utils/logger';
+import { AuditAction } from '@prisma/client';
+import { auditService } from '../../services/audit.service';
 
 function hashMpin(mpin: string): string {
   return crypto.createHash('sha256').update(mpin).digest('hex');
@@ -65,6 +67,13 @@ export class AuthService {
 
       if (storedOtp !== otp) {
         const { locked: nowLocked } = await incrementOtpAttempts(phone, maxAttempts, lockoutMinutes);
+        await auditService.record({
+          entity_type: 'auth', action: AuditAction.LOGIN_FAILED,
+          actor_label: phone,
+          performed_by: config_user?.id ?? null,
+          association_id: config_user?.association_id ?? null,
+          summary: nowLocked ? 'OTP login failed — account locked' : 'OTP login failed — invalid OTP',
+        });
         throw new UnauthorizedError(nowLocked ? 'Account locked due to too many failed attempts.' : 'Invalid OTP.');
       }
     }
@@ -73,9 +82,22 @@ export class AuthService {
       where: { phone, deleted_at: null, is_active: true },
     });
 
-    if (!user) throw new NotFoundError('User');
+    if (!user) {
+      await auditService.record({
+        entity_type: 'auth', action: AuditAction.LOGIN_FAILED,
+        actor_label: phone, performed_by: null, association_id: null,
+        summary: 'OTP login failed — no matching user',
+      });
+      throw new NotFoundError('User');
+    }
 
     if (!isDevBypass) await deleteOtp(phone);
+
+    await auditService.record({
+      entity_type: 'auth', action: AuditAction.LOGIN,
+      actor_label: phone, performed_by: user.id, association_id: user.association_id,
+      summary: isDevBypass ? 'Signed in with OTP (dev bypass)' : 'Signed in with OTP',
+    });
 
     return this.issueTokenPair(user);
   }
@@ -136,6 +158,12 @@ export class AuthService {
       where: { user_id: userId, revoked_at: null },
       data: { revoked_at: new Date() },
     });
+
+    await auditService.record({
+      entity_type: 'auth', action: AuditAction.LOGOUT,
+      performed_by: userId,
+      summary: 'Signed out (refresh tokens revoked)',
+    });
   }
 
   // ── M-PIN: check status ──────────────────────────────────────────────────────
@@ -149,9 +177,40 @@ export class AuthService {
   async verifyMpin(rawPhone: string, mpin: string): Promise<{ access_token: string; refresh_token: string; user: object }> {
     const phone = normalisePhone(rawPhone);
     const user = await prisma.user.findFirst({ where: { phone, deleted_at: null, is_active: true } });
-    if (!user) throw new NotFoundError('User');
-    if (!user.mpin_hash) throw new UnauthorizedError('M-PIN not set. Please login with OTP.');
-    if (user.mpin_hash !== hashMpin(mpin)) throw new UnauthorizedError('Incorrect M-PIN.');
+
+    // Failed attempts are recorded with the phone as the actor label, since
+    // there may be no matching user to attribute them to.
+    if (!user) {
+      await auditService.record({
+        entity_type: 'auth', action: AuditAction.LOGIN_FAILED,
+        actor_label: phone, performed_by: null, association_id: null,
+        summary: 'M-PIN login failed — no matching user',
+      });
+      throw new NotFoundError('User');
+    }
+    if (!user.mpin_hash) {
+      await auditService.record({
+        entity_type: 'auth', action: AuditAction.LOGIN_FAILED,
+        actor_label: phone, performed_by: user.id, association_id: user.association_id,
+        summary: 'M-PIN login failed — no M-PIN set',
+      });
+      throw new UnauthorizedError('M-PIN not set. Please login with OTP.');
+    }
+    if (user.mpin_hash !== hashMpin(mpin)) {
+      await auditService.record({
+        entity_type: 'auth', action: AuditAction.LOGIN_FAILED,
+        actor_label: phone, performed_by: user.id, association_id: user.association_id,
+        summary: 'M-PIN login failed — incorrect M-PIN',
+      });
+      throw new UnauthorizedError('Incorrect M-PIN.');
+    }
+
+    await auditService.record({
+      entity_type: 'auth', action: AuditAction.LOGIN,
+      actor_label: phone, performed_by: user.id, association_id: user.association_id,
+      summary: 'Signed in with M-PIN',
+    });
+
     return this.issueTokenPair(user);
   }
 
@@ -160,6 +219,13 @@ export class AuthService {
     await prisma.user.update({
       where: { id: userId },
       data: { mpin_hash: hashMpin(mpin) },
+    });
+
+    // Credential change — record the event only, never the M-PIN itself.
+    await auditService.record({
+      entity_type: 'auth', action: AuditAction.MPIN_SET,
+      performed_by: userId,
+      summary: 'M-PIN set',
     });
   }
 
@@ -172,6 +238,12 @@ export class AuthService {
     if (!user) throw new NotFoundError('User');
     await prisma.user.update({ where: { id: user.id }, data: { mpin_hash: hashMpin(newMpin) } });
     await deleteOtp(phone);
+
+    await auditService.record({
+      entity_type: 'auth', action: AuditAction.MPIN_RESET,
+      actor_label: phone, performed_by: user.id, association_id: user.association_id,
+      summary: 'M-PIN reset via OTP',
+    });
   }
 
   // ── M-PIN: change (authenticated, requires current M-PIN) ────────────────────

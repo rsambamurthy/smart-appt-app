@@ -27,4 +27,13 @@ router.get('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER), (
 router.put('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER), (req, res, next) =>
   systemController.saveMobileConfig(req as never, res, next));
 
+// ── Audit Trail (read-only) ───────────────────────────────────────────────────
+// Managers see their own association; SUPER_USER can query across all.
+// There is deliberately no write/delete endpoint — the trail is append-only.
+router.get('/audit-logs', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), (req, res, next) =>
+  systemController.listAuditLogs(req as never, res, next));
+
+router.get('/audit-logs/facets', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), (req, res, next) =>
+  systemController.auditFacets(req as never, res, next));
+
 export default router;
