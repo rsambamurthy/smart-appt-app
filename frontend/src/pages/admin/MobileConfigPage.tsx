@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import Layout from '../../components/organisms/Layout';
+import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
   useGetMobileConfigQuery,
   useSaveMobileConfigMutation,
@@ -152,7 +154,10 @@ export default function MobileConfigPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: '1.5rem', maxWidth: '1100px' }}>
+    <Layout>
+      <PageSubHeader crumbs={[{ label: 'System Settings' }, { label: 'Mobile App Config' }]} />
+
+      <div style={{ padding: '1.5rem', maxWidth: '1100px' }}>
       <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
         Mobile App Configuration
       </h2>
@@ -240,7 +245,8 @@ export default function MobileConfigPage() {
           </div>
         </>
       )}
-    </div>
+      </div>
+    </Layout>
   );
 }
 

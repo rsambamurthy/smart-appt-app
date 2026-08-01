@@ -18,7 +18,10 @@ export const runBillGenerator = async (): Promise<void> => {
 
       const month = today.getMonth() + 1;
       const year = today.getFullYear();
-      const units = await prisma.unit.findMany({ where: { association_id: config.association_id } });
+      // Skip soft-deleted units — they must never receive bills.
+      const units = await prisma.unit.findMany({
+        where: { association_id: config.association_id, deleted_at: null },
+      });
 
       for (const unit of units) {
         const existing = await prisma.bill.findFirst({ where: { unit_id: unit.id, period_month: month, period_year: year } });

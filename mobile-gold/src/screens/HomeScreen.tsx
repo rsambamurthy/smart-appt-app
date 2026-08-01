@@ -5,32 +5,9 @@ import * as SecureStore from 'expo-secure-store';
 import { useAppSelector, useAppDispatch } from '../store';
 import { clearCredentials } from '../store/authSlice';
 import { setAuthToken } from '../api/client';
-import { isEnabled, type MenuItemId } from '../navigation/menuConfig';
+import { visibleCategories, enabledItems } from '../navigation/menuConfig';
 
 const PRIMARY = '#7C3AED';
-
-interface QuickLink {
-  label: string;
-  screen: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  color: string;
-  itemId: MenuItemId | null;
-}
-
-const QUICK_LINKS: QuickLink[] = [
-  { label: 'My Bills',       screen: 'MyBills',          icon: 'receipt-outline',     color: '#f59e0b', itemId: 'dues_my_bills'      },
-  { label: 'Updates',        screen: 'Announcements',    icon: 'megaphone-outline',   color: '#22c55e', itemId: 'announcements_feed' },
-  { label: 'Requests',       screen: 'Maintenance',      icon: 'construct-outline',   color: '#ef4444', itemId: 'maintenance_list'   },
-  { label: 'Visitors',       screen: 'Visitors',         icon: 'people-outline',      color: '#0891b2', itemId: 'visitors_log'       },
-  { label: 'Journal',        screen: 'Journal',          icon: 'book-outline',        color: '#7C3AED', itemId: 'journal_entries'    },
-  { label: 'Ledger',         screen: 'Ledger',           icon: 'list-outline',        color: '#16a34a', itemId: 'ledger'             },
-  { label: 'P&L',            screen: 'PnL',              icon: 'trending-up-outline', color: '#f59e0b', itemId: 'pnl'                },
-  { label: 'Balance Sheet',  screen: 'BalanceSheet',     icon: 'scale-outline',       color: '#0891b2', itemId: 'balance_sheet'      },
-  { label: 'FY Closure',     screen: 'FYClosure',        icon: 'lock-closed-outline', color: '#dc2626', itemId: 'fy_closure'         },
-  { label: 'All Bills',      screen: 'Bills',            icon: 'albums-outline',      color: '#6366f1', itemId: 'dues_bills'         },
-  { label: 'Accounts',       screen: 'COA',              icon: 'layers-outline',      color: '#8b5cf6', itemId: null                 },
-  { label: 'Partners',       screen: 'BusinessPartners', icon: 'briefcase-outline',   color: '#0d9488', itemId: null                 },
-];
 
 const greeting = () => {
   const h = new Date().getHours();
@@ -45,7 +22,7 @@ export default function HomeScreen() {
   const user       = useAppSelector(s => s.auth.user);
   const config     = useAppSelector(s => s.auth.mobileConfig);
 
-  const visibleLinks = QUICK_LINKS.filter(l => isEnabled(l.itemId, config));
+  const categories = visibleCategories(config);
 
   const handleLogout = async () => {
     await SecureStore.deleteItemAsync('access_token').catch(() => {});
@@ -58,34 +35,50 @@ export default function HomeScreen() {
 
       {/* Header card */}
       <View style={s.headerCard}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={s.greeting}>{greeting()},</Text>
           <Text style={s.userName}>{user?.name ?? 'Resident'}</Text>
           <Text style={s.role}>{user?.role?.replace(/_/g, ' ')}</Text>
           {user?.unit_number ? <Text style={s.unit}>Unit {user.unit_number}</Text> : null}
         </View>
-        <TouchableOpacity onPress={handleLogout} style={s.logoutBtn}>
-          <Ionicons name="log-out-outline" size={22} color="#fff" />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TouchableOpacity onPress={() => navigation.navigate('More')} style={s.logoutBtn}>
+            <Ionicons name="person-circle-outline" size={24} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleLogout} style={s.logoutBtn}>
+            <Ionicons name="log-out-outline" size={22} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Quick access grid */}
-      <Text style={s.sectionTitle}>Quick Access</Text>
-      <View style={s.grid}>
-        {visibleLinks.map(link => (
-          <TouchableOpacity
-            key={link.screen}
-            style={[s.tile, { borderTopColor: link.color }]}
-            onPress={() => navigation.navigate(link.screen)}
-            activeOpacity={0.8}
-          >
-            <View style={[s.tileIcon, { backgroundColor: link.color + '20' }]}>
-              <Ionicons name={link.icon} size={22} color={link.color} />
-            </View>
-            <Text style={s.tileLabel}>{link.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {/* Category cards */}
+      <Text style={s.sectionTitle}>Menu</Text>
+
+      {categories.length === 0 ? (
+        <Text style={s.empty}>
+          No sections are enabled for your association yet.
+        </Text>
+      ) : (
+        <View style={s.grid}>
+          {categories.map(cat => {
+            const count = enabledItems(cat, config).length;
+            return (
+              <TouchableOpacity
+                key={cat.id}
+                style={[s.card, { borderTopColor: cat.color }]}
+                onPress={() => navigation.navigate('Category', { categoryId: cat.id, title: cat.label })}
+                activeOpacity={0.8}
+              >
+                <View style={[s.cardIcon, { backgroundColor: cat.color + '20' }]}>
+                  <Ionicons name={cat.icon} size={26} color={cat.color} />
+                </View>
+                <Text style={s.cardLabel}>{cat.label}</Text>
+                <Text style={s.cardCount}>{count} {count === 1 ? 'item' : 'items'}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
 
     </ScrollView>
   );
@@ -123,28 +116,30 @@ const s = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 12,
   },
+  empty: { color: '#9ca3af', fontSize: 14, textAlign: 'center', marginTop: 24 },
 
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
 
-  tile: {
+  card: {
     width: '47%',
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    padding: 18,
     borderTopWidth: 3,
-    elevation: 1,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
   },
-  tileIcon:  {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+  cardIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  tileLabel: { fontSize: 13, fontWeight: '600', color: '#1e293b' },
+  cardLabel: { fontSize: 15, fontWeight: '700', color: '#1e1b4b' },
+  cardCount: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
 });

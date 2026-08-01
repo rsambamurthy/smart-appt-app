@@ -126,9 +126,16 @@ export class DuesService {
     const isRatePerSqft = duesConfig.charge_type === 'RATE_PER_SQFT';
     const dueDay = duesConfig.due_day;
 
+    // Never bill soft-deleted units. Without this filter, a unit removed from
+    // Manage Units keeps receiving bills every month (including from the
+    // auto-generation scheduler) while being invisible in the units screen.
     const units = body.unit_ids
-      ? await prisma.unit.findMany({ where: { id: { in: body.unit_ids }, association_id: associationId } })
-      : await prisma.unit.findMany({ where: { association_id: associationId } });
+      ? await prisma.unit.findMany({
+          where: { id: { in: body.unit_ids }, association_id: associationId, deleted_at: null },
+        })
+      : await prisma.unit.findMany({
+          where: { association_id: associationId, deleted_at: null },
+        });
 
     const dueDate = new Date(body.year, body.month - 1, dueDay);
     const created: string[] = [];
@@ -722,9 +729,14 @@ export class DuesService {
       body.unit_ids && body.unit_ids.length > 0 ? body.unit_ids :
       due.target_unit_ids.length > 0 ? due.target_unit_ids : null;
 
+    // Soft-deleted units must never receive one-time-due bills either.
     const units = resolvedUnitIds
-      ? await prisma.unit.findMany({ where: { id: { in: resolvedUnitIds }, association_id: associationId } })
-      : await prisma.unit.findMany({ where: { association_id: associationId } });
+      ? await prisma.unit.findMany({
+          where: { id: { in: resolvedUnitIds }, association_id: associationId, deleted_at: null },
+        })
+      : await prisma.unit.findMany({
+          where: { association_id: associationId, deleted_at: null },
+        });
 
     const dueDate = due.due_date;
     const periodMonth = dueDate.getMonth() + 1;

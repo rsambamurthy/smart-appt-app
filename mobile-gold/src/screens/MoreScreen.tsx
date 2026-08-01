@@ -9,18 +9,17 @@ import * as SecureStore from 'expo-secure-store';
 import { useAppDispatch, useAppSelector } from '../store';
 import { clearCredentials } from '../store/authSlice';
 import { setAuthToken } from '../api/client';
-import type { TabDef } from '../navigation/menuConfig';
+import { visibleCategories } from '../navigation/menuConfig';
 
 const PRIMARY = '#7C3AED';
 
-interface Props {
-  overflowTabs?: TabDef[];
-}
-
-export default function MoreScreen({ overflowTabs = [] }: Props) {
+export default function MoreScreen() {
   const navigation = useNavigation<any>();
   const dispatch   = useAppDispatch();
   const user       = useAppSelector(s => s.auth.user);
+  const config     = useAppSelector(s => s.auth.mobileConfig);
+
+  const categories = visibleCategories(config);
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure?', [
@@ -47,27 +46,27 @@ export default function MoreScreen({ overflowTabs = [] }: Props) {
         </View>
       </View>
 
-      {overflowTabs.length > 0 && (
+      {categories.length > 0 && (
         <>
-          <Text style={s.sectionTitle}>More Sections</Text>
-          {overflowTabs.map(tab => (
+          <Text style={s.sectionTitle}>Sections</Text>
+          {categories.map(cat => (
             <TouchableOpacity
-              key={tab.name}
+              key={cat.id}
               style={s.row}
-              onPress={() => navigation.navigate(tab.name)}
+              onPress={() => navigation.navigate('Category', { categoryId: cat.id, title: cat.label })}
               activeOpacity={0.7}
             >
-              <View style={s.iconWrap}>
-                <Ionicons name={tab.icon} size={20} color={PRIMARY} />
+              <View style={[s.iconWrap, { backgroundColor: cat.color + '20' }]}>
+                <Ionicons name={cat.icon} size={20} color={cat.color} />
               </View>
-              <Text style={s.rowLabel}>{tab.label}</Text>
+              <Text style={s.rowLabel}>{cat.label}</Text>
               <Ionicons name="chevron-forward" size={18} color="#d1d5db" />
             </TouchableOpacity>
           ))}
         </>
       )}
 
-      <Text style={[s.sectionTitle, { marginTop: overflowTabs.length > 0 ? 24 : 0 }]}>Account</Text>
+      <Text style={[s.sectionTitle, { marginTop: categories.length > 0 ? 24 : 0 }]}>Account</Text>
       <TouchableOpacity style={s.row} onPress={handleLogout} activeOpacity={0.7}>
         <View style={[s.iconWrap, { backgroundColor: '#fef2f2' }]}>
           <Ionicons name="log-out-outline" size={20} color="#ef4444" />

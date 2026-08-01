@@ -97,7 +97,9 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'dues_my_bills',        label: 'My Bills',          path: '/dues/my-bills',         roles: ['SUPER_USER', 'RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER'],                      dot: '#f59e0b', end: true },
       { id: 'maintenance_list',     label: 'Service Requests',  path: '/maintenance',           roles: ALL_ROLES,                                                                            dot: '#ef4444', end: true },
-      { id: 'maintenance_new',      label: 'Raise Request',     path: '/maintenance/new',       roles: ALL_ROLES,                                                                            dot: '#0095db', end: true },
+      // 'maintenance_new' (Raise Request) intentionally omitted — raising a
+      // request is done from within Service Requests. The /maintenance/new
+      // route still exists and remains reachable directly.
       { id: 'announcements_feed',   label: 'Announcements',     path: '/announcements',         roles: ALL_ROLES,                                                                            dot: '#22c55e', end: true },
       { id: 'expenses_transparency', label: 'Transparency',     path: '/expenses/transparency', roles: ALL_ROLES,                                                                            dot: '#6366f1', end: true },
     ],
@@ -140,8 +142,21 @@ function WebLayout({ children }: { children: React.ReactNode }) {
   const { data: menuConfigData } = useGetMenuConfigQuery();
   const menuConfig = menuConfigData?.data;
 
+  // Super User is a platform administrator, not a day-to-day association user.
+  // These operational groups are hidden from their SIDEBAR only — every route
+  // remains fully accessible by direct URL (no route guards are applied).
+  const SUPER_USER_HIDDEN_GROUPS = [
+    'config',      // Configurations
+    'dues',        // Dues & Payments
+    'accounting',  // Accounting
+    'residents',   // Residents
+    'documents',   // Documents
+    'visitors',    // Visitors
+  ];
+
   // Build visible groups: group-level role gate removed so Super User can grant any item to any role
   const visibleGroups = NAV_GROUPS
+    .filter((g) => !(role === 'SUPER_USER' && SUPER_USER_HIDDEN_GROUPS.includes(g.id)))
     .map((g) => ({
       ...g,
       items: g.items.filter((i) => {
