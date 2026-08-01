@@ -22,7 +22,7 @@
       "package": "com.smartappt.gold"
     },
     "extra": {
-      "apiUrl": "https://smart-appt-app-production.up.railway.app/api/v1",
+      "apiUrl": "https://smart-appt-app-development.up.railway.app/api/v1",
       "eas": {
         "projectId": "smart-appt-gold"
       }
