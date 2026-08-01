@@ -69,26 +69,115 @@ class JournalService {
     }
   }
 
-  // ── Infer voucher type for manual entries from account names ──────────────
-  // Bank account in any line → BV; Cash account → CV; otherwise → JV.
-  // "Bank" takes priority if both appear on the same entry.
+  // ── Classify cash and bank accounts ───────────────────────────────────────
+  // By CODE, not by name. Name matching was fragile: renaming 1002 to
+  // "HDFC Current A/c" made it stop counting as a bank account and every bank
+  // entry silently became a journal voucher.
+  //
+  // Cash: 1001, plus any ASSET account whose sub_type is "Cash".
+  // Bank: 1002, plus any ASSET account whose sub_type is "Bank".
+  // Add a second bank account by giving it sub_type "Bank".
+  private async getCashBankAccounts(associationId: string) {
+    const accounts = await prisma.account.findMany({
+      where: {
+        association_id: associationId,
+        type:           AccountType.ASSET,
+        OR: [
+          { code: { in: ['1001', '1002'] } },
+          { sub_type: { in: ['Cash', 'Bank'], mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true, code: true, name: true, sub_type: true },
+    });
+
+    const cash = accounts.filter(a => a.code === '1001' || a.sub_type?.toLowerCase() === 'cash');
+    const bank = accounts.filter(a => a.code === '1002' || a.sub_type?.toLowerCase() === 'bank');
+
+    return {
+      cash,
+      bank,
+      cashIds: new Set(cash.map(a => a.id)),
+      bankIds: new Set(bank.map(a => a.id)),
+    };
+  }
+
+  // ── Voucher type for a manual entry ───────────────────────────────────────
+  // BV when the entry moves a bank account, CV when it moves cash, JV when it
+  // touches neither. Bank wins if both appear, which only happens on a contra.
   private async inferManualVoucherType(
+    associationId: string,
     lines: { account_id: string }[],
   ): Promise<VoucherType> {
-    const accountIds = [...new Set(lines.map(l => l.account_id))];
-    const accts = await prisma.account.findMany({
-      where:  { id: { in: accountIds } },
-      select: { name: true },
-    });
-    let hasBank = false, hasCash = false;
-    for (const a of accts) {
-      const n = a.name.toLowerCase();
-      if (n.includes('bank')) hasBank = true;
-      if (n.includes('cash')) hasCash = true;
-    }
-    if (hasBank) return VoucherType.BV;
-    if (hasCash) return VoucherType.CV;
+    const { cashIds, bankIds } = await this.getCashBankAccounts(associationId);
+    const ids = new Set(lines.map(l => l.account_id));
+
+    for (const id of ids) if (bankIds.has(id)) return VoucherType.BV;
+    for (const id of ids) if (cashIds.has(id)) return VoucherType.CV;
     return VoucherType.JV;
+  }
+
+  // ── Enforce the three voucher categories ──────────────────────────────────
+  // Bank Payment/Receipt   — exactly one bank line, no cash line
+  // Cash Payment/Receipt   — exactly one cash line, no bank line
+  // Journal Voucher        — neither cash nor bank
+  //
+  // Keeping these distinct is what makes the Receipts & Payments account
+  // derivable: it identifies receipts and payments by the cash side of an
+  // entry, so an entry with two cash lines or none is ambiguous.
+  private async validateVoucherType(
+    associationId: string,
+    requested: VoucherType,
+    lines: { account_id: string }[],
+  ) {
+    const { cashIds, bankIds } = await this.getCashBankAccounts(associationId);
+    const cashLines = lines.filter(l => cashIds.has(l.account_id));
+    const bankLines = lines.filter(l => bankIds.has(l.account_id));
+
+    if (requested === VoucherType.BV) {
+      if (bankLines.length === 0) {
+        throw new UnprocessableError('A Bank voucher must include one bank account line.');
+      }
+      if (bankLines.length > 1) {
+        throw new UnprocessableError(
+          'A Bank voucher may only touch one bank account. Use a Journal voucher to move money between two banks.',
+        );
+      }
+      if (cashLines.length > 0) {
+        throw new UnprocessableError(
+          'A Bank voucher cannot also include a cash line. ' +
+          'Record a cash-to-bank transfer as a Journal voucher with only the cash and bank lines.',
+        );
+      }
+    } else if (requested === VoucherType.CV) {
+      if (cashLines.length === 0) {
+        throw new UnprocessableError('A Cash voucher must include one cash account line.');
+      }
+      if (cashLines.length > 1) {
+        throw new UnprocessableError('A Cash voucher may only touch one cash account.');
+      }
+      if (bankLines.length > 0) {
+        throw new UnprocessableError(
+          'A Cash voucher cannot also include a bank line. ' +
+          'Record a cash-to-bank transfer as a Journal voucher with only the cash and bank lines.',
+        );
+      }
+    } else if (requested === VoucherType.JV) {
+      const touchesMoney = cashLines.length + bankLines.length;
+      // Carve-out: a transfer between cash and bank is legitimately a journal
+      // entry — it is not a receipt or a payment, and the Receipts & Payments
+      // account already excludes it as a contra. Allowed only when EVERY line
+      // is a cash or bank account, so it cannot be used to smuggle an expense
+      // through as a journal voucher.
+      const isContra = touchesMoney > 1 && touchesMoney === lines.length;
+
+      if (touchesMoney > 0 && !isContra) {
+        throw new UnprocessableError(
+          'A Journal voucher is for entries that do not involve cash or bank. ' +
+          'Use a Cash or Bank voucher instead, or — for a transfer between cash and bank — ' +
+          'make every line a cash or bank account.',
+        );
+      }
+    }
   }
 
   // ── Get account by code (throws if not found) ─────────────────────────────
@@ -1593,7 +1682,11 @@ class JournalService {
 
     await this.validateControlAccounts(body.lines);
 
-    const voucherType = await this.inferManualVoucherType(body.lines);
+    const voucherType = body.voucher_type
+      ? (body.voucher_type as VoucherType)
+      : await this.inferManualVoucherType(associationId, body.lines);
+
+    await this.validateVoucherType(associationId, voucherType, body.lines);
 
     await prisma.journalLine.deleteMany({ where: { journal_entry_id: id } });
 
@@ -1845,7 +1938,12 @@ class JournalService {
       throw new UnprocessableError(`Financial year ${entryFY} is closed. Reopen it before posting new entries.`);
     }
 
-    const voucherType = await this.inferManualVoucherType(body.lines);
+    // Explicit type from the form; fall back to inference for older callers.
+    const voucherType = body.voucher_type
+      ? (body.voucher_type as VoucherType)
+      : await this.inferManualVoucherType(associationId, body.lines);
+
+    await this.validateVoucherType(associationId, voucherType, body.lines);
 
     const entry = await this.post(associationId, {
       entry_date:    new Date(body.entry_date),

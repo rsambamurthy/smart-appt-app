@@ -62,6 +62,28 @@ const emptyLine = (): LineState => ({
   narration:           '',
 });
 
+// ── Voucher classes ───────────────────────────────────────────────────────────
+// The three things a treasurer actually records. Bank and Cash vouchers have a
+// direction and a single money account; the other side is what they enter.
+type VoucherClass = 'BANK' | 'CASH' | 'JOURNAL';
+type Direction    = 'RECEIPT' | 'PAYMENT';
+
+const VOUCHER_CLASS_LABEL: Record<VoucherClass, string> = {
+  BANK:    'Bank',
+  CASH:    'Cash',
+  JOURNAL: 'Journal',
+};
+
+// Must mirror getCashBankAccounts() on the server: classify by code, never by
+// name, so renaming "Bank Account" to "HDFC Current A/c" changes nothing.
+type ClassifiableAccount = { id: string; code: string; sub_type?: string | null };
+
+const isCashAccount = (a: ClassifiableAccount) =>
+  a.code === '1001' || a.sub_type?.toLowerCase() === 'cash';
+
+const isBankAccount = (a: ClassifiableAccount) =>
+  a.code === '1002' || a.sub_type?.toLowerCase() === 'bank';
+
 // ── Shared styles ─────────────────────────────────────────────────────────────
 const cellInp: React.CSSProperties = {
   border: 'none', outline: 'none', width: '100%',
@@ -96,6 +118,12 @@ export default function JournalEntriesPage() {
   const [lines,     setLines]     = useState<LineState[]>([emptyLine(), emptyLine()]);
   const [formError, setFormError] = useState('');
 
+  // Voucher class drives the whole form: Bank and Cash collect a direction and
+  // one money account, and the contra lines are all the treasurer fills in.
+  const [voucherClass, setVoucherClass] = useState<VoucherClass>('BANK');
+  const [direction,    setDirection]    = useState<Direction>('RECEIPT');
+  const [moneyAccount, setMoneyAccount] = useState('');
+
   // ── Data ──────────────────────────────────────────────────────────────────
   const { data, isLoading, refetch } = useListJournalEntriesQuery({
     type: filter.type || undefined,
@@ -115,6 +143,16 @@ export default function JournalEntriesPage() {
   const bpTypes  = bpTypesData?.data ?? [];
 
   const accountMap       = new Map(accounts.map(a => [a.id, a]));
+
+  // Money accounts available for each class, and the accounts a contra line
+  // may use (never a cash or bank account — that side is generated).
+  const cashAccounts  = accounts.filter(isCashAccount);
+  const bankAccounts  = accounts.filter(isBankAccount);
+  const moneyOptions  = voucherClass === 'BANK' ? bankAccounts
+                      : voucherClass === 'CASH' ? cashAccounts
+                      : [];
+  const contraOptions = accounts.filter(a => !isCashAccount(a) && !isBankAccount(a));
+  const isMoneyVoucher = voucherClass === 'BANK' || voucherClass === 'CASH';
   const bpTypeToCategory = new Map(bpTypes.map(t => [t.id, inferCategoryFromTypeName(t.name)]));
   const selectedEntry    = entries.find(e => e.id === selectedId) ?? null;
 
@@ -124,9 +162,22 @@ export default function JournalEntriesPage() {
     setEditTarget(null);
     setEntryDate(TODAY);
     setNarration('');
-    setLines([emptyLine(), emptyLine()]);
+    setVoucherClass('BANK');
+    setDirection('RECEIPT');
+    setMoneyAccount('');
+    // Money vouchers start with a single contra line; the money side is added
+    // on save. A journal voucher needs the usual two-line grid.
+    setLines([emptyLine()]);
     setFormError('');
     setFormMode('new');
+  };
+
+  // Switching class resets the parts that no longer apply.
+  const changeVoucherClass = (cls: VoucherClass) => {
+    setVoucherClass(cls);
+    setMoneyAccount('');
+    setFormError('');
+    setLines(cls === 'JOURNAL' ? [emptyLine(), emptyLine()] : [emptyLine()]);
   };
 
   const openEditForm = (entry: JournalEntry) => {
@@ -134,15 +185,36 @@ export default function JournalEntriesPage() {
     setEditTarget(entry);
     setEntryDate(entry.entry_date.slice(0, 10));
     setNarration(entry.narration);
-    // Map debit/credit → amount + drCr
-    setLines(entry.lines.map(l => ({
+
+    const mapped = entry.lines.map(l => ({
       _key:                Math.random(),
       account_id:          l.account_id,
       business_partner_id: l.business_partner_id ?? '',
       amount:              Number(l.debit) > 0 ? Number(l.debit) : Number(l.credit),
       drCr:                Number(l.debit) > 0 ? 'DR' as const : 'CR' as const,
       narration:           l.narration ?? '',
-    })));
+    }));
+
+    // Reconstruct which class this entry was, from the accounts it uses.
+    const moneyLine = mapped.find(l => {
+      const a = accountMap.get(l.account_id);
+      return a ? (isCashAccount(a) || isBankAccount(a)) : false;
+    });
+    const moneyAcct = moneyLine ? accountMap.get(moneyLine.account_id) : undefined;
+
+    if (moneyAcct && isBankAccount(moneyAcct)) setVoucherClass('BANK');
+    else if (moneyAcct && isCashAccount(moneyAcct)) setVoucherClass('CASH');
+    else setVoucherClass('JOURNAL');
+
+    if (moneyLine) {
+      setMoneyAccount(moneyLine.account_id);
+      setDirection(moneyLine.drCr === 'DR' ? 'RECEIPT' : 'PAYMENT');
+      setLines(mapped.filter(l => l !== moneyLine));
+    } else {
+      setMoneyAccount('');
+      setLines(mapped);
+    }
+
     setFormError('');
     setFormMode('edit');
   };
@@ -161,15 +233,26 @@ export default function JournalEntriesPage() {
   const addLine    = () => setLines(ls => [...ls, emptyLine()]);
   const removeLine = (idx: number) => setLines(ls => ls.filter((_, i) => i !== idx));
 
-  // Balance computations from amount + drCr
-  const totalDebit  = lines.filter(l => l.drCr === 'DR').reduce((s, l) => s + (Number(l.amount) || 0), 0);
-  const totalCredit = lines.filter(l => l.drCr === 'CR').reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  // ── Balance ───────────────────────────────────────────────────────────────
+  // On a money voucher the contra lines all sit on one side and the generated
+  // money line balances them, so the total is simply their sum. A journal
+  // voucher balances itself the usual way.
+  const contraTotal = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
+
+  const totalDebit  = isMoneyVoucher ? contraTotal
+    : lines.filter(l => l.drCr === 'DR').reduce((s, l) => s + (Number(l.amount) || 0), 0);
+  const totalCredit = isMoneyVoucher ? contraTotal
+    : lines.filter(l => l.drCr === 'CR').reduce((s, l) => s + (Number(l.amount) || 0), 0);
   const balanced    = Math.abs(totalDebit - totalCredit) < 0.005;
 
   const handleSave = async () => {
     setFormError('');
     if (!narration.trim()) { setFormError('Narration is required.'); return; }
     if (lines.some(l => !l.account_id)) { setFormError('All lines must have an account.'); return; }
+    if (isMoneyVoucher && !moneyAccount) {
+      setFormError(`Select the ${voucherClass === 'BANK' ? 'bank' : 'cash'} account.`);
+      return;
+    }
 
     for (const line of lines) {
       const acct = accountMap.get(line.account_id);
@@ -184,17 +267,40 @@ export default function JournalEntriesPage() {
     }
     if (totalDebit === 0) { setFormError('Entry amount cannot be zero.'); return; }
 
-    // Map amount + drCr → debit / credit for API
-    const payload = {
-      entry_date: entryDate,
-      narration,
-      lines: lines.map(({ account_id, business_partner_id, amount, drCr, narration: ln }) => ({
+    // Contra lines. On a receipt money comes in, so the other side is credited;
+    // on a payment it is debited.
+    const contraDrCr: 'DR' | 'CR' = direction === 'RECEIPT' ? 'CR' : 'DR';
+
+    const apiLines = lines.map(({ account_id, business_partner_id, amount, drCr, narration: ln }) => {
+      const side = isMoneyVoucher ? contraDrCr : drCr;
+      return {
         account_id,
         business_partner_id: business_partner_id || null,
-        debit:    drCr === 'DR' ? (Number(amount) || 0) : 0,
-        credit:   drCr === 'CR' ? (Number(amount) || 0) : 0,
+        debit:     side === 'DR' ? (Number(amount) || 0) : 0,
+        credit:    side === 'CR' ? (Number(amount) || 0) : 0,
         narration: ln || undefined,
-      })),
+      };
+    });
+
+    // The money line, generated rather than typed: one line, total amount,
+    // opposite side to the contras.
+    if (isMoneyVoucher) {
+      apiLines.push({
+        account_id:          moneyAccount,
+        business_partner_id: null,
+        debit:     direction === 'RECEIPT' ? contraTotal : 0,
+        credit:    direction === 'PAYMENT' ? contraTotal : 0,
+        narration: undefined,
+      });
+    }
+
+    const payload = {
+      entry_date:   entryDate,
+      narration,
+      voucher_type: voucherClass === 'BANK' ? 'BV' as const
+                  : voucherClass === 'CASH' ? 'CV' as const
+                  : 'JV' as const,
+      lines: apiLines,
     };
 
     try {
@@ -227,14 +333,82 @@ export default function JournalEntriesPage() {
     <div style={{ padding: '18px 24px' }}>
 
       {/* Voucher title bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          Journal Voucher
+          {isMoneyVoucher
+            ? `${VOUCHER_CLASS_LABEL[voucherClass]} ${direction === 'RECEIPT' ? 'Receipt' : 'Payment'}`
+            : 'Journal Voucher'}
         </div>
         <button onClick={closeForm} title="Cancel"
           style={{ background: 'none', border: 'none', fontSize: 22, color: '#94a3b8', cursor: 'pointer', lineHeight: 1 }}>
           ×
         </button>
+      </div>
+
+      {/* ── Voucher class + direction ── */}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ display: 'flex', border: vBord, borderRadius: 7, overflow: 'hidden' }}>
+          {(['BANK', 'CASH', 'JOURNAL'] as VoucherClass[]).map(cls => (
+            <button key={cls} type="button" onClick={() => changeVoucherClass(cls)}
+              style={{
+                padding: '7px 16px', border: 'none', cursor: 'pointer', fontSize: 12.5,
+                fontWeight: voucherClass === cls ? 700 : 500,
+                background: voucherClass === cls ? '#2563eb' : '#fff',
+                color:      voucherClass === cls ? '#fff'    : '#475569',
+              }}>
+              {VOUCHER_CLASS_LABEL[cls]}
+            </button>
+          ))}
+        </div>
+
+        {isMoneyVoucher && (
+          <div style={{ display: 'flex', border: vBord, borderRadius: 7, overflow: 'hidden' }}>
+            {(['RECEIPT', 'PAYMENT'] as Direction[]).map(d => (
+              <button key={d} type="button" onClick={() => { setDirection(d); setFormError(''); }}
+                style={{
+                  padding: '7px 16px', border: 'none', cursor: 'pointer', fontSize: 12.5,
+                  fontWeight: direction === d ? 700 : 500,
+                  background: direction === d ? (d === 'RECEIPT' ? '#15803d' : '#dc2626') : '#fff',
+                  color:      direction === d ? '#fff' : '#475569',
+                }}>
+                {d === 'RECEIPT' ? 'Receipt' : 'Payment'}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {isMoneyVoucher && (
+          <select
+            value={moneyAccount}
+            onChange={e => { setMoneyAccount(e.target.value); setFormError(''); }}
+            style={{ padding: '7px 10px', border: vBord, borderRadius: 7, fontSize: 12.5, color: '#1e293b', background: '#fff', minWidth: 200 }}
+          >
+            <option value="">
+              {voucherClass === 'BANK' ? 'Select bank account…' : 'Select cash account…'}
+            </option>
+            {moneyOptions.map(a => (
+              <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      {/* What the entry will do, in words */}
+      <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 12, lineHeight: 1.5 }}>
+        {isMoneyVoucher ? (
+          moneyOptions.length === 0 ? (
+            <span style={{ color: '#b91c1c' }}>
+              No {voucherClass === 'BANK' ? 'bank' : 'cash'} account found.
+              {voucherClass === 'BANK'
+                ? ' Add one with code 1002, or set an account’s sub-type to "Bank".'
+                : ' Add one with code 1001, or set an account’s sub-type to "Cash".'}
+            </span>
+          ) : direction === 'RECEIPT'
+            ? 'Money received. Enter what it was received for — the bank or cash side is added automatically.'
+            : 'Money paid out. Enter what it was paid for — the bank or cash side is added automatically.'
+        ) : (
+          'For entries that do not involve cash or bank. To move money between cash and bank, make every line a cash or bank account.'
+        )}
       </div>
 
       {/* ── Header row: Date | Narration | JV Number ── */}
@@ -284,9 +458,12 @@ export default function JournalEntriesPage() {
             <th style={{ border: vBord, padding: '7px 10px', textAlign: 'right', fontSize: 11, fontWeight: 600, color: '#475569', width: 130 }}>
               Amount
             </th>
-            <th style={{ border: vBord, padding: '7px 10px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: '#475569', width: 72 }}>
-              DR / CR
-            </th>
+            {/* Direction is fixed by Receipt/Payment on a money voucher. */}
+            {!isMoneyVoucher && (
+              <th style={{ border: vBord, padding: '7px 10px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: '#475569', width: 72 }}>
+                DR / CR
+              </th>
+            )}
             <th style={{ border: vBord, width: 28, background: '#f8fafc' }}></th>
           </tr>
         </thead>
@@ -309,9 +486,12 @@ export default function JournalEntriesPage() {
                   <select style={cellSel} value={line.account_id}
                     onChange={e => updateLine(idx, 'account_id', e.target.value)}>
                     <option value="">— select —</option>
+                    {/* On a money voucher the cash/bank side is generated, so
+                        those accounts are not offered here. */}
                     {['ASSET', 'LIABILITY', 'INCOME', 'EXPENSE', 'EQUITY'].map(type => (
                       <optgroup key={type} label={type}>
-                        {accounts.filter(a => a.type === type && a.is_active).map(a => (
+                        {(isMoneyVoucher ? contraOptions : accounts)
+                          .filter(a => a.type === type && a.is_active).map(a => (
                           <option key={a.id} value={a.id}>
                             {a.code} — {a.name}{a.is_control_account ? ' ⊕' : ''}
                           </option>
@@ -347,24 +527,26 @@ export default function JournalEntriesPage() {
                 </td>
 
                 {/* DR / CR dropdown */}
-                <td style={{ border: vBord, padding: 0, height: 36 }}>
-                  <select
-                    value={line.drCr}
-                    onChange={e => updateLine(idx, 'drCr', e.target.value)}
-                    style={{
-                      ...cellSel,
-                      fontWeight: 700, fontSize: 12.5, textAlign: 'center',
-                      color: line.drCr === 'DR' ? '#1d4ed8' : '#15803d',
-                      background: line.drCr === 'DR' ? '#eff6ff' : '#f0fdf4',
-                    }}>
-                    <option value="DR">DR</option>
-                    <option value="CR">CR</option>
-                  </select>
-                </td>
+                {!isMoneyVoucher && (
+                  <td style={{ border: vBord, padding: 0, height: 36 }}>
+                    <select
+                      value={line.drCr}
+                      onChange={e => updateLine(idx, 'drCr', e.target.value)}
+                      style={{
+                        ...cellSel,
+                        fontWeight: 700, fontSize: 12.5, textAlign: 'center',
+                        color: line.drCr === 'DR' ? '#1d4ed8' : '#15803d',
+                        background: line.drCr === 'DR' ? '#eff6ff' : '#f0fdf4',
+                      }}>
+                      <option value="DR">DR</option>
+                      <option value="CR">CR</option>
+                    </select>
+                  </td>
+                )}
 
                 {/* Remove */}
                 <td style={{ border: vBord, padding: '4px 4px', textAlign: 'center' }}>
-                  {lines.length > 2 && (
+                  {lines.length > (isMoneyVoucher ? 1 : 2) && (
                     <button onClick={() => removeLine(idx)}
                       style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>
                       ×
@@ -375,9 +557,31 @@ export default function JournalEntriesPage() {
             );
           })}
 
+          {/* The generated money line, shown read-only so the treasurer can
+              see the full double entry rather than half of it. */}
+          {isMoneyVoucher && moneyAccount && (
+            <tr style={{ background: direction === 'RECEIPT' ? '#f0fdf4' : '#fef2f2' }}>
+              <td style={{ border: vBord, padding: '8px 10px', fontSize: 12.5, color: '#475569' }}>
+                {(() => {
+                  const a = accountMap.get(moneyAccount);
+                  return a ? `${a.code} — ${a.name}` : '';
+                })()}
+                <span style={{ marginLeft: 8, fontSize: 10.5, color: '#94a3b8' }}>auto</span>
+              </td>
+              <td style={{ border: vBord, padding: '8px 10px', fontSize: 12, color: '#cbd5e1' }}>—</td>
+              <td style={{ border: vBord, padding: '8px 10px', textAlign: 'right', fontSize: 12.5, fontWeight: 600, color: '#1e293b' }}>
+                {contraTotal > 0 ? fmtAmt(contraTotal) : '—'}
+              </td>
+              <td style={{ border: vBord, padding: '8px 10px', textAlign: 'center', fontSize: 12, fontWeight: 700,
+                color: direction === 'RECEIPT' ? '#1d4ed8' : '#15803d' }}>
+                {direction === 'RECEIPT' ? 'DR' : 'CR'}
+              </td>
+            </tr>
+          )}
+
           {/* Add line row */}
           <tr>
-            <td colSpan={5} style={{ border: vBord, padding: '7px 10px', background: '#f8fafc' }}>
+            <td colSpan={isMoneyVoucher ? 4 : 5} style={{ border: vBord, padding: '7px 10px', background: '#f8fafc' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <button onClick={addLine}
                   style={{ fontSize: 12.5, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0 }}>
@@ -409,7 +613,7 @@ export default function JournalEntriesPage() {
                 </span>
               </div>
             </td>
-            <td colSpan={2} style={{ border: vBord, padding: '8px 12px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
+            <td colSpan={isMoneyVoucher ? 1 : 2} style={{ border: vBord, padding: '8px 12px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#1e293b' }}>
               {totalDebit > 0 ? fmtAmt(totalDebit) : '—'}
             </td>
           </tr>

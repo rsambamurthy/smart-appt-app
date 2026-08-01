@@ -543,11 +543,11 @@ const accountingApi = baseApi.injectEndpoints({
       },
       providesTags: ['Journal'],
     }),
-    createJournalEntry: builder.mutation<{ data: JournalEntry }, { entry_date: string; narration: string; lines: JournalLineInput[] }>({
+    createJournalEntry: builder.mutation<{ data: JournalEntry }, { entry_date: string; narration: string; voucher_type?: 'BV' | 'CV' | 'JV'; lines: JournalLineInput[] }>({
       query: (body) => ({ url: '/accounting/journal', method: 'POST', body }),
       invalidatesTags: ['Journal'],
     }),
-    updateJournalEntry: builder.mutation<{ data: JournalEntry }, { id: string; entry_date: string; narration: string; lines: JournalLineInput[] }>({
+    updateJournalEntry: builder.mutation<{ data: JournalEntry }, { id: string; entry_date: string; narration: string; voucher_type?: 'BV' | 'CV' | 'JV'; lines: JournalLineInput[] }>({
       query: ({ id, ...body }) => ({ url: `/accounting/journal/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['Journal'],
     }),
