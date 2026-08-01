@@ -16,13 +16,6 @@ import { useGetDuesDashboardQuery } from '../../store/api/duesApi';
 
 const PAYMENT_MODES = ['CASH', 'CHEQUE', 'ONLINE', 'UPI'] as const;
 
-const STATUS_BADGE: Record<string, { label: string; bg: string; color: string }> = {
-  PENDING_APPROVAL: { label: 'Pending',  bg: '#fffbeb', color: '#d97706' },
-  APPROVED:         { label: 'Approved', bg: '#f0fdf4', color: '#16a34a' },
-  REJECTED:         { label: 'Rejected', bg: '#fef2f2', color: '#dc2626' },
-  RECORDED:         { label: 'Recorded', bg: '#eff6ff', color: '#2563eb' },
-};
-
 interface Category { id: string; name: string; display_name: string; color: string; is_active: boolean }
 interface Expense {
   id: string; expense_date: string; category: string;
@@ -145,7 +138,7 @@ export default function ExpenseListPage() {
 
   return (
     <Layout>
-      <PageSubHeader crumbs={[{ label: 'Expenses', to: '/expenses' }, { label: 'Expense' }]} />
+      <PageSubHeader crumbs={[{ label: 'Expenses', path: '/expenses' }, { label: 'Expense' }]} />
 
       <div style={{ padding: '1.5rem 2rem' }}>
 

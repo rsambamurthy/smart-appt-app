@@ -416,7 +416,9 @@ type Tab = 'web' | 'mobile';
 export default function MenuConfigPage() {
   const [activeTab, setActiveTab] = useState<Tab>('web');
 
-  const tabBtn = (tab: Tab, label: string, icon: string): React.CSSProperties => ({
+  // Only the active-tab comparison matters here; the button's label and icon
+  // are rendered as children by the caller.
+  const tabBtn = (tab: Tab): React.CSSProperties => ({
     padding: '8px 20px', border: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 600,
     borderRadius: '8px 8px 0 0', marginRight: 4, display: 'flex', alignItems: 'center', gap: 6,
     background: activeTab === tab ? '#fff' : 'transparent',
@@ -431,10 +433,10 @@ export default function MenuConfigPage() {
       <div style={{ padding: '1.5rem 2rem' }}>
         {/* Tab bar */}
         <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: 24 }}>
-          <button style={tabBtn('web', 'Web Menu', '🖥️')} onClick={() => setActiveTab('web')}>
+          <button style={tabBtn('web')} onClick={() => setActiveTab('web')}>
             🖥️ Web Menu
           </button>
-          <button style={tabBtn('mobile', 'Mobile App', '📱')} onClick={() => setActiveTab('mobile')}>
+          <button style={tabBtn('mobile')} onClick={() => setActiveTab('mobile')}>
             📱 Mobile App
           </button>
         </div>

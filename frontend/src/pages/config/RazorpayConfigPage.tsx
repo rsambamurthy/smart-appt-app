@@ -17,8 +17,10 @@ export default function RazorpayConfigPage() {
     if (data?.data?.razorpay_key_id) setKeyId(data.data.razorpay_key_id);
   }, [data]);
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Invoked from PageSubHeader's Save button (onClick), so there is no form
+  // event — the parameter stays optional in case it is reused as a submit handler.
+  const handleSave = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setSuccess(''); setError('');
     if (!keyId.trim() || !keySecret.trim()) { setError('Both Key ID and Key Secret are required.'); return; }
     try {

@@ -47,7 +47,8 @@ export default function MyBillsPage() {
       billId: bill.id,
       userName: user?.name ?? '',
       userPhone: user?.phone ?? '',
-      userEmail: user?.email ?? '',
+      // No userEmail: the auth API does not return an email address, so the
+      // Razorpay email prefill is left blank rather than sending undefined.
       onSuccess: (paymentId) => {
         showToast('success', `Payment successful! ID: ${paymentId}`);
         refetch();

@@ -75,10 +75,6 @@ const thSt: React.CSSProperties = {
   padding: '7px 14px', textAlign: 'left', fontSize: 10.5, fontWeight: 600,
   color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.04em',
 };
-const labelSt: React.CSSProperties = {
-  fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase',
-  letterSpacing: '0.04em', display: 'block', marginBottom: 4,
-};
 
 // Voucher grid border
 const vBord = '1px solid #d1d5db';
@@ -304,7 +300,6 @@ export default function JournalEntriesPage() {
               ? allBPs.filter(bp => bp.is_active && (inferredCat ? bp.bp_category === inferredCat : true))
               : [];
             const bpMissing    = isCtrl && !line.business_partner_id;
-            const isDR         = line.drCr === 'DR';
 
             return (
               <tr key={line._key} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>

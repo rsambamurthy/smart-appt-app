@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { useDispatch } from 'react-redux';
 import { duesApi } from '../store/api/duesApi';
+import type { AppDispatch } from '../store';
 
 declare global {
   interface Window {
@@ -39,7 +40,9 @@ function loadCheckoutScript(): Promise<void> {
 }
 
 export function useRazorpay() {
-  const dispatch = useDispatch();
+  // Typed dispatch — the plain useDispatch() cannot accept RTK Query thunks,
+  // and without it the mutation results degrade to `unknown`.
+  const dispatch = useDispatch<AppDispatch>();
   const busyRef = useRef(false);
 
   const pay = useCallback(async (opts: PayOptions) => {

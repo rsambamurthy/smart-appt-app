@@ -32,7 +32,7 @@ interface AccountForm {
 const emptyForm = (): AccountForm => ({
   code: '', name: '', type: 'ASSET', sub_type: '', description: '',
   is_group: false, is_control_account: false, bp_type_id: '',
-  opening_balance: '', opening_balance_type: 'DR', opening_balance_date: '',
+  opening_balance: '', opening_balance_type: 'DEBIT', opening_balance_date: '',
 });
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -169,13 +169,14 @@ function AccountFormPanel({
               <div>
                 <label style={fl}>Side</label>
                 <div style={{ display: 'flex', border: '1px solid #e2e8f0', borderRadius: 6, overflow: 'hidden', height: 31 }}>
-                  {(['DR', 'CR'] as BalanceType[]).map(side => (
+                  {/* Value must be the API enum (DEBIT/CREDIT); DR/CR is only the label. */}
+                  {([['DEBIT', 'DR'], ['CREDIT', 'CR']] as [BalanceType, string][]).map(([side, short]) => (
                     <button key={side} onClick={() => set({ opening_balance_type: side })} style={{
-                      flex: 1, border: 'none', borderRight: side === 'DR' ? '1px solid #e2e8f0' : 'none',
+                      flex: 1, border: 'none', borderRight: side === 'DEBIT' ? '1px solid #e2e8f0' : 'none',
                       background: form.opening_balance_type === side ? '#2563eb' : '#fff',
                       color: form.opening_balance_type === side ? '#fff' : '#475569',
                       fontSize: 13, fontWeight: 500, cursor: 'pointer',
-                    }}>{side}</button>
+                    }}>{short}</button>
                   ))}
                 </div>
               </div>
@@ -297,7 +298,7 @@ export default function ChartOfAccountsPage() {
       is_control_account:   a.is_control_account,
       bp_type_id:           (a as any).bp_type_id ?? '',
       opening_balance:      a.opening_balance != null ? String(a.opening_balance) : '',
-      opening_balance_type: a.opening_balance_type ?? 'DR',
+      opening_balance_type: a.opening_balance_type ?? 'DEBIT',
       opening_balance_date: a.opening_balance_date ? a.opening_balance_date.slice(0, 10) : '',
     });
     setEditError('');
@@ -415,7 +416,12 @@ export default function ChartOfAccountsPage() {
             if (existingCodes.has(code.toLowerCase())) {
               return { status: 'skip' as const, data: { code, name }, error: `${code} already exists`, raw: r };
             }
-            const isControl = r.is_control_account.toLowerCase() === 'yes';
+            // Spreadsheet cells may be missing entirely — default before reading.
+            const isControl = (r.is_control_account ?? '').toLowerCase() === 'yes';
+            // The template shows DR/CR to users; the API expects DEBIT/CREDIT.
+            const sideRaw = (r.opening_balance_type ?? '').toUpperCase();
+            const side: BalanceType =
+              (sideRaw === 'CR' || sideRaw === 'CREDIT') ? 'CREDIT' : 'DEBIT';
             return {
               status: 'create' as const,
               raw: r,
@@ -423,11 +429,11 @@ export default function ChartOfAccountsPage() {
                 code, name, type,
                 sub_type:             r.sub_type || '',
                 description:          r.description || '',
-                is_group:             r.is_group.toLowerCase() === 'yes',
+                is_group:             (r.is_group ?? '').toLowerCase() === 'yes',
                 is_control_account:   isControl,
                 bp_type_id:           '',
                 opening_balance:      (!isControl && r.opening_balance) ? r.opening_balance : '',
-                opening_balance_type: (r.opening_balance_type.toUpperCase() === 'CR' ? 'CR' : 'DR') as BalanceType,
+                opening_balance_type: side,
                 opening_balance_date: r.opening_balance_date || '',
               },
             };

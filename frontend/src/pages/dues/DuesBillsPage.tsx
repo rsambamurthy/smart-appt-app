@@ -257,7 +257,7 @@ export default function DuesBillsPage() {
     <Layout>
       <PageSubHeader
         crumbs={[
-          { label: 'Dues & Payments', to: '/dues' },
+          { label: 'Dues & Payments', path: '/dues' },
           { label: 'Bills & Payments' },
         ]}
       />

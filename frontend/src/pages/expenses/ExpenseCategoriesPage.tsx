@@ -104,7 +104,7 @@ export default function ExpenseCategoriesPage() {
 
   return (
     <Layout>
-      <PageSubHeader crumbs={[{ label: 'Expenses', to: '/expenses' }, { label: 'Expense Categories' }]} />
+      <PageSubHeader crumbs={[{ label: 'Expenses', path: '/expenses' }, { label: 'Expense Categories' }]} />
 
       <div style={{ padding: '1.5rem 2rem', maxWidth: 720 }}>
 

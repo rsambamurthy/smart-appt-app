@@ -55,7 +55,7 @@ export default function TransparencyPage() {
 
   return (
     <Layout>
-      <PageSubHeader crumbs={[{ label: 'Expenses', to: '/expenses' }, { label: 'Transparency' }]} />
+      <PageSubHeader crumbs={[{ label: 'Expenses', path: '/expenses' }, { label: 'Transparency' }]} />
 
       <div style={{ padding: '1.5rem 2rem' }}>
 

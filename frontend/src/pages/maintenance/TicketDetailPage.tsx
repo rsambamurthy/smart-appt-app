@@ -2,7 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import Layout from '../../components/organisms/Layout';
 import { isResidentRole } from '../../constants/roles';
-import { useGetTicketQuery, useUpdateStatusMutation, useSubmitFeedbackMutation, useAssignTicketMutation } from '../../store/api/maintenanceApi';
+import { useGetTicketQuery, useUpdateStatusMutation, useSubmitFeedbackMutation } from '../../store/api/maintenanceApi';
 import type { RootState } from '../../store';
 import { useState } from 'react';
 
@@ -38,7 +38,7 @@ export default function TicketDetailPage() {
           <div><b>Raised by:</b> {(ticket['raiser'] as Record<string, string>)?.name ?? '—'}</div>
           <div><b>Assigned to:</b> {(ticket['assignee'] as Record<string, string>)?.name ?? 'Unassigned'}</div>
           <div><b>SLA Due:</b> {ticket['sla_due_at'] ? new Date(ticket['sla_due_at'] as string).toLocaleString() : '—'}</div>
-          {ticket['rating'] && <div><b>Rating:</b> {'⭐'.repeat(ticket['rating'] as number)}</div>}
+          {ticket['rating'] ? <div><b>Rating:</b> {'⭐'.repeat(ticket['rating'] as number)}</div> : null}
         </div>
         <p style={{ marginBottom: '1.5rem' }}>{ticket['description'] as string}</p>
 
@@ -74,7 +74,7 @@ export default function TicketDetailPage() {
             {(ticket['status_logs'] as Record<string, unknown>[]).map((log, i) => (
               <div key={i} style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginBottom: '0.25rem' }}>
                 {new Date(log['created_at'] as string).toLocaleString()} · {(log['changer'] as Record<string, string>)?.name ?? '?'} → {log['to_status'] as string}
-                {log['note'] && ` — ${log['note'] as string}`}
+                {log['note'] ? ` — ${log['note'] as string}` : null}
               </div>
             ))}
           </div>
