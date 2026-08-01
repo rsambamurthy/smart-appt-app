@@ -81,6 +81,37 @@ class JournalController {
     } catch (err) { next(err); }
   };
 
+  getTrialBalance = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const { asOf, from } = req.query as Record<string, string>;
+      if (!asOf) { res.status(400).json({ message: 'asOf date is required' }); return; }
+      const result = await journalService.getTrialBalance(associationId, { asOf, from });
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
+  getDayBook = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const { from, to } = req.query as Record<string, string>;
+      if (!from || !to) { res.status(400).json({ message: 'from and to are required' }); return; }
+      const result = await journalService.getDayBook(associationId, { from, to });
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
+  getCashBook = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const { from, to, kind, account_id } = req.query as Record<string, string>;
+      if (!from || !to) { res.status(400).json({ message: 'from and to are required' }); return; }
+      const bookKind = kind === 'BANK' ? 'BANK' : 'CASH';
+      const result = await journalService.getCashBook(associationId, { kind: bookKind, account_id, from, to });
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
   createManual = [
     validate(createJournalEntrySchema),
     async (req: Request, res: Response, next: NextFunction) => {

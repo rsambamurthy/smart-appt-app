@@ -79,6 +79,9 @@ router.get ('/journal/ledger/all', requireRoles(...viewRoles), journalController
 router.get ('/journal/ledger/sub', requireRoles(...viewRoles), journalController.getSubLedger);
 router.get ('/journal/pnl',           requireRoles(...viewRoles), journalController.getPnL);
 router.get ('/journal/balance-sheet', requireRoles(...viewRoles),    journalController.getBalanceSheet);
+router.get ('/journal/trial-balance', requireRoles(...viewRoles),    journalController.getTrialBalance);
+router.get ('/journal/day-book',      requireRoles(...viewRoles),    journalController.getDayBook);
+router.get ('/journal/cash-book',     requireRoles(...viewRoles),    journalController.getCashBook);
 router.post('/journal/backfill',         requireRoles(...managerRoles), journalController.backfill);
 router.post('/journal/backfill-bp-tags', requireRoles(...managerRoles), journalController.backfillBPTags);
 router.patch('/journal/:id',          requireRoles(...managerRoles), ...journalController.updateEntry);

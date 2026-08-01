@@ -117,6 +117,84 @@ export interface BalanceSheetResult {
   totalLiabilitiesAndEquity: number;
 }
 
+export interface TrialBalanceRow {
+  id:            string;
+  code:          string;
+  name:          string;
+  type:          string;
+  sub_type:      string | null;
+  totalDebit:    number;
+  totalCredit:   number;
+  debitBalance:  number;
+  creditBalance: number;
+}
+
+export interface TrialBalanceResult {
+  asOf:               string;
+  from:               string | null;
+  accounts:           TrialBalanceRow[];
+  totalDebit:         number;
+  totalCredit:        number;
+  totalDebitBalance:  number;
+  totalCreditBalance: number;
+  isBalanced:         boolean;
+  difference:         number;
+  warnings:           string[];
+}
+
+export interface DayBookLine {
+  account_code: string;
+  account_name: string;
+  bp_code:      string | null;
+  bp_name:      string | null;
+  narration:    string | null;
+  debit:        number;
+  credit:       number;
+}
+
+export interface DayBookEntry {
+  id:             string;
+  reference_code: string;
+  voucher_type:   string;
+  narration:      string;
+  source:         string;
+  reference_type: string | null;
+  totalDebit:     number;
+  lines:          DayBookLine[];
+}
+
+export interface DayBookResult {
+  period:     { from: string; to: string };
+  days:       { date: string; entries: DayBookEntry[]; totalDebit: number }[];
+  entryCount: number;
+  grandTotal: number;
+}
+
+export interface CashBookRow {
+  id:             string;
+  entry_id:       string;
+  date:           string;
+  reference_code: string;
+  voucher_type:   string;
+  narration:      string;
+  particulars:    string;
+  bp_name:        string | null;
+  receipt:        number;
+  payment:        number;
+  balance:        number;
+}
+
+export interface CashBookResult {
+  account:        { id: string; code: string; name: string };
+  kind:           'CASH' | 'BANK';
+  period:         { from: string; to: string };
+  openingBalance: number;
+  rows:           CashBookRow[];
+  totalReceipts:  number;
+  totalPayments:  number;
+  closingBalance: number;
+}
+
 export interface LedgerResult {
   account:        { id: string; code: string; name: string; type: string; sub_type: string | null };
   isDebitNormal:  boolean;
@@ -439,6 +517,26 @@ const accountingApi = baseApi.injectEndpoints({
       query: ({ asOf }) => `/accounting/journal/balance-sheet?asOf=${asOf}`,
       providesTags: ['Journal'],
     }),
+    getTrialBalance: builder.query<{ data: TrialBalanceResult }, { asOf: string; from?: string }>({
+      query: ({ asOf, from }) => {
+        const q = new URLSearchParams({ asOf });
+        if (from) q.set('from', from);
+        return `/accounting/journal/trial-balance?${q.toString()}`;
+      },
+      providesTags: ['Journal'],
+    }),
+    getDayBook: builder.query<{ data: DayBookResult }, { from: string; to: string }>({
+      query: ({ from, to }) => `/accounting/journal/day-book?from=${from}&to=${to}`,
+      providesTags: ['Journal'],
+    }),
+    getCashBook: builder.query<{ data: CashBookResult }, { kind: 'CASH' | 'BANK'; from: string; to: string; account_id?: string }>({
+      query: ({ kind, from, to, account_id }) => {
+        const q = new URLSearchParams({ kind, from, to });
+        if (account_id) q.set('account_id', account_id);
+        return `/accounting/journal/cash-book?${q.toString()}`;
+      },
+      providesTags: ['Journal'],
+    }),
     getLedger: builder.query<{ data: LedgerResult }, { account_id: string; from?: string; to?: string }>({
       query: ({ account_id, from, to }) => {
         const q = new URLSearchParams({ account_id });
@@ -539,6 +637,9 @@ export const {
   useCloseFYMutation,
   useReopenFYMutation,
   useGetBalanceSheetQuery,
+  useGetTrialBalanceQuery,
+  useGetDayBookQuery,
+  useGetCashBookQuery,
   useGetLedgerQuery,
   useGetAllLedgerQuery,
   useGetSubLedgerQuery,

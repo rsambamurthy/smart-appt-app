@@ -1,4 +1,4 @@
-import { AccountType, AuditAction, JournalEntrySource, JournalStatus, VoucherType, ExpenseStatus } from '@prisma/client';
+import { AccountType, AuditAction, JournalEntrySource, JournalStatus, VoucherType, ExpenseStatus, Prisma } from '@prisma/client';
 import prisma from '../../config/database';
 import { NotFoundError, UnprocessableError } from '../../utils/errors';
 import { CreateJournalEntryBody } from './journal.schema';
@@ -843,6 +843,303 @@ class JournalService {
         totalLiabilities,
         totalEquity,
         totalLiabilitiesAndEquity,
+      },
+    };
+  }
+
+  // ── TRIAL BALANCE ────────────────────────────────────────────────────────────
+  // Every posted line up to `asOf`, totalled per account, presented as the
+  // conventional Dr / Cr pair. Built from journal lines only — the same source
+  // as the P&L and Balance Sheet — so the three always agree.
+  //
+  // Opening balances typed onto an account or a business partner are NOT
+  // included here: they are not journal entries and would make the trial
+  // balance disagree with the balance sheet. Any that have not been journalised
+  // are reported in `warnings` instead.
+  async getTrialBalance(associationId: string, query: { asOf: string; from?: string }) {
+    const asOfDate = new Date(query.asOf);
+    const fromDate = query.from ? new Date(query.from) : null;
+
+    type Row = {
+      id: string; code: string; name: string; type: string; sub_type: string | null;
+      total_debit: number; total_credit: number;
+    };
+
+    const rows = await prisma.$queryRaw<Row[]>`
+      SELECT
+        a.id, a.code, a.name, a.type, a.sub_type,
+        COALESCE(SUM(jl.debit),  0)::float8 AS total_debit,
+        COALESCE(SUM(jl.credit), 0)::float8 AS total_credit
+      FROM accounts a
+      LEFT JOIN journal_lines jl ON jl.account_id = a.id
+      LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+        AND je.association_id = ${associationId}::uuid
+        AND je.status = 'POSTED'::"JournalStatus"
+        AND je.entry_date <= ${asOfDate}
+        ${fromDate ? Prisma.sql`AND je.entry_date >= ${fromDate}` : Prisma.empty}
+      WHERE a.association_id = ${associationId}::uuid
+        AND a.is_active = true
+        AND a.is_group  = false
+      GROUP BY a.id, a.code, a.name, a.type, a.sub_type, a.sort_order
+      ORDER BY a.type, a.sort_order ASC, a.code ASC
+    `;
+
+    const accounts = rows
+      .map(r => {
+        const dr  = Number(r.total_debit);
+        const cr  = Number(r.total_credit);
+        const net = dr - cr;
+        return {
+          id: r.id, code: r.code, name: r.name, type: r.type, sub_type: r.sub_type,
+          totalDebit:  dr,
+          totalCredit: cr,
+          // Net balance sits in whichever column its sign calls for.
+          debitBalance:  net > 0 ?  net : 0,
+          creditBalance: net < 0 ? -net : 0,
+        };
+      })
+      // An account with no movement has no place on a trial balance.
+      .filter(a => a.totalDebit !== 0 || a.totalCredit !== 0);
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    const totalDebit    = round2(accounts.reduce((s, a) => s + a.totalDebit,    0));
+    const totalCredit   = round2(accounts.reduce((s, a) => s + a.totalCredit,   0));
+    const totalDebitBal = round2(accounts.reduce((s, a) => s + a.debitBalance,  0));
+    const totalCreditBal= round2(accounts.reduce((s, a) => s + a.creditBalance, 0));
+
+    // ── Opening balances that were never journalised ──────────────────────────
+    const warnings: string[] = [];
+
+    const obAccounts = await prisma.account.findMany({
+      where: { association_id: associationId, opening_balance: { not: null }, is_active: true },
+      select: { code: true, name: true, opening_balance: true },
+    });
+    const obEntryCount = await prisma.journalEntry.count({
+      where: { association_id: associationId, reference_type: 'OPENING_BALANCE', status: JournalStatus.POSTED },
+    });
+    if (obAccounts.length > 0 && obEntryCount === 0) {
+      warnings.push(
+        `${obAccounts.length} account(s) carry an opening balance that has not been posted as a journal entry, ` +
+        `so it is excluded from this trial balance.`,
+      );
+    }
+
+    const obBPCount = await prisma.businessPartner.count({
+      where: { association_id: associationId, opening_balance: { not: null }, is_active: true },
+    });
+    if (obBPCount > 0 && obEntryCount === 0) {
+      warnings.push(
+        `${obBPCount} business partner(s) carry an opening balance that has not been posted as a journal entry.`,
+      );
+    }
+
+    return {
+      data: {
+        asOf: query.asOf,
+        from: query.from ?? null,
+        accounts,
+        totalDebit,
+        totalCredit,
+        totalDebitBalance:  totalDebitBal,
+        totalCreditBalance: totalCreditBal,
+        // Sub-paise tolerance; anything larger is a genuine defect.
+        isBalanced: Math.abs(totalDebit - totalCredit) < 0.005
+                 && Math.abs(totalDebitBal - totalCreditBal) < 0.005,
+        difference: round2(totalDebit - totalCredit),
+        warnings,
+      },
+    };
+  }
+
+  // ── DAY BOOK ─────────────────────────────────────────────────────────────────
+  // Every posted entry in a date range, in voucher order, with its lines.
+  // The treasurer's daily view of what was recorded.
+  async getDayBook(associationId: string, query: { from: string; to: string }) {
+    const entries = await prisma.journalEntry.findMany({
+      where: {
+        association_id: associationId,
+        status:         JournalStatus.POSTED,
+        entry_date:     { gte: new Date(query.from), lte: new Date(query.to) },
+      },
+      include: {
+        lines: {
+          include: {
+            account:          { select: { id: true, code: true, name: true } },
+            business_partner: { select: { id: true, code: true, name: true } },
+          },
+        },
+      },
+      orderBy: [{ entry_date: 'asc' }, { reference_code: 'asc' }],
+    });
+
+    const days = new Map<string, {
+      date: string;
+      entries: {
+        id: string; reference_code: string; voucher_type: string;
+        narration: string; source: string; reference_type: string | null;
+        totalDebit: number;
+        lines: {
+          account_code: string; account_name: string;
+          bp_code: string | null; bp_name: string | null;
+          narration: string | null; debit: number; credit: number;
+        }[];
+      }[];
+      totalDebit: number;
+    }>();
+
+    for (const e of entries) {
+      const date  = e.entry_date.toISOString().slice(0, 10);
+      const lines = e.lines.map(l => ({
+        account_code: l.account.code,
+        account_name: l.account.name,
+        bp_code:      l.business_partner?.code ?? null,
+        bp_name:      l.business_partner?.name ?? null,
+        narration:    l.narration,
+        debit:        Number(l.debit),
+        credit:       Number(l.credit),
+      }));
+      const totalDebit = lines.reduce((s, l) => s + l.debit, 0);
+
+      if (!days.has(date)) days.set(date, { date, entries: [], totalDebit: 0 });
+      const day = days.get(date)!;
+      day.entries.push({
+        id:             e.id,
+        reference_code: e.reference_code,
+        voucher_type:   e.voucher_type,
+        narration:      e.narration,
+        source:         e.source,
+        reference_type: e.reference_type,
+        totalDebit,
+        lines,
+      });
+      day.totalDebit += totalDebit;
+    }
+
+    const dayList = Array.from(days.values());
+
+    return {
+      data: {
+        period:      { from: query.from, to: query.to },
+        days:        dayList,
+        entryCount:  entries.length,
+        grandTotal:  Math.round(dayList.reduce((s, d) => s + d.totalDebit, 0) * 100) / 100,
+      },
+    };
+  }
+
+  // ── CASH BOOK / BANK BOOK ────────────────────────────────────────────────────
+  // A single-account book with receipts and payments in separate columns and a
+  // running balance — how a treasurer reads cash, rather than the Dr/Cr ledger.
+  // `kind` picks the default account: CASH -> 1001, BANK -> 1002. An explicit
+  // accountId overrides it, which is how a second bank account is viewed.
+  async getCashBook(
+    associationId: string,
+    query: { kind: 'CASH' | 'BANK'; account_id?: string; from: string; to: string },
+  ) {
+    const account = query.account_id
+      ? await prisma.account.findFirst({ where: { id: query.account_id, association_id: associationId } })
+      : await prisma.account.findUnique({
+          where: { association_id_code: { association_id: associationId, code: query.kind === 'CASH' ? '1001' : '1002' } },
+        });
+
+    if (!account) {
+      throw new NotFoundError(
+        query.account_id
+          ? 'Account not found.'
+          : `Default ${query.kind === 'CASH' ? 'Cash in Hand (1001)' : 'Bank Account (1002)'} not found. Seed the chart of accounts first.`,
+      );
+    }
+
+    const fromDate = new Date(query.from);
+    const toDate   = new Date(query.to);
+
+    // Opening balance = everything posted before `from`.
+    const before = await prisma.journalLine.aggregate({
+      where: {
+        account_id:    account.id,
+        journal_entry: {
+          association_id: associationId,
+          status:         JournalStatus.POSTED,
+          entry_date:     { lt: fromDate },
+        },
+      },
+      _sum: { debit: true, credit: true },
+    });
+    const openingBalance =
+      Number(before._sum.debit ?? 0) - Number(before._sum.credit ?? 0);
+
+    const lines = await prisma.journalLine.findMany({
+      where: {
+        account_id:    account.id,
+        journal_entry: {
+          association_id: associationId,
+          status:         JournalStatus.POSTED,
+          entry_date:     { gte: fromDate, lte: toDate },
+        },
+      },
+      include: {
+        journal_entry: {
+          select: {
+            id: true, entry_date: true, narration: true, reference_code: true,
+            voucher_type: true, reference_type: true, source: true,
+          },
+        },
+        business_partner: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: [
+        { journal_entry: { entry_date: 'asc' } },
+        { journal_entry: { created_at: 'asc' } },
+      ],
+    });
+
+    // The other side of each entry — "what was this receipt for".
+    const entryIds = [...new Set(lines.map(l => l.journal_entry.id))];
+    const contras  = await prisma.journalLine.findMany({
+      where: { journal_entry_id: { in: entryIds }, account_id: { not: account.id } },
+      include: { account: { select: { code: true, name: true } } },
+    });
+    const contraByEntry = new Map<string, string[]>();
+    for (const c of contras) {
+      const list = contraByEntry.get(c.journal_entry_id) ?? [];
+      list.push(`${c.account.code} ${c.account.name}`);
+      contraByEntry.set(c.journal_entry_id, list);
+    }
+
+    let balance = openingBalance;
+    const rows = lines.map(l => {
+      const receipt = Number(l.debit);   // money in  — debit to cash
+      const payment = Number(l.credit);  // money out — credit to cash
+      balance += receipt - payment;
+      return {
+        id:             l.id,
+        entry_id:       l.journal_entry.id,
+        date:           l.journal_entry.entry_date.toISOString().slice(0, 10),
+        reference_code: l.journal_entry.reference_code,
+        voucher_type:   l.journal_entry.voucher_type,
+        narration:      l.narration ?? l.journal_entry.narration,
+        particulars:    contraByEntry.get(l.journal_entry.id)?.join(', ') ?? '',
+        bp_name:        l.business_partner?.name ?? null,
+        receipt,
+        payment,
+        balance:        Math.round(balance * 100) / 100,
+      };
+    });
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const totalReceipts = round2(rows.reduce((s, r) => s + r.receipt, 0));
+    const totalPayments = round2(rows.reduce((s, r) => s + r.payment, 0));
+
+    return {
+      data: {
+        account: { id: account.id, code: account.code, name: account.name },
+        kind:    query.kind,
+        period:  { from: query.from, to: query.to },
+        openingBalance: round2(openingBalance),
+        rows,
+        totalReceipts,
+        totalPayments,
+        closingBalance: round2(openingBalance + totalReceipts - totalPayments),
       },
     };
   }
