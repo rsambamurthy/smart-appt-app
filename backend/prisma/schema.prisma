@@ -374,8 +374,9 @@ model MaintenanceTicket {
   id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   association_id String         @db.Uuid
   association    Association    @relation(fields: [association_id], references: [id])
-  unit_id        String         @db.Uuid
-  unit           Unit           @relation(fields: [unit_id], references: [id])
+  // Optional — office-bearer roles (Manager, Treasurer) may not be linked to a unit
+  unit_id        String?        @db.Uuid
+  unit           Unit?          @relation(fields: [unit_id], references: [id])
   raised_by      String         @db.Uuid
   raiser         User           @relation("RaisedBy", fields: [raised_by], references: [id])
   category       TicketCategory

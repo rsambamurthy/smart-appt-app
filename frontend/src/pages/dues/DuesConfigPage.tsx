@@ -11,8 +11,6 @@ interface ConfigForm {
   penalty_type: 'FLAT' | 'PERCENTAGE';
   penalty_value: string;
   penalty_grace_days: string;
-  cash_balance: string;
-  cash_balance_as_on: string;
   auto_generate_bills: boolean;
   auto_generate_day: string;
 }
@@ -20,7 +18,6 @@ interface ConfigForm {
 const EMPTY: ConfigForm = {
   charge_type: 'FIXED', monthly_charge: '', rate_per_sqft: '', due_day: '5',
   penalty_type: 'FLAT', penalty_value: '', penalty_grace_days: '5',
-  cash_balance: '', cash_balance_as_on: '',
   auto_generate_bills: false, auto_generate_day: '1',
 };
 
@@ -36,7 +33,6 @@ const fc: React.CSSProperties = {
   background: '#fff', outline: 'none', boxSizing: 'border-box',
 };
 const grid3: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 20px', marginTop: 18 };
-const grid2: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px', marginTop: 18 };
 const hint: React.CSSProperties = { fontSize: 11.5, color: '#94a3b8', marginTop: 5 };
 
 /* ── Card wrapper — defined OUTSIDE the page component so it is stable across re-renders ── */
@@ -100,8 +96,6 @@ export default function DuesConfigPage() {
       penalty_type: (cfg.penalty_type as string) === 'PERCENTAGE' ? 'PERCENTAGE' : 'FLAT',
       penalty_value: cfg.penalty_value != null ? String(cfg.penalty_value) : '',
       penalty_grace_days: cfg.penalty_grace_days != null ? String(cfg.penalty_grace_days) : '5',
-      cash_balance: cfg.cash_balance != null ? String(cfg.cash_balance) : '',
-      cash_balance_as_on: cfg.cash_balance_as_on ? (cfg.cash_balance_as_on as string).split('T')[0] : '',
       auto_generate_bills: cfg.auto_generate_bills === true,
       auto_generate_day: cfg.auto_generate_day != null ? String(cfg.auto_generate_day) : '1',
     });
@@ -120,8 +114,9 @@ export default function DuesConfigPage() {
         penalty_type: form.penalty_type,
         penalty_value: parseFloat(form.penalty_value) || 0,
         penalty_grace_days: parseInt(form.penalty_grace_days, 10) || 0,
-        cash_balance: form.cash_balance !== '' ? parseFloat(form.cash_balance) : null,
-        cash_balance_as_on: form.cash_balance_as_on || null,
+        // cash_balance / cash_balance_as_on intentionally omitted — opening
+        // balances are managed in Accounting, and the backend leaves the
+        // stored legacy values untouched when these are not sent.
         auto_generate_bills: form.auto_generate_bills,
         auto_generate_day: parseInt(form.auto_generate_day, 10) || 1,
       }).unwrap();
@@ -266,27 +261,8 @@ export default function DuesConfigPage() {
               )}
             </Card>
 
-            {/* ── Cash Opening Balance ── */}
-            <Card
-              icon="ti-wallet" iconColor="#2563eb"
-              title="Cash Opening Balance"
-              subtitle="Set the opening balance and effective date."
-            >
-              <div style={grid2}>
-                <div>
-                  <label style={fl}>Opening balance (₹)</label>
-                  <input style={fc} type="number" min="0" step="0.01"
-                    value={form.cash_balance} placeholder="e.g. 100000"
-                    onChange={e => set('cash_balance', e.target.value)} />
-                </div>
-                <div>
-                  <label style={fl}>As on date</label>
-                  <input style={fc} type="date"
-                    value={form.cash_balance_as_on}
-                    onChange={e => set('cash_balance_as_on', e.target.value)} />
-                </div>
-              </div>
-            </Card>
+            {/* Cash Opening Balance removed — opening balances are maintained in
+                Accounting → Chart of Accounts and Business Partners. */}
 
             {/* ── Footer actions ── */}
             <div style={{

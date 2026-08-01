@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
+import SearchInput from '../../components/molecules/SearchInput';
 import { useGetTransparencyQuery, useListExpenseCategoriesQuery } from '../../store/api/expensesApi';
 import { useGetDuesDashboardQuery } from '../../store/api/duesApi';
 
@@ -100,7 +101,18 @@ export default function TransparencyPage() {
         {/* Toolbar */}
         <div className="ent-section" style={{ marginBottom: '1.25rem' }}>
           <div className="ent-toolbar" style={{ padding: '0.75rem 1.25rem', gap: '0.6rem', flexWrap: 'wrap' }}>
-            <input className="ent-fc" style={{ flex: '1 1 160px' }} placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <SearchInput
+              className="ent-fc"
+              style={{ flex: '1 1 160px' }}
+              placeholder="Search vendor, category, description…"
+              value={search}
+              onChange={setSearch}
+              suggestions={expenses.flatMap((e) => [
+                e.category,
+                e.vendor_name ?? '',
+                e.description ?? '',
+              ].filter(Boolean) as string[])}
+            />
             <select className="ent-fc" style={{ width: 160 }} value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
               <option value="">All Categories</option>
               {activeCats.map((c) => <option key={c.name} value={c.name}>{c.display_name}</option>)}

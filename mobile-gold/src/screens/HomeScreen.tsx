@@ -1,32 +1,35 @@
 import { ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import * as SecureStore from 'expo-secure-store';
 import { useAppSelector, useAppDispatch } from '../store';
 import { clearCredentials } from '../store/authSlice';
 import { setAuthToken } from '../api/client';
-import * as SecureStore from 'expo-secure-store';
+import { isEnabled, type MenuItemId } from '../navigation/menuConfig';
 
 const PRIMARY = '#7C3AED';
 
-interface Tile {
+interface QuickLink {
   label: string;
+  screen: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
-  tab: string;
-  screen: string;
-  itemId?: string;
+  itemId: MenuItemId | null;
 }
 
-const TILES: Tile[] = [
-  { label: 'My Bills',        icon: 'receipt-outline',       color: '#f59e0b', tab: 'Dues',       screen: 'MyBills',       itemId: 'dues_my_bills'     },
-  { label: 'Announcements',   icon: 'megaphone-outline',     color: '#22c55e', tab: 'Community',  screen: 'Announcements', itemId: 'announcements_feed'},
-  { label: 'Maintenance',     icon: 'construct-outline',     color: '#ef4444', tab: 'Community',  screen: 'Maintenance',   itemId: 'maintenance_list'  },
-  { label: 'Visitors',        icon: 'people-outline',        color: '#0891b2', tab: 'More',       screen: 'Visitors',      itemId: 'visitors_log'      },
-  { label: 'Journal Entries', icon: 'book-outline',          color: '#7C3AED', tab: 'Accounting', screen: 'Journal',       itemId: 'journal_entries'   },
-  { label: 'Ledger',          icon: 'list-outline',          color: '#16a34a', tab: 'Accounting', screen: 'Ledger',        itemId: 'ledger'            },
-  { label: 'P&L Report',      icon: 'trending-up-outline',   color: '#f59e0b', tab: 'Accounting', screen: 'PnL',           itemId: 'pnl'               },
-  { label: 'Balance Sheet',   icon: 'scale-outline',         color: '#0891b2', tab: 'Accounting', screen: 'BalanceSheet',  itemId: 'balance_sheet'     },
-  { label: 'Chart of Accounts', icon: 'layers-outline',      color: '#8b5cf6', tab: 'Accounting', screen: 'COA',           itemId: 'coa'               },
-  { label: 'FY Closure',      icon: 'lock-closed-outline',   color: '#dc2626', tab: 'Accounting', screen: 'FYClosure',     itemId: 'fy_closure'        },
+const QUICK_LINKS: QuickLink[] = [
+  { label: 'My Bills',       screen: 'MyBills',          icon: 'receipt-outline',     color: '#f59e0b', itemId: 'dues_my_bills'      },
+  { label: 'Updates',        screen: 'Announcements',    icon: 'megaphone-outline',   color: '#22c55e', itemId: 'announcements_feed' },
+  { label: 'Requests',       screen: 'Maintenance',      icon: 'construct-outline',   color: '#ef4444', itemId: 'maintenance_list'   },
+  { label: 'Visitors',       screen: 'Visitors',         icon: 'people-outline',      color: '#0891b2', itemId: 'visitors_log'       },
+  { label: 'Journal',        screen: 'Journal',          icon: 'book-outline',        color: '#7C3AED', itemId: 'journal_entries'    },
+  { label: 'Ledger',         screen: 'Ledger',           icon: 'list-outline',        color: '#16a34a', itemId: 'ledger'             },
+  { label: 'P&L',            screen: 'PnL',              icon: 'trending-up-outline', color: '#f59e0b', itemId: 'pnl'                },
+  { label: 'Balance Sheet',  screen: 'BalanceSheet',     icon: 'scale-outline',       color: '#0891b2', itemId: 'balance_sheet'      },
+  { label: 'FY Closure',     screen: 'FYClosure',        icon: 'lock-closed-outline', color: '#dc2626', itemId: 'fy_closure'         },
+  { label: 'All Bills',      screen: 'Bills',            icon: 'albums-outline',      color: '#6366f1', itemId: 'dues_bills'         },
+  { label: 'Accounts',       screen: 'COA',              icon: 'layers-outline',      color: '#8b5cf6', itemId: null                 },
+  { label: 'Partners',       screen: 'BusinessPartners', icon: 'briefcase-outline',   color: '#0d9488', itemId: null                 },
 ];
 
 const greeting = () => {
@@ -36,30 +39,13 @@ const greeting = () => {
   return 'Good evening';
 };
 
-export default function HomeScreen({ navigation }: any) {
-  const dispatch     = useAppDispatch();
-  const user         = useAppSelector(s => s.auth.user);
-  const mobileConfig = useAppSelector(s => s.auth.mobileConfig);
+export default function HomeScreen() {
+  const navigation = useNavigation<any>();
+  const dispatch   = useAppDispatch();
+  const user       = useAppSelector(s => s.auth.user);
+  const config     = useAppSelector(s => s.auth.mobileConfig);
 
-  const visibleTiles = TILES.filter(t => {
-    if (!t.itemId || !mobileConfig) return true;
-    // Map tile itemId → the feature flag stored in mobileConfig
-    const featureMap: Record<string, keyof typeof mobileConfig> = {
-      dues_my_bills:      'feature_bills',
-      announcements_feed: 'feature_announcements',
-      maintenance_list:   'feature_complaints',
-      visitors_log:       'feature_visitors',
-      journal_entries:    'feature_journal',
-      ledger:             'feature_ledger',
-      pnl:                'feature_pnl',
-      balance_sheet:      'feature_balance_sheet',
-      coa:                'feature_coa',
-      fy_closure:         'feature_fy_closure',
-    };
-    const flag = featureMap[t.itemId];
-    if (flag) return mobileConfig[flag] !== false;
-    return true;
-  });
+  const visibleLinks = QUICK_LINKS.filter(l => isEnabled(l.itemId, config));
 
   const handleLogout = async () => {
     await SecureStore.deleteItemAsync('access_token').catch(() => {});
@@ -86,17 +72,17 @@ export default function HomeScreen({ navigation }: any) {
       {/* Quick access grid */}
       <Text style={s.sectionTitle}>Quick Access</Text>
       <View style={s.grid}>
-        {visibleTiles.map(tile => (
+        {visibleLinks.map(link => (
           <TouchableOpacity
-            key={tile.label}
-            style={[s.tile, { borderTopColor: tile.color }]}
-            onPress={() => navigation.navigate(tile.tab, { screen: tile.screen })}
+            key={link.screen}
+            style={[s.tile, { borderTopColor: link.color }]}
+            onPress={() => navigation.navigate(link.screen)}
             activeOpacity={0.8}
           >
-            <View style={[s.tileIcon, { backgroundColor: tile.color + '20' }]}>
-              <Ionicons name={tile.icon} size={22} color={tile.color} />
+            <View style={[s.tileIcon, { backgroundColor: link.color + '20' }]}>
+              <Ionicons name={link.icon} size={22} color={link.color} />
             </View>
-            <Text style={s.tileLabel}>{tile.label}</Text>
+            <Text style={s.tileLabel}>{link.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -125,7 +111,7 @@ const s = StyleSheet.create({
   },
   greeting: { color: 'rgba(255,255,255,0.8)', fontSize: 14 },
   userName: { color: '#fff', fontSize: 22, fontWeight: '700', marginTop: 2 },
-  role:     { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2, textTransform: 'capitalize' },
+  role:     { color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 2, textTransform: 'uppercase', letterSpacing: 1 },
   unit:     { color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 1 },
   logoutBtn: { padding: 8 },
 

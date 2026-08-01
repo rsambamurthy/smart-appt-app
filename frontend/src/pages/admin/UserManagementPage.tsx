@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
+import SearchInput from '../../components/molecules/SearchInput';
 import {
   useListUsersQuery, useCreateUserMutation, useUpdateUserMutation, useDeactivateUserMutation,
   useListUnitsQuery, useBulkImportUsersMutation,
@@ -436,11 +437,12 @@ function UsersTab() {
     <>
       {/* Toolbar */}
       <div className="ent-toolbar">
-        <input
-          type="search"
+        <SearchInput
           placeholder="Search name or phone…"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={setSearch}
+          suggestions={users.flatMap((u) => [u.name, u.phone].filter(Boolean) as string[])}
+          style={{ flex: '1 1 200px' }}
         />
         <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
           <option value="">All Roles</option>

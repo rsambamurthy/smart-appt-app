@@ -2,16 +2,15 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../../types';
 import { maintenanceService } from './maintenance.service';
 import { parsePagination } from '../../utils/helpers';
-import { UnprocessableError } from '../../utils/errors';
 
 export class MaintenanceController {
   async create(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const user = req.user!;
-      if (!user.unit_id) throw new UnprocessableError('You must be associated with a unit to raise a ticket.');
+      // Any role may raise a ticket; unit is attached when the user has one.
       const files = (req.files as Express.Multer.File[]) ?? [];
       const keys = files.map((f) => (f as unknown as { key: string }).key ?? f.filename);
-      const result = await maintenanceService.createTicket(user.association_id, user.id, user.unit_id, req.body, keys);
+      const result = await maintenanceService.createTicket(user.association_id, user.id, user.unit_id ?? null, req.body, keys);
       res.status(201).json(result);
     } catch (err) { next(err); }
   }

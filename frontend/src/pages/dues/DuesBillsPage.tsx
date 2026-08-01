@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
+import SearchInput from '../../components/molecules/SearchInput';
 import { API_BASE } from '../../store/api/baseApi';
 import {
   useListBillsQuery,
@@ -489,12 +490,17 @@ export default function DuesBillsPage() {
           {/* Toolbar */}
           <div className="ent-toolbar" style={{ padding: '0.75rem 1.25rem', gap: '0.75rem', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: '0.5rem', flex: 1, minWidth: 200 }}>
-              <input
+              <SearchInput
                 className="ent-fc"
                 style={{ flex: 1 }}
                 placeholder="Search flat / block…"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={setSearch}
+                suggestions={bills.flatMap((b) => [
+                  b.unit.flat_number,
+                  b.unit.block ?? '',
+                  `${b.unit.block ? b.unit.block + '-' : ''}${b.unit.flat_number}`,
+                ].filter(Boolean) as string[])}
               />
             </div>
 

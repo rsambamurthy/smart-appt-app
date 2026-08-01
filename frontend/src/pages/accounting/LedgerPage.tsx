@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
+import Autocomplete, { type AutocompleteOption } from '../../components/molecules/Autocomplete';
 import {
   useListAccountsQuery,
   useGetLedgerQuery,
@@ -262,6 +263,9 @@ export default function LedgerPage() {
   const [backfillBPTags, { isLoading: syncing }] = useBackfillBPTagsMutation();
   const [syncMsg, setSyncMsg] = useState('');
 
+  // Sub-ledger: optionally focus on one business partner ('' = all)
+  const [bpFilter, setBpFilter] = useState('');
+
   const handleSyncBPTags = async () => {
     setSyncMsg('');
     const res = await backfillBPTags().unwrap().catch(() => null);
@@ -273,6 +277,7 @@ export default function LedgerPage() {
 
   const handleView = () => {
     if (!accountId) return;
+    setBpFilter('');
     setApplied({ accountId, from, to, mode: accountId === ALL_ACCOUNTS ? 'ledger' : mode });
   };
 
@@ -280,6 +285,19 @@ export default function LedgerPage() {
     acc[t] = accounts.filter(a => a.type === t && !a.is_group);
     return acc;
   }, {} as Record<string, Account[]>);
+
+  // Type-ahead options: "All Accounts" first, then accounts grouped by type
+  const accountOptions: AutocompleteOption[] = [
+    { value: ALL_ACCOUNTS, label: '📚 All Accounts (General Ledger)', keywords: 'all general ledger gl' },
+    ...TYPE_ORDER.flatMap(type =>
+      grouped[type].map(a => ({
+        value: a.id,
+        label: `${a.code} — ${a.name}${a.is_control_account ? ' ⊕' : ''}`,
+        hint: TYPE_META[type]?.label ?? type,
+        keywords: `${a.code} ${a.name} ${a.sub_type ?? ''} ${type}`,
+      })),
+    ),
+  ];
 
   const ledger   = ledgerData?.data;
   const allAccts = allData?.data ?? [];
@@ -295,24 +313,15 @@ export default function LedgerPage() {
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 18px', marginBottom: 20 }}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
 
-            {/* Account selector */}
-            <div style={{ flex: 2, minWidth: 240 }}>
+            {/* Account selector — type-ahead */}
+            <div style={{ flex: 2, minWidth: 260 }}>
               <label style={lbl}>Account</label>
-              <select style={{ ...fc, width: '100%' }} value={accountId} onChange={e => { setAccountId(e.target.value); setMode('ledger'); }}>
-                <option value="">— Select account —</option>
-                <option value={ALL_ACCOUNTS}>📚 All Accounts (General Ledger)</option>
-                {TYPE_ORDER.map(type => (
-                  grouped[type].length > 0 && (
-                    <optgroup key={type} label={`${TYPE_META[type].label}s`}>
-                      {grouped[type].map(a => (
-                        <option key={a.id} value={a.id}>
-                          {a.code} — {a.name}{a.is_control_account ? ' ⊕' : ''}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )
-                ))}
-              </select>
+              <Autocomplete
+                options={accountOptions}
+                value={accountId}
+                onChange={v => { setAccountId(v); setMode('ledger'); }}
+                placeholder="Type account name or code…"
+              />
             </div>
 
             {/* Date range */}
@@ -491,14 +500,47 @@ export default function LedgerPage() {
               </div>
             )}
 
+            {/* Sub-ledger account (business partner) picker */}
+            {subLedger.bps.length > 0 && (
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 16px', marginBottom: 14, display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div style={{ flex: 1, minWidth: 260 }}>
+                  <label style={lbl}>Sub-Ledger Account</label>
+                  <Autocomplete
+                    options={subLedger.bps.map(b => ({
+                      value: b.bp.id,
+                      label: `${b.bp.code} — ${b.bp.name}`,
+                      hint: `${b.rows.length} txn${b.rows.length !== 1 ? 's' : ''}`,
+                      keywords: `${b.bp.code} ${b.bp.name}`,
+                    }))}
+                    value={bpFilter}
+                    onChange={setBpFilter}
+                    placeholder="Type a name or code to view one account…"
+                    allLabel={`All ${subLedger.bps.length} business partners`}
+                  />
+                </div>
+                {bpFilter && (
+                  <div style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, paddingBottom: 9 }}>
+                    Showing 1 of {subLedger.bps.length}
+                  </div>
+                )}
+              </div>
+            )}
+
             {subLedger.bps.length === 0 ? (
               <div style={{ color: '#94a3b8', padding: '2rem', textAlign: 'center', fontSize: 13, background: '#fff', borderRadius: 10, border: '1px solid #e2e8f0' }}>
                 No business partners linked to this control account.
               </div>
             ) : (
-              subLedger.bps.map(bp => (
-                <BPBlock key={bp.bp.id} bp={bp} isDebitNormal={subLedger.isDebitNormal} from={applied?.from} />
-              ))
+              (bpFilter ? subLedger.bps.filter(b => b.bp.id === bpFilter) : subLedger.bps)
+                .map(bp => (
+                  <BPBlock
+                    key={bp.bp.id}
+                    bp={bp}
+                    isDebitNormal={subLedger.isDebitNormal}
+                    from={applied?.from}
+                    defaultOpen={!!bpFilter}
+                  />
+                ))
             )}
           </>
         )}

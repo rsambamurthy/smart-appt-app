@@ -9,7 +9,7 @@ export class MaintenanceService {
   async createTicket(
     associationId: string,
     userId: string,
-    unitId: string,
+    unitId: string | null,
     body: CreateTicketBody,
     attachmentKeys: string[],
   ) {

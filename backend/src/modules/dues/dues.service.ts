@@ -52,11 +52,19 @@ export class DuesService {
   }
 
   async upsertConfig(associationId: string, body: DuesConfigBody, updatedBy: string) {
-    // Prisma DateTime fields need a Date object, not a plain "YYYY-MM-DD" string
-    const { cash_balance_as_on, ...rest } = body;
+    // Cash opening balance is no longer configured here (it lives in Accounting →
+    // Chart of Accounts / Business Partners). These fields are legacy: when the
+    // caller omits them we must leave the stored values untouched rather than
+    // nulling them out, and we must not re-sync the opening-balance journal entry.
+    const { cash_balance_as_on, cash_balance, ...rest } = body;
+    const cashTouched = cash_balance !== undefined || cash_balance_as_on !== undefined;
+
     const data = {
       ...rest,
-      cash_balance_as_on: cash_balance_as_on ? new Date(cash_balance_as_on) : null,
+      ...(cash_balance    !== undefined ? { cash_balance } : {}),
+      ...(cash_balance_as_on !== undefined
+        ? { cash_balance_as_on: cash_balance_as_on ? new Date(cash_balance_as_on) : null }
+        : {}),
       updated_by: updatedBy,
     };
     const config = await prisma.duesConfig.upsert({
@@ -65,12 +73,15 @@ export class DuesService {
       create: { association_id: associationId, ...data },
     });
 
-    // Sync opening balance to accounting journal (fire-and-forget)
-    journalService.syncOpeningBalance(
-      associationId,
-      config.cash_balance ? Number(config.cash_balance) : null,
-      config.cash_balance_as_on ?? null,
-    ).catch(() => { /* silently ignore if accounts not seeded yet */ });
+    // Only re-sync the opening-balance journal entry if the caller actually
+    // supplied cash-balance fields (legacy clients).
+    if (cashTouched) {
+      journalService.syncOpeningBalance(
+        associationId,
+        config.cash_balance ? Number(config.cash_balance) : null,
+        config.cash_balance_as_on ?? null,
+      ).catch(() => { /* silently ignore if accounts not seeded yet */ });
+    }
 
     return {
       data: {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator, RefreshControl, TouchableOpacity } from 'react-native';
 import { api } from '../../api/client';
+import SearchInput from '../../components/SearchInput';
 import type { BusinessPartner } from '../../api/types';
 
 const PRIMARY = '#7C3AED';
@@ -12,7 +13,8 @@ export default function BusinessPartnersScreen() {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const [error, setError] = useState<string | null>(null);
+  const [error,  setError]  = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   const load = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -27,7 +29,10 @@ export default function BusinessPartnersScreen() {
 
   useEffect(() => { load(); }, []);
 
-  const filtered = category === 'ALL' ? partners : partners.filter(p => p.category === category);
+  const q = search.trim().toLowerCase();
+  const filtered = partners
+    .filter(p => category === 'ALL' || p.bp_category === category)
+    .filter(p => !q || p.name.toLowerCase().includes(q) || (p.code ?? '').toLowerCase().includes(q));
   const CATS = ['ALL', 'BANK', 'VENDOR', 'UNIT'] as const;
 
   if (loading) return <View style={[s.center, { backgroundColor: '#f8fafc' }]}><ActivityIndicator color={PRIMARY} size="large" /></View>;
@@ -46,22 +51,31 @@ export default function BusinessPartnersScreen() {
       keyExtractor={p => p.id}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} colors={[PRIMARY]} />}
       contentContainerStyle={s.list}
+      keyboardShouldPersistTaps="handled"
       ListEmptyComponent={<Text style={s.empty}>No business partners found.</Text>}
       ListHeaderComponent={
-        <View style={s.catRow}>
-          {CATS.map(c => (
-            <TouchableOpacity key={c} style={[s.catChip, category === c && s.catActive]} onPress={() => setCategory(c)}>
-              <Text style={[s.catText, category === c && s.catActiveText]}>{c}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search partners by name or code…"
+            suggestions={partners.flatMap(p => [p.name, p.code].filter(Boolean) as string[])}
+          />
+          <View style={s.catRow}>
+            {CATS.map(c => (
+              <TouchableOpacity key={c} style={[s.catChip, category === c && s.catActive]} onPress={() => setCategory(c)}>
+                <Text style={[s.catText, category === c && s.catActiveText]}>{c}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
       }
       renderItem={({ item }) => (
         <View style={s.card}>
           <View style={s.cardTop}>
             <Text style={s.name}>{item.name}</Text>
-            <View style={[s.badge, { backgroundColor: CAT_COLOR[item.category] ?? '#6b7280' }]}>
-              <Text style={s.badgeText}>{item.category}</Text>
+            <View style={[s.badge, { backgroundColor: CAT_COLOR[item.bp_category] ?? '#6b7280' }]}>
+              <Text style={s.badgeText}>{item.bp_category}</Text>
             </View>
           </View>
           {item.bp_type && <Text style={s.type}>{item.bp_type.name}</Text>}

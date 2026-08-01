@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
+import SearchInput from '../../components/molecules/SearchInput';
 import {
   useListUnitsQuery,
   useCreateUnitMutation,
@@ -295,6 +296,13 @@ export default function UnitManagementPage() {
     return matchSearch && matchStatus;
   });
 
+  // Type-ahead suggestions: flat labels, unit types, resident names
+  const unitSuggestions = Array.from(new Set([
+    ...allUnits.map((u) => `${u.block ?? ''}${u.flat_number}`),
+    ...allUnits.map((u) => u.unit_type ?? '').filter(Boolean),
+    ...allUnits.flatMap((u) => u.users.map((r) => r.name)),
+  ]));
+
   // Summary stats
   const totalOccupied = allUnits.filter((u) => u.users.length > 0).length;
   const totalVacant = allUnits.length - totalOccupied;
@@ -416,13 +424,13 @@ export default function UnitManagementPage() {
 
         {/* Toolbar */}
         <div style={{ display: 'flex', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--color-border)', flexWrap: 'wrap' }}>
-          <input
-            type="search"
+          <SearchInput
             className="ent-fc"
             placeholder="Search flat, block, type, resident…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ flex: '1 1 200px', height: 32 }}
+            onChange={setSearch}
+            suggestions={unitSuggestions}
+            style={{ flex: '1 1 200px' }}
           />
           <select
             className="ent-fc"

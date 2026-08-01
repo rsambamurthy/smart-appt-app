@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
+import SearchInput from '../../components/molecules/SearchInput';
 import { useGetAssociationQuery } from '../../store/api/associationsApi';
 import { useListUnitsQuery, useListUsersQuery, useCreateUnitMutation, useUpdateUnitMutation, useDeleteUnitMutation } from '../../store/api/usersApi';
 
@@ -176,8 +177,17 @@ export default function AssociationDetailPage() {
           <div className="ent-section-hdr" style={{ borderTop: 'none' }}>
             <span className="ent-section-title" style={{ fontSize: '0.9rem' }}>Units & Occupants</span>
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)}
-                style={{ padding: '5px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '0.8rem', width: 180 }} />
+              <SearchInput
+                placeholder="Search flat, block, resident…"
+                value={search}
+                onChange={setSearch}
+                suggestions={allUnits.flatMap((u) => [
+                  u.flat_number,
+                  u.block ?? '',
+                  ...u.users.map((usr) => usr.name),
+                ].filter(Boolean) as string[])}
+                style={{ width: 180 }}
+              />
               <button onClick={() => setExpandedUnits(new Set(units.map((u) => u.id)))} style={{ fontSize: '0.78rem', padding: '4px 9px', borderRadius: 5, border: '1px solid var(--color-border)', background: '#f9fafb', cursor: 'pointer' }}>Expand All</button>
               <button onClick={() => setExpandedUnits(new Set())} style={{ fontSize: '0.78rem', padding: '4px 9px', borderRadius: 5, border: '1px solid var(--color-border)', background: '#f9fafb', cursor: 'pointer' }}>Collapse All</button>
               <button className="ent-btn-submit" style={{ padding: '5px 14px', fontSize: '0.82rem' }} onClick={openCreate}>+ Add Unit</button>
@@ -261,8 +271,13 @@ export default function AssociationDetailPage() {
 
           {tab === 'users' && (
             <div style={{ padding: '1rem' }}>
-              <input placeholder="Search name or phone…" value={search} onChange={(e) => setSearch(e.target.value)}
-                style={{ padding: '6px 10px', border: '1px solid var(--color-border)', borderRadius: 6, fontSize: '0.8rem', width: 220, marginBottom: '0.75rem' }} />
+              <SearchInput
+                placeholder="Search name or phone…"
+                value={search}
+                onChange={setSearch}
+                suggestions={allUsers.flatMap((u) => [u.name, u.phone].filter(Boolean) as string[])}
+                style={{ width: 220, marginBottom: '0.75rem' }}
+              />
               {usersLoading ? (
                 <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--color-muted)' }}>Loading…</div>
               ) : (
