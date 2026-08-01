@@ -82,6 +82,8 @@ router.get ('/journal/balance-sheet', requireRoles(...viewRoles),    journalCont
 router.get ('/journal/trial-balance', requireRoles(...viewRoles),    journalController.getTrialBalance);
 router.get ('/journal/day-book',      requireRoles(...viewRoles),    journalController.getDayBook);
 router.get ('/journal/cash-book',     requireRoles(...viewRoles),    journalController.getCashBook);
+router.get ('/journal/receipts-payments', requireRoles(...viewRoles), journalController.getReceiptsAndPayments);
+router.get ('/journal/income-expenditure', requireRoles(...viewRoles), journalController.getIncomeExpenditure);
 router.post('/journal/backfill',         requireRoles(...managerRoles), journalController.backfill);
 router.post('/journal/backfill-bp-tags', requireRoles(...managerRoles), journalController.backfillBPTags);
 router.patch('/journal/:id',          requireRoles(...managerRoles), ...journalController.updateEntry);

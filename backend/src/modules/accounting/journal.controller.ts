@@ -74,9 +74,13 @@ class JournalController {
   getBalanceSheet = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const associationId = (req as never as { user: { association_id: string } }).user.association_id;
-      const { asOf } = req.query as Record<string, string>;
+      const { asOf, compare, schedules } = req.query as Record<string, string>;
       if (!asOf) { res.status(400).json({ message: 'asOf date is required' }); return; }
-      const result = await journalService.getBalanceSheet(associationId, { asOf });
+      const result = await journalService.getBalanceSheet(associationId, {
+        asOf,
+        compare:   compare   === 'true' || compare   === '1',
+        schedules: schedules === 'true' || schedules === '1',
+      });
       res.json(result);
     } catch (err) { next(err); }
   };
@@ -108,6 +112,28 @@ class JournalController {
       if (!from || !to) { res.status(400).json({ message: 'from and to are required' }); return; }
       const bookKind = kind === 'BANK' ? 'BANK' : 'CASH';
       const result = await journalService.getCashBook(associationId, { kind: bookKind, account_id, from, to });
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
+  getIncomeExpenditure = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const { from, to, compare } = req.query as Record<string, string>;
+      if (!from || !to) { res.status(400).json({ message: 'from and to are required' }); return; }
+      const result = await journalService.getIncomeExpenditure(associationId, {
+        from, to, compare: compare === 'true' || compare === '1',
+      });
+      res.json(result);
+    } catch (err) { next(err); }
+  };
+
+  getReceiptsAndPayments = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+      const { from, to, cash_codes } = req.query as Record<string, string>;
+      if (!from || !to) { res.status(400).json({ message: 'from and to are required' }); return; }
+      const result = await journalService.getReceiptsAndPayments(associationId, { from, to, cash_codes });
       res.json(result);
     } catch (err) { next(err); }
   };

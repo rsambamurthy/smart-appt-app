@@ -115,6 +115,8 @@ export interface BalanceSheetResult {
   totalLiabilities:        number;
   totalEquity:             number;
   totalLiabilitiesAndEquity: number;
+  previous?:               BsPrevious | null;
+  schedules?:              BsSchedule[];
 }
 
 export interface TrialBalanceRow {
@@ -193,6 +195,80 @@ export interface CashBookResult {
   totalReceipts:  number;
   totalPayments:  number;
   closingBalance: number;
+}
+
+export interface IERow {
+  id:       string;
+  code:     string;
+  name:     string;
+  sub_type: string | null;
+  amount:   number;
+}
+
+export interface IEGroup {
+  label: string;
+  rows:  IERow[];
+  total: number;
+}
+
+export interface IEPeriod {
+  period:            { from: string; to: string };
+  income:            IERow[];
+  expenditure:       IERow[];
+  incomeGroups:      IEGroup[];
+  expenditureGroups: IEGroup[];
+  totalIncome:       number;
+  totalExpenditure:  number;
+  surplus:           number;
+}
+
+export type IncomeExpenditureResult = IEPeriod & { previous: IEPeriod | null };
+
+export interface BsPrevious {
+  asOf:                      string;
+  totalAssets:               number;
+  totalLiabilities:          number;
+  totalEquity:               number;
+  netSurplus:                number;
+  totalLiabilitiesAndEquity: number;
+  byAccount:                 Record<string, number>;
+}
+
+export interface BsSchedule {
+  account: { code: string; name: string };
+  total:   number;
+  rows:    { code: string; name: string; amount: number }[];
+}
+
+export interface RPBalance {
+  code:   string;
+  name:   string;
+  amount: number;
+}
+
+export interface RPRow {
+  code:   string;
+  name:   string;
+  type:   string;
+  amount: number;
+}
+
+export interface ReceiptsPaymentsResult {
+  period:                { from: string; to: string };
+  cashAccounts:          { code: string; name: string }[];
+  openingBalances:       RPBalance[];
+  openingTotal:          number;
+  receipts:              RPRow[];
+  totalReceipts:         number;
+  payments:              RPRow[];
+  totalPayments:         number;
+  closingBalances:       RPBalance[];
+  closingTotal:          number;
+  totalLeft:             number;
+  totalRight:            number;
+  isReconciled:          boolean;
+  difference:            number;
+  contraEntriesExcluded: number;
 }
 
 export interface LedgerResult {
@@ -513,8 +589,21 @@ const accountingApi = baseApi.injectEndpoints({
       query: (body) => ({ url: '/accounting/fy/reopen', method: 'POST', body }),
       invalidatesTags: ['Journal'],
     }),
-    getBalanceSheet: builder.query<{ data: BalanceSheetResult }, { asOf: string }>({
-      query: ({ asOf }) => `/accounting/journal/balance-sheet?asOf=${asOf}`,
+    getBalanceSheet: builder.query<{ data: BalanceSheetResult }, { asOf: string; compare?: boolean; schedules?: boolean }>({
+      query: ({ asOf, compare, schedules }) => {
+        const q = new URLSearchParams({ asOf });
+        if (compare)   q.set('compare',   'true');
+        if (schedules) q.set('schedules', 'true');
+        return `/accounting/journal/balance-sheet?${q.toString()}`;
+      },
+      providesTags: ['Journal'],
+    }),
+    getIncomeExpenditure: builder.query<{ data: IncomeExpenditureResult }, { from: string; to: string; compare?: boolean }>({
+      query: ({ from, to, compare }) => {
+        const q = new URLSearchParams({ from, to });
+        if (compare) q.set('compare', 'true');
+        return `/accounting/journal/income-expenditure?${q.toString()}`;
+      },
       providesTags: ['Journal'],
     }),
     getTrialBalance: builder.query<{ data: TrialBalanceResult }, { asOf: string; from?: string }>({
@@ -522,6 +611,14 @@ const accountingApi = baseApi.injectEndpoints({
         const q = new URLSearchParams({ asOf });
         if (from) q.set('from', from);
         return `/accounting/journal/trial-balance?${q.toString()}`;
+      },
+      providesTags: ['Journal'],
+    }),
+    getReceiptsPayments: builder.query<{ data: ReceiptsPaymentsResult }, { from: string; to: string; cash_codes?: string }>({
+      query: ({ from, to, cash_codes }) => {
+        const q = new URLSearchParams({ from, to });
+        if (cash_codes) q.set('cash_codes', cash_codes);
+        return `/accounting/journal/receipts-payments?${q.toString()}`;
       },
       providesTags: ['Journal'],
     }),
@@ -638,6 +735,8 @@ export const {
   useReopenFYMutation,
   useGetBalanceSheetQuery,
   useGetTrialBalanceQuery,
+  useGetReceiptsPaymentsQuery,
+  useGetIncomeExpenditureQuery,
   useGetDayBookQuery,
   useGetCashBookQuery,
   useGetLedgerQuery,

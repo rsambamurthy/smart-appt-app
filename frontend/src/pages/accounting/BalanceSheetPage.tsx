@@ -32,8 +32,23 @@ function DrCrTag({ amount, normalBalance }: { amount: number; normalBalance: 'DR
   );
 }
 
+// ── Prior-year cell ───────────────────────────────────────────────────────────
+// Rendered only when comparatives are switched on, so the default two-column
+// layout is untouched.
+function PrevCell({ show, amount, bold }: { show: boolean; amount: number | null; bold?: boolean }) {
+  if (!show) return null;
+  return (
+    <td style={{ padding: '8px 24px', textAlign: 'right', fontSize: 12.5, fontWeight: bold ? 700 : 400, color: '#94a3b8' }}>
+      {amount === null ? '—' : fmtAmt(amount)}
+    </td>
+  );
+}
+
 // ── Account row ───────────────────────────────────────────────────────────────
-function BsAccountRow({ row, color, normalBalance }: { row: BsRow; color: string; normalBalance: 'DR' | 'CR' }) {
+function BsAccountRow({ row, color, normalBalance, showPrev, prev }: {
+  row: BsRow; color: string; normalBalance: 'DR' | 'CR';
+  showPrev: boolean; prev: number | null;
+}) {
   return (
     <tr style={{ borderBottom: '1px solid #f8fafc' }}>
       <td style={{ padding: '8px 20px', color: '#475569', fontSize: 12.5 }}>
@@ -45,46 +60,63 @@ function BsAccountRow({ row, color, normalBalance }: { row: BsRow; color: string
         {row.amount !== 0 ? fmtAmt(row.amount) : '—'}
         <DrCrTag amount={row.amount} normalBalance={normalBalance} />
       </td>
+      <PrevCell show={showPrev} amount={prev} />
     </tr>
   );
 }
 
 // ── Section header ────────────────────────────────────────────────────────────
-function SectionHeader({ label, color, bg }: { label: string; color: string; bg: string }) {
+function SectionHeader({ label, color, bg, showPrev, prevLabel }: {
+  label: string; color: string; bg: string; showPrev: boolean; prevLabel: string;
+}) {
+  const hdr: CSSProperties = {
+    padding: '8px 24px', textAlign: 'right', fontSize: 10.5, fontWeight: 700,
+    textTransform: 'uppercase', letterSpacing: '0.06em',
+  };
   return (
     <tr style={{ background: bg }}>
       <td style={{ padding: '8px 20px', fontSize: 10.5, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</td>
-      <td style={{ padding: '8px 24px', textAlign: 'right', fontSize: 10.5, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Amount</td>
+      <td style={{ ...hdr, color }}>Amount</td>
+      {showPrev && <td style={{ ...hdr, color: '#94a3b8' }}>{prevLabel}</td>}
     </tr>
   );
 }
 
 // ── Total row ─────────────────────────────────────────────────────────────────
-function TotalRow({ label, amount, color }: { label: string; amount: number; color: string }) {
+function TotalRow({ label, amount, color, showPrev, prev }: {
+  label: string; amount: number; color: string; showPrev: boolean; prev: number | null;
+}) {
   return (
     <tr style={{ borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
       <td style={{ padding: '10px 20px', fontWeight: 700, fontSize: 13, color }}>{label}</td>
       <td style={{ padding: '10px 24px', textAlign: 'right', fontWeight: 700, fontSize: 13, color }}>{fmtAmt(amount)}</td>
+      <PrevCell show={showPrev} amount={prev} bold />
     </tr>
   );
 }
 
 // ── Spacer ────────────────────────────────────────────────────────────────────
-function Spacer() {
-  return <tr><td colSpan={2} style={{ height: 14 }} /></tr>;
+function Spacer({ cols }: { cols: number }) {
+  return <tr><td colSpan={cols} style={{ height: 14 }} /></tr>;
 }
 
 export default function BalanceSheetPage() {
-  const [asOf,    setAsOf]    = useState(todayStr());
-  const [applied, setApplied] = useState<string | null>(null);
+  const [asOf,      setAsOf]      = useState(todayStr());
+  const [compare,   setCompare]   = useState(false);
+  const [schedules, setSchedules] = useState(false);
+  const [applied,   setApplied]   = useState<{ asOf: string; compare: boolean; schedules: boolean } | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
 
   const { data, isLoading, isFetching } = useGetBalanceSheetQuery(
-    { asOf: applied ?? '' },
+    applied ?? { asOf: '' },
     { skip: !applied },
   );
 
-  const bs = data?.data;
+  const bs       = data?.data;
+  const prev     = bs?.previous ?? null;
+  const showPrev = !!prev;
+  const cols     = showPrev ? 3 : 2;
+  const prevOf   = (code: string) => (prev ? (prev.byAccount[code] ?? 0) : null);
 
   const isBalanced = bs
     ? Math.abs(bs.totalAssets - bs.totalLiabilitiesAndEquity) < 0.01
@@ -131,8 +163,16 @@ export default function BalanceSheetPage() {
               </label>
               <input type="date" style={fc} value={asOf} onChange={e => setAsOf(e.target.value)} />
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#475569', paddingBottom: 8 }}>
+              <input type="checkbox" checked={compare} onChange={e => setCompare(e.target.checked)} />
+              Previous year column
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#475569', paddingBottom: 8 }}>
+              <input type="checkbox" checked={schedules} onChange={e => setSchedules(e.target.checked)} />
+              Include schedules
+            </label>
             <button
-              onClick={() => setApplied(asOf)}
+              onClick={() => setApplied({ asOf, compare, schedules })}
               style={{ padding: '7px 18px', borderRadius: 7, border: 'none', background: '#2563eb', color: '#fff', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}
             >
               Generate
@@ -181,31 +221,31 @@ export default function BalanceSheetPage() {
                 <tbody>
 
                   {/* ── ASSETS ── */}
-                  <SectionHeader label="Assets" color="#1d4ed8" bg="#eff6ff" />
+                  <SectionHeader label="Assets" color="#1d4ed8" bg="#eff6ff" showPrev={showPrev} prevLabel={prev ? prev.asOf : ''} />
                   {bs.assets.length === 0
-                    ? <tr><td colSpan={2} style={{ padding: '10px 20px', color: '#94a3b8', fontSize: 12.5 }}>No asset accounts.</td></tr>
-                    : bs.assets.map(r => <BsAccountRow key={r.id} row={r} color="#1d4ed8" normalBalance="DR" />)
+                    ? <tr><td colSpan={cols} style={{ padding: '10px 20px', color: '#94a3b8', fontSize: 12.5 }}>No asset accounts.</td></tr>
+                    : bs.assets.map(r => <BsAccountRow key={r.id} row={r} color="#1d4ed8" normalBalance="DR" showPrev={showPrev} prev={prevOf(r.code)} />)
                   }
-                  <TotalRow label="Total Assets" amount={bs.totalAssets} color="#1d4ed8" />
+                  <TotalRow label="Total Assets" amount={bs.totalAssets} color="#1d4ed8" showPrev={showPrev} prev={prev ? prev.totalAssets : null} />
 
-                  <Spacer />
+                  <Spacer cols={cols} />
 
                   {/* ── LIABILITIES ── */}
-                  <SectionHeader label="Liabilities" color="#c2410c" bg="#fff7ed" />
+                  <SectionHeader label="Liabilities" color="#c2410c" bg="#fff7ed" showPrev={showPrev} prevLabel={prev ? prev.asOf : ''} />
                   {bs.liabilities.length === 0
-                    ? <tr><td colSpan={2} style={{ padding: '10px 20px', color: '#94a3b8', fontSize: 12.5 }}>No liability accounts.</td></tr>
-                    : bs.liabilities.map(r => <BsAccountRow key={r.id} row={r} color="#c2410c" normalBalance="CR" />)
+                    ? <tr><td colSpan={cols} style={{ padding: '10px 20px', color: '#94a3b8', fontSize: 12.5 }}>No liability accounts.</td></tr>
+                    : bs.liabilities.map(r => <BsAccountRow key={r.id} row={r} color="#c2410c" normalBalance="CR" showPrev={showPrev} prev={prevOf(r.code)} />)
                   }
-                  <TotalRow label="Total Liabilities" amount={bs.totalLiabilities} color="#c2410c" />
+                  <TotalRow label="Total Liabilities" amount={bs.totalLiabilities} color="#c2410c" showPrev={showPrev} prev={prev ? prev.totalLiabilities : null} />
 
-                  <Spacer />
+                  <Spacer cols={cols} />
 
                   {/* ── EQUITY / FUNDS ── */}
-                  <SectionHeader label="Funds & Equity" color="#7c3aed" bg="#f5f3ff" />
+                  <SectionHeader label="Funds & Equity" color="#7c3aed" bg="#f5f3ff" showPrev={showPrev} prevLabel={prev ? prev.asOf : ''} />
                   {bs.equity.length === 0 && bs.netSurplus === 0
-                    ? <tr><td colSpan={2} style={{ padding: '10px 20px', color: '#94a3b8', fontSize: 12.5 }}>No equity accounts.</td></tr>
+                    ? <tr><td colSpan={cols} style={{ padding: '10px 20px', color: '#94a3b8', fontSize: 12.5 }}>No equity accounts.</td></tr>
                     : <>
-                        {bs.equity.map(r => <BsAccountRow key={r.id} row={r} color="#7c3aed" normalBalance="CR" />)}
+                        {bs.equity.map(r => <BsAccountRow key={r.id} row={r} color="#7c3aed" normalBalance="CR" showPrev={showPrev} prev={prevOf(r.code)} />)}
                         {/* Net Surplus from P&L */}
                         <tr style={{ borderBottom: '1px solid #f8fafc' }}>
                           <td style={{ padding: '8px 20px', color: '#475569', fontSize: 12.5, fontStyle: 'italic' }}>
@@ -217,10 +257,12 @@ export default function BalanceSheetPage() {
                             {bs.netSurplus !== 0 && <DrCrTag amount={bs.netSurplus} normalBalance="CR" />}
                             {bs.netSurplus < 0 && <span style={{ marginLeft: 4, fontSize: 11 }}>(Deficit)</span>}
                           </td>
+                          <PrevCell show={showPrev} amount={prev ? prev.netSurplus : null} />
                         </tr>
                       </>
                   }
-                  <TotalRow label="Total Funds & Equity" amount={bs.totalEquity + bs.netSurplus} color="#7c3aed" />
+                  <TotalRow label="Total Funds & Equity" amount={bs.totalEquity + bs.netSurplus} color="#7c3aed"
+                            showPrev={showPrev} prev={prev ? prev.totalEquity + prev.netSurplus : null} />
 
                   {/* ── GRAND TOTAL CHECK ── */}
                   <tr style={{ borderTop: '2px solid #e2e8f0' }}>
@@ -237,10 +279,44 @@ export default function BalanceSheetPage() {
                         {fmtAmt(bs.totalLiabilitiesAndEquity)}
                       </div>
                     </td>
+                    <PrevCell show={showPrev} amount={prev ? prev.totalLiabilitiesAndEquity : null} bold />
                   </tr>
 
                 </tbody>
               </table>
+
+              {/* ── SCHEDULES ── */}
+              {bs.schedules && bs.schedules.length > 0 && (
+                <div style={{ borderTop: '1px solid #e2e8f0', marginTop: 18 }}>
+                  {bs.schedules.map((sch, i) => (
+                    <div key={sch.account.code} style={{ padding: '16px 0 4px' }}>
+                      <div style={{ padding: '0 20px 8px', fontSize: 12, fontWeight: 700, color: '#334155' }}>
+                        Schedule {i + 1} — {sch.account.name}
+                        <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>{sch.account.code}</span>
+                      </div>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                        <tbody>
+                          {sch.rows.length === 0 ? (
+                            <tr><td colSpan={2} style={{ padding: '8px 34px', color: '#94a3b8' }}>No balances.</td></tr>
+                          ) : sch.rows.map(r => (
+                            <tr key={r.code} style={{ borderBottom: '1px solid #f8fafc' }}>
+                              <td style={{ padding: '6px 12px 6px 34px', color: r.code === '—' ? '#dc2626' : '#475569' }}>
+                                <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#cbd5e1', marginRight: 8 }}>{r.code}</span>
+                                {r.name}
+                              </td>
+                              <td style={{ padding: '6px 24px', textAlign: 'right', fontWeight: 500, color: '#1e293b' }}>{fmtAmt(r.amount)}</td>
+                            </tr>
+                          ))}
+                          <tr style={{ borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                            <td style={{ padding: '8px 12px 8px 34px', fontWeight: 700, color: '#1e293b' }}>Total</td>
+                            <td style={{ padding: '8px 24px', textAlign: 'right', fontWeight: 700, color: '#1e293b' }}>{fmtAmt(sch.total)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Footer */}
               <div style={{ padding: '10px 20px 4px', fontSize: 11, color: '#94a3b8', borderTop: '1px solid #f1f5f9', marginTop: 8 }}>

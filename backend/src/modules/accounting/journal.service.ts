@@ -373,6 +373,124 @@ class JournalService {
   }
 
   // ── P&L: Income & Expenditure statement for a period ─────────────────────────
+  // ── SHARED: per-account totals over a period ─────────────────────────────────
+  // One definition of "what a period balance is", used by the Income &
+  // Expenditure account, the Balance Sheet and their comparatives, so those
+  // reports cannot drift apart. POSTED only; float8 to keep paise.
+  private async accountTotals(
+    associationId: string,
+    opts: { to: Date; from?: Date; types?: AccountType[] },
+  ) {
+    type Row = {
+      id: string; code: string; name: string; type: string; sub_type: string | null;
+      total_debit: number; total_credit: number;
+    };
+
+    const types = opts.types ?? [
+      AccountType.ASSET, AccountType.LIABILITY, AccountType.EQUITY,
+      AccountType.INCOME, AccountType.EXPENSE,
+    ];
+
+    return prisma.$queryRaw<Row[]>`
+      SELECT
+        a.id, a.code, a.name, a.type, a.sub_type,
+        COALESCE(SUM(jl.debit),  0)::float8 AS total_debit,
+        COALESCE(SUM(jl.credit), 0)::float8 AS total_credit
+      FROM accounts a
+      LEFT JOIN journal_lines jl ON jl.account_id = a.id
+      LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+        AND je.association_id = ${associationId}::uuid
+        AND je.status = 'POSTED'::"JournalStatus"
+        AND je.entry_date <= ${opts.to}
+        ${opts.from ? Prisma.sql`AND je.entry_date >= ${opts.from}` : Prisma.empty}
+      WHERE a.association_id = ${associationId}::uuid
+        AND a.type = ANY(${types}::"AccountType"[])
+        AND a.is_active = true
+        AND a.is_group  = false
+      GROUP BY a.id, a.code, a.name, a.type, a.sub_type, a.sort_order
+      ORDER BY a.type, a.sort_order ASC, a.code ASC
+    `;
+  }
+
+  // ── INCOME & EXPENDITURE ACCOUNT ─────────────────────────────────────────────
+  // The accrual statement, in the terminology an association uses: Income and
+  // Expenditure rather than revenue and cost, Surplus or Deficit rather than
+  // profit. Grouped by sub_type so it reads as an auditor expects, with the
+  // same period one year earlier as the comparative column.
+  //
+  // This will NOT agree with the Receipts & Payments account, and should not:
+  // dues billed but uncollected are income with no receipt, and a fixed
+  // deposit is a payment with no expenditure.
+  async getIncomeExpenditure(
+    associationId: string,
+    query: { from: string; to: string; compare?: boolean },
+  ) {
+    const fromDate = new Date(query.from);
+    const toDate   = new Date(query.to);
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    const build = async (from: Date, to: Date) => {
+      const rows = await this.accountTotals(associationId, {
+        from, to, types: [AccountType.INCOME, AccountType.EXPENSE],
+      });
+
+      const income:      { id: string; code: string; name: string; sub_type: string | null; amount: number }[] = [];
+      const expenditure: { id: string; code: string; name: string; sub_type: string | null; amount: number }[] = [];
+
+      for (const r of rows) {
+        const dr = Number(r.total_debit);
+        const cr = Number(r.total_credit);
+        const row = { id: r.id, code: r.code, name: r.name, sub_type: r.sub_type, amount: 0 };
+        if (r.type === AccountType.INCOME)  { row.amount = round2(cr - dr); income.push(row); }
+        else                                { row.amount = round2(dr - cr); expenditure.push(row); }
+      }
+
+      const totalIncome      = round2(income     .reduce((s, r) => s + r.amount, 0));
+      const totalExpenditure = round2(expenditure.reduce((s, r) => s + r.amount, 0));
+
+      // Group by sub_type for presentation; accounts without one fall under Other.
+      const group = (rowsIn: typeof income) => {
+        const m = new Map<string, { label: string; rows: typeof income; total: number }>();
+        for (const r of rowsIn) {
+          const key = r.sub_type ?? 'Other';
+          const g   = m.get(key) ?? { label: key, rows: [], total: 0 };
+          g.rows.push(r);
+          g.total = round2(g.total + r.amount);
+          m.set(key, g);
+        }
+        return Array.from(m.values());
+      };
+
+      return {
+        period: { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) },
+        income,
+        expenditure,
+        incomeGroups:      group(income),
+        expenditureGroups: group(expenditure),
+        totalIncome,
+        totalExpenditure,
+        // Positive is a surplus, negative a deficit.
+        surplus: round2(totalIncome - totalExpenditure),
+      };
+    };
+
+    const current = await build(fromDate, toDate);
+
+    // Comparative: the same span one year earlier.
+    let previous: Awaited<ReturnType<typeof build>> | null = null;
+    if (query.compare) {
+      const shift = (d: Date) => {
+        const x = new Date(d);
+        x.setFullYear(x.getFullYear() - 1);
+        return x;
+      };
+      previous = await build(shift(fromDate), shift(toDate));
+    }
+
+    return { data: { ...current, previous } };
+  }
+
   async getPnL(associationId: string, query: { from: string; to: string }) {
     // Sum journal lines grouped by account for INCOME + EXPENSE accounts in period
     // NOTE: amounts are cast to float8, not bigint — Decimal(15,2) rounded to
@@ -777,7 +895,10 @@ class JournalService {
   }
 
   // ── BALANCE SHEET: snapshot of ASSET / LIABILITY / EQUITY as of a date ──────
-  async getBalanceSheet(associationId: string, query: { asOf: string }) {
+  async getBalanceSheet(
+    associationId: string,
+    query: { asOf: string; compare?: boolean; schedules?: boolean },
+  ) {
     const asOfDate = new Date(query.asOf);
 
     // Fetch all balance-sheet relevant accounts plus INCOME/EXPENSE for net-surplus
@@ -832,6 +953,102 @@ class JournalService {
     const totalEquity              = equity     .reduce((s, r) => s + r.amount, 0);
     const totalLiabilitiesAndEquity = totalLiabilities + totalEquity + netSurplus;
 
+    // ── Prior-year comparative ────────────────────────────────────────────────
+    // Same date one year earlier. Added as an extra field so the existing
+    // response shape is unchanged for callers that do not ask for it.
+    let previous: {
+      asOf: string; totalAssets: number; totalLiabilities: number;
+      totalEquity: number; netSurplus: number; totalLiabilitiesAndEquity: number;
+      byAccount: Record<string, number>;
+    } | null = null;
+
+    if (query.compare) {
+      const prevDate = new Date(asOfDate);
+      prevDate.setFullYear(prevDate.getFullYear() - 1);
+      const prevRows = await this.accountTotals(associationId, { to: prevDate });
+
+      const byAccount: Record<string, number> = {};
+      let pAssets = 0, pLiab = 0, pEquity = 0, pIncome = 0, pExpense = 0;
+      for (const r of prevRows) {
+        const dr = Number(r.total_debit);
+        const cr = Number(r.total_credit);
+        switch (r.type) {
+          case 'ASSET':     byAccount[r.code] = dr - cr; pAssets  += dr - cr; break;
+          case 'LIABILITY': byAccount[r.code] = cr - dr; pLiab    += cr - dr; break;
+          case 'EQUITY':    byAccount[r.code] = cr - dr; pEquity  += cr - dr; break;
+          case 'INCOME':    pIncome  += cr - dr; break;
+          case 'EXPENSE':   pExpense += dr - cr; break;
+        }
+      }
+      const pNet = pIncome - pExpense;
+      previous = {
+        asOf: prevDate.toISOString().slice(0, 10),
+        totalAssets: pAssets, totalLiabilities: pLiab, totalEquity: pEquity,
+        netSurplus: pNet, totalLiabilitiesAndEquity: pLiab + pEquity + pNet,
+        byAccount,
+      };
+    }
+
+    // ── Schedules for control accounts ────────────────────────────────────────
+    // The auditor's supporting detail: who makes up the receivable balance.
+    let schedules: {
+      account: { code: string; name: string };
+      total:   number;
+      rows:    { code: string; name: string; amount: number }[];
+    }[] = [];
+
+    if (query.schedules) {
+      const controls = await prisma.account.findMany({
+        where: { association_id: associationId, is_control_account: true, is_active: true },
+        select: { id: true, code: true, name: true, type: true },
+        orderBy: { code: 'asc' },
+      });
+
+      schedules = await Promise.all(controls.map(async ctl => {
+        const lines = await prisma.journalLine.groupBy({
+          by: ['business_partner_id'],
+          where: {
+            account_id:    ctl.id,
+            journal_entry: {
+              association_id: associationId,
+              status:         JournalStatus.POSTED,
+              entry_date:     { lte: asOfDate },
+            },
+          },
+          _sum: { debit: true, credit: true },
+        });
+
+        const bpIds = lines.map(l => l.business_partner_id).filter((x): x is string => !!x);
+        const bps   = await prisma.businessPartner.findMany({
+          where:  { id: { in: bpIds } },
+          select: { id: true, code: true, name: true },
+        });
+        const bpById = new Map(bps.map(b => [b.id, b]));
+        const isDebitNormal = DEBIT_NORMAL.has(ctl.type as AccountType);
+
+        const rows = lines.map(l => {
+          const dr  = Number(l._sum.debit  ?? 0);
+          const cr  = Number(l._sum.credit ?? 0);
+          const amt = isDebitNormal ? dr - cr : cr - dr;
+          const bp  = l.business_partner_id ? bpById.get(l.business_partner_id) : undefined;
+          return {
+            code:   bp?.code ?? '—',
+            // An untagged line has no owner; name it so it cannot be missed.
+            name:   bp?.name ?? 'Untagged (no business partner)',
+            amount: Math.round(amt * 100) / 100,
+          };
+        })
+        .filter(r => r.amount !== 0)
+        .sort((a, b) => a.code.localeCompare(b.code));
+
+        return {
+          account: { code: ctl.code, name: ctl.name },
+          total:   Math.round(rows.reduce((s, r) => s + r.amount, 0) * 100) / 100,
+          rows,
+        };
+      }));
+    }
+
     return {
       data: {
         asOf: query.asOf,
@@ -843,6 +1060,8 @@ class JournalService {
         totalLiabilities,
         totalEquity,
         totalLiabilitiesAndEquity,
+        previous,
+        schedules,
       },
     };
   }
@@ -1140,6 +1359,176 @@ class JournalService {
         totalReceipts,
         totalPayments,
         closingBalance: round2(openingBalance + totalReceipts - totalPayments),
+      },
+    };
+  }
+
+  // ── RECEIPTS & PAYMENTS ACCOUNT ──────────────────────────────────────────────
+  // The cash-basis statement an association presents to its members: opening
+  // cash and bank, everything actually received, everything actually paid, and
+  // the closing balance. It is NOT the Income & Expenditure account — dues
+  // billed but unpaid never appear here, and a fixed deposit does.
+  //
+  // Derivation: take every posted entry that moves a cash account, then group
+  // by the OTHER side of that entry. An entry whose net cash movement is zero
+  // is a contra (cash to bank and the like) and is excluded — it shuffles money
+  // between two cash accounts without the association receiving or paying
+  // anything, and including it would inflate both columns.
+  async getReceiptsAndPayments(
+    associationId: string,
+    query: { from: string; to: string; cash_codes?: string },
+  ) {
+    const fromDate = new Date(query.from);
+    const toDate   = new Date(query.to);
+
+    // Which accounts count as "cash". 1001 Cash in Hand and 1002 Bank Account
+    // by default; override to include a second bank or a petty cash account.
+    const cashCodes = query.cash_codes
+      ? query.cash_codes.split(',').map(c => c.trim()).filter(Boolean)
+      : ['1001', '1002'];
+
+    const cashAccounts = await prisma.account.findMany({
+      where: { association_id: associationId, code: { in: cashCodes } },
+      select: { id: true, code: true, name: true },
+      orderBy: { code: 'asc' },
+    });
+    if (cashAccounts.length === 0) {
+      throw new NotFoundError(
+        `No cash accounts found for codes ${cashCodes.join(', ')}. Seed the chart of accounts first.`,
+      );
+    }
+    const cashIds = new Set(cashAccounts.map(a => a.id));
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    // ── Opening balances, per cash account ────────────────────────────────────
+    const openingBalances = await Promise.all(cashAccounts.map(async acc => {
+      const agg = await prisma.journalLine.aggregate({
+        where: {
+          account_id:    acc.id,
+          journal_entry: {
+            association_id: associationId,
+            status:         JournalStatus.POSTED,
+            entry_date:     { lt: fromDate },
+          },
+        },
+        _sum: { debit: true, credit: true },
+      });
+      return {
+        code:   acc.code,
+        name:   acc.name,
+        amount: round2(Number(agg._sum.debit ?? 0) - Number(agg._sum.credit ?? 0)),
+      };
+    }));
+
+    // ── Every posted entry in the period that touches a cash account ──────────
+    const entries = await prisma.journalEntry.findMany({
+      where: {
+        association_id: associationId,
+        status:         JournalStatus.POSTED,
+        entry_date:     { gte: fromDate, lte: toDate },
+        lines:          { some: { account_id: { in: [...cashIds] } } },
+      },
+      include: {
+        lines: { include: { account: { select: { id: true, code: true, name: true, type: true } } } },
+      },
+      orderBy: { entry_date: 'asc' },
+    });
+
+    type Bucket = { code: string; name: string; type: string; amount: number };
+    const receipts = new Map<string, Bucket>();
+    const payments = new Map<string, Bucket>();
+
+    let cashReceived = 0;
+    let cashPaid     = 0;
+    let contraCount  = 0;
+
+    for (const e of entries) {
+      const cashLines  = e.lines.filter(l =>  cashIds.has(l.account_id));
+      const otherLines = e.lines.filter(l => !cashIds.has(l.account_id));
+
+      const cashNet = cashLines.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0);
+
+      // Contra: money moved between two cash accounts. Not a receipt or payment.
+      if (Math.abs(cashNet) < 0.005) { contraCount++; continue; }
+
+      const isReceipt = cashNet > 0;
+      const target    = isReceipt ? receipts : payments;
+
+      // The contra side carries the nature of the transaction. For a receipt
+      // the other accounts are credited; for a payment they are debited.
+      for (const l of otherLines) {
+        const amount = isReceipt ? Number(l.credit) - Number(l.debit)
+                                 : Number(l.debit)  - Number(l.credit);
+        if (Math.abs(amount) < 0.005) continue;
+
+        const key = l.account.code;
+        const b   = target.get(key) ?? { code: l.account.code, name: l.account.name, type: l.account.type, amount: 0 };
+        b.amount += amount;
+        target.set(key, b);
+      }
+
+      if (isReceipt) cashReceived += cashNet;
+      else           cashPaid     += -cashNet;
+    }
+
+    const sortRows = (m: Map<string, Bucket>) =>
+      Array.from(m.values())
+        .map(b => ({ ...b, amount: round2(b.amount) }))
+        .filter(b => b.amount !== 0)
+        .sort((a, b) => a.code.localeCompare(b.code));
+
+    const receiptRows = sortRows(receipts);
+    const paymentRows = sortRows(payments);
+
+    const openingTotal  = round2(openingBalances.reduce((s, b) => s + b.amount, 0));
+    const totalReceipts = round2(cashReceived);
+    const totalPayments = round2(cashPaid);
+
+    // Closing per account, computed independently so it can be cross-checked
+    // against opening + receipts - payments rather than derived from it.
+    const closingBalances = await Promise.all(cashAccounts.map(async acc => {
+      const agg = await prisma.journalLine.aggregate({
+        where: {
+          account_id:    acc.id,
+          journal_entry: {
+            association_id: associationId,
+            status:         JournalStatus.POSTED,
+            entry_date:     { lte: toDate },
+          },
+        },
+        _sum: { debit: true, credit: true },
+      });
+      return {
+        code:   acc.code,
+        name:   acc.name,
+        amount: round2(Number(agg._sum.debit ?? 0) - Number(agg._sum.credit ?? 0)),
+      };
+    }));
+
+    const closingTotal = round2(closingBalances.reduce((s, b) => s + b.amount, 0));
+    const expected     = round2(openingTotal + totalReceipts - totalPayments);
+
+    return {
+      data: {
+        period: { from: query.from, to: query.to },
+        cashAccounts: cashAccounts.map(a => ({ code: a.code, name: a.name })),
+        openingBalances,
+        openingTotal,
+        receipts: receiptRows,
+        totalReceipts,
+        payments: paymentRows,
+        totalPayments,
+        closingBalances,
+        closingTotal,
+        // Grand totals of the two sides of the statement.
+        totalLeft:  round2(openingTotal + totalReceipts),
+        totalRight: round2(totalPayments + closingTotal),
+        // Closing must equal opening + receipts - payments. A mismatch means an
+        // entry moved cash in a way this grouping did not account for.
+        isReconciled: Math.abs(closingTotal - expected) < 0.005,
+        difference:   round2(closingTotal - expected),
+        contraEntriesExcluded: contraCount,
       },
     };
   }

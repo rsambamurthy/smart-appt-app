@@ -57,6 +57,8 @@ import BalanceSheetPage from './pages/accounting/BalanceSheetPage';
 import TrialBalancePage from './pages/accounting/TrialBalancePage';
 import CashBookPage from './pages/accounting/CashBookPage';
 import DayBookPage from './pages/accounting/DayBookPage';
+import ReceiptsPaymentsPage from './pages/accounting/ReceiptsPaymentsPage';
+import IncomeExpenditurePage from './pages/accounting/IncomeExpenditurePage';
 import FYClosurePage    from './pages/accounting/FYClosurePage';
 
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
@@ -158,6 +160,8 @@ export default function App() {
         {!IS_NATIVE && <Route path="/accounting/trial-balance"     element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><TrialBalancePage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/accounting/cash-book"         element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><CashBookPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/accounting/day-book"          element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><DayBookPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/receipts-payments" element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><ReceiptsPaymentsPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/income-expenditure" element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><IncomeExpenditurePage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/accounting/fy-closure"        element={<RoleRoute roles={['MANAGER', 'TREASURER']}><FYClosurePage /></RoleRoute>} />}
 
         {/* change-mpin is available on web; mobile version is inside the MobileLayout block above */}

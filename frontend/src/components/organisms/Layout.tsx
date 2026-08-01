@@ -90,6 +90,8 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'trial_balance',   label: 'Trial Balance',   path: '/accounting/trial-balance',   roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#0891b2', end: true },
       { id: 'cash_book',       label: 'Cash / Bank Book', path: '/accounting/cash-book',      roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#16a34a', end: true },
       { id: 'day_book',        label: 'Day Book',        path: '/accounting/day-book',        roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#f59e0b', end: true },
+      { id: 'receipts_payments', label: 'Receipts & Payments', path: '/accounting/receipts-payments', roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#15803d', end: true },
+      { id: 'income_expenditure', label: 'Income & Expenditure', path: '/accounting/income-expenditure', roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#c2410c', end: true },
       { id: 'fy_closure',      label: 'FY Closure',      path: '/accounting/fy-closure',       roles: ['SUPER_USER', 'MANAGER', 'TREASURER'], dot: '#dc2626', end: true },
     ],
   },
