@@ -862,12 +862,12 @@ model AuditLog {
 
   performed_by   String?      @db.Uuid
   performer      User?        @relation(fields: [performed_by], references: [id])
-  /** Free-text actor label for events with no user row (e.g. the phone that failed login). */
+  /// Free-text actor label for events with no user row (e.g. the phone that failed login).
   actor_label    String?      @db.VarChar(120)
 
   ip_address     String?      @db.VarChar(45)
   user_agent     String?      @db.VarChar(255)
-  /** Short human-readable summary, e.g. "Closed FY 2025-26". */
+  /// Short human-readable summary, e.g. "Closed FY 2025-26".
   summary        String?      @db.VarChar(255)
 
   old_value      Json?
