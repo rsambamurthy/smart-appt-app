@@ -122,8 +122,16 @@ function BarList({ rows, color = '#2563eb', emptyText }: {
 // ── Page ──────────────────────────────────────────────────────────────────────
 export default function InsightsPage() {
   const [months, setMonths] = useState(6);
-  const { data, isLoading, isFetching } = useGetInsightsQuery(months);
+  const { data, isLoading, isFetching, error, refetch } = useGetInsightsQuery(months);
   const d = data?.data;
+
+  // Surface the server's actual message — a silent spinner hides real failures.
+  const errMsg = (() => {
+    if (!error) return null;
+    const e = error as { status?: number | string; data?: { message?: string; detail?: string } };
+    if (e.status === 403) return 'You do not have permission to view insights.';
+    return e.data?.message ?? e.data?.detail ?? `Request failed (${e.status ?? 'unknown error'}).`;
+  })();
 
   const AGEING_COLORS: Record<string, string> = {
     'Not due': '#94a3b8', '1-30 days': '#22c55e', '31-60 days': '#f59e0b',
@@ -152,7 +160,16 @@ export default function InsightsPage() {
           {isFetching && <span style={{ fontSize: 12, color: '#94a3b8' }}>Updating…</span>}
         </div>
 
-        {isLoading || !d ? (
+        {errMsg ? (
+          <div style={{ ...card, borderLeft: '4px solid #dc2626' }}>
+            <div style={{ fontWeight: 700, color: '#dc2626', marginBottom: 6 }}>Could not load insights</div>
+            <div style={{ fontSize: 13, color: '#334155', marginBottom: 12 }}>{errMsg}</div>
+            <button onClick={() => refetch()} style={{
+              padding: '7px 16px', borderRadius: 6, border: '1px solid #e2e8f0',
+              background: '#fff', color: '#334155', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            }}>Retry</button>
+          </div>
+        ) : isLoading || !d ? (
           <div style={{ ...card, textAlign: 'center', color: '#94a3b8', padding: '3rem' }}>
             Loading insights…
           </div>

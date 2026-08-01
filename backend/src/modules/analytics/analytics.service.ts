@@ -33,10 +33,18 @@ export class AnalyticsService {
   async getInsights(associationId: string, months = 6) {
     const monthsBack = Math.min(Math.max(months, 3), 24);
 
+    // Compute the window start in JS rather than with make_interval() inside
+    // SQL: passing an integer into make_interval(months => $1) makes Postgres
+    // resolve the argument type at plan time and it can fail outright.
+    const now = new Date();
+    const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (monthsBack - 1), 1));
+    // One month earlier — the anomaly check needs a prior baseline.
+    const sinceWithBaseline = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - monthsBack, 1));
+
     const [collections, expenses, maintenance, governance] = await Promise.all([
-      this.collections(associationId, monthsBack),
-      this.expenses(associationId, monthsBack),
-      this.maintenance(associationId, monthsBack),
+      this.collections(associationId, since),
+      this.expenses(associationId, since, sinceWithBaseline),
+      this.maintenance(associationId, since),
       this.governance(associationId),
     ]);
 
@@ -44,7 +52,7 @@ export class AnalyticsService {
   }
 
   // ── 1. Collections & cash flow ──────────────────────────────────────────────
-  private async collections(associationId: string, months: number) {
+  private async collections(associationId: string, since: Date) {
     // Billed vs collected per month. Billed is keyed on the bill's period,
     // collected on the payment date — they are different things on purpose:
     // efficiency compares money raised in a month against money received.
@@ -52,7 +60,7 @@ export class AnalyticsService {
       WITH period AS (
         SELECT to_char(d, 'YYYY-MM') AS period
         FROM generate_series(
-          date_trunc('month', CURRENT_DATE) - make_interval(months => ${months - 1}),
+          date_trunc('month', ${since}::timestamptz),
           date_trunc('month', CURRENT_DATE),
           '1 month'
         ) d
@@ -127,7 +135,7 @@ export class AnalyticsService {
              COUNT(*)::bigint   AS txns
       FROM payments
       WHERE association_id = ${associationId}::uuid
-        AND payment_date >= date_trunc('month', CURRENT_DATE) - make_interval(months => ${months - 1})
+        AND payment_date >= ${since}::timestamptz
       GROUP BY 1
       ORDER BY 2 DESC
     `;
@@ -165,12 +173,12 @@ export class AnalyticsService {
   }
 
   // ── 2. Expense & vendor analysis ────────────────────────────────────────────
-  private async expenses(associationId: string, months: number) {
+  private async expenses(associationId: string, since: Date, sinceWithBaseline: Date) {
     const trend = await prisma.$queryRaw<SpendMonth[]>`
       WITH period AS (
         SELECT to_char(d, 'YYYY-MM') AS period
         FROM generate_series(
-          date_trunc('month', CURRENT_DATE) - make_interval(months => ${months - 1}),
+          date_trunc('month', ${since}::timestamptz),
           date_trunc('month', CURRENT_DATE),
           '1 month'
         ) d
@@ -196,7 +204,7 @@ export class AnalyticsService {
       WHERE association_id = ${associationId}::uuid
         AND deleted_at IS NULL
         AND status <> 'REJECTED'
-        AND expense_date >= date_trunc('month', CURRENT_DATE) - make_interval(months => ${months - 1})
+        AND expense_date >= ${since}::date
       GROUP BY 1
       ORDER BY 2 DESC
       LIMIT 12
@@ -212,7 +220,7 @@ export class AnalyticsService {
       WHERE e.association_id = ${associationId}::uuid
         AND e.deleted_at IS NULL
         AND e.status <> 'REJECTED'
-        AND e.expense_date >= date_trunc('month', CURRENT_DATE) - make_interval(months => ${months - 1})
+        AND e.expense_date >= ${since}::date
       GROUP BY 1
       ORDER BY 2 DESC
       LIMIT 10
@@ -228,7 +236,7 @@ export class AnalyticsService {
         WHERE association_id = ${associationId}::uuid
           AND deleted_at IS NULL
           AND status <> 'REJECTED'
-          AND expense_date >= date_trunc('month', CURRENT_DATE) - make_interval(months => ${months})
+          AND expense_date >= ${sinceWithBaseline}::date
         GROUP BY 1, 2
       ),
       latest AS (
@@ -270,7 +278,7 @@ export class AnalyticsService {
   }
 
   // ── 3. Maintenance operations ───────────────────────────────────────────────
-  private async maintenance(associationId: string, months: number) {
+  private async maintenance(associationId: string, since: Date) {
     const byCategory = await prisma.$queryRaw<MttrRow[]>`
       SELECT category::text AS category,
              COUNT(*)::bigint AS tickets,
@@ -279,7 +287,7 @@ export class AnalyticsService {
              COUNT(*) FILTER (WHERE sla_breached)::bigint AS breached
       FROM maintenance_tickets
       WHERE association_id = ${associationId}::uuid
-        AND created_at >= date_trunc('month', CURRENT_DATE) - make_interval(months => ${months - 1})
+        AND created_at >= ${since}::timestamptz
       GROUP BY 1
       ORDER BY 2 DESC
     `;
@@ -291,7 +299,7 @@ export class AnalyticsService {
       FROM maintenance_tickets t
       JOIN units u ON u.id = t.unit_id
       WHERE t.association_id = ${associationId}::uuid
-        AND t.created_at >= date_trunc('month', CURRENT_DATE) - make_interval(months => ${months - 1})
+        AND t.created_at >= ${since}::timestamptz
       GROUP BY u.flat_number, u.block, t.category
       HAVING COUNT(*) >= 3
       ORDER BY 4 DESC
@@ -305,7 +313,7 @@ export class AnalyticsService {
              AVG(rating) FILTER (WHERE rating IS NOT NULL) AS avg_rating
       FROM maintenance_tickets
       WHERE association_id = ${associationId}::uuid
-        AND created_at >= date_trunc('month', CURRENT_DATE) - make_interval(months => ${months - 1})
+        AND created_at >= ${since}::timestamptz
     `;
 
     const t = totals[0];
