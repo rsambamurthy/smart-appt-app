@@ -548,21 +548,30 @@ export class DuesService {
 
   // ── Arrears ──────────────────────────────────────────────────────────────────
   async getArrears(associationId: string) {
+    // Payments are aggregated per bill BEFORE joining. Joining payments
+    // directly fans out the bill row once per payment, so SUM(b.total_amount)
+    // counted a part-paid bill's total twice and overstated arrears.
     const arrears = await prisma.$queryRaw<
       { unit_id: string; flat_number: string; outstanding: number; ageing_days: number; penalty: number }[]
     >`
       SELECT
         b.unit_id,
         u.flat_number,
-        SUM(b.total_amount) - COALESCE(SUM(p.amount), 0) AS outstanding,
-        MAX(EXTRACT(DAY FROM NOW() - b.due_date)) AS ageing_days,
-        SUM(b.penalty) AS penalty
+        SUM(b.total_amount - COALESCE(pp.paid, 0))::float8 AS outstanding,
+        MAX(EXTRACT(DAY FROM NOW() - b.due_date))::int     AS ageing_days,
+        SUM(b.penalty)::float8                             AS penalty
       FROM bills b
       JOIN units u ON u.id = b.unit_id
-      LEFT JOIN payments p ON p.bill_id = b.id
+      LEFT JOIN (
+        SELECT bill_id, SUM(amount) AS paid
+        FROM payments
+        GROUP BY bill_id
+      ) pp ON pp.bill_id = b.id
       WHERE b.association_id = ${associationId}::uuid
         AND b.status IN ('UNPAID', 'PARTIAL')
+        AND u.deleted_at IS NULL
       GROUP BY b.unit_id, u.flat_number
+      HAVING SUM(b.total_amount - COALESCE(pp.paid, 0)) > 0
       ORDER BY outstanding DESC
     `;
 

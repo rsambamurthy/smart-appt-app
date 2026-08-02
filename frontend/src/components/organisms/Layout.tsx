@@ -74,6 +74,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'dues_bills',    label: 'Bills & Payments', path: '/dues/bills',         roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#0095db', end: true },
       { id: 'dues_one_time', label: 'One-Time Dues',    path: '/dues/one-time-dues', roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#ec4899', end: true },
+      { id: 'dues_arrears',  label: 'Arrears',          path: '/dues/arrears',       roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#dc2626', end: true },
     ],
   },
   {

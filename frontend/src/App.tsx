@@ -40,6 +40,7 @@ import RegisterAssociationPage from './pages/RegisterAssociationPage';
 import AssociationManagementPage from './pages/admin/AssociationManagementPage';
 import AssociationDetailPage from './pages/admin/AssociationDetailPage';
 import OneTimeDuesPage from './pages/dues/OneTimeDuesPage';
+import ArrearsPage from './pages/dues/ArrearsPage';
 import OtherReceiptsPage from './pages/receipts/OtherReceiptsPage';
 import MenuConfigPage from './pages/admin/MenuConfigPage';
 import MobileConfigPage from './pages/admin/MobileConfigPage';
@@ -118,6 +119,7 @@ export default function App() {
         {!IS_NATIVE && <Route path="/dues/my-bills" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><MyBillsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/pay/:billId" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><PaymentPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/one-time-dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OneTimeDuesPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/arrears" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ArrearsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/other-receipts" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OtherReceiptsPage /></RoleRoute>} />}
 
         {/* Expenses */}

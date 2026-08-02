@@ -1,5 +1,13 @@
 import { baseApi } from './baseApi';
 
+export interface ArrearsRow {
+  unit_id:     string;
+  flat_number: string;
+  outstanding: number;
+  ageing_days: number;
+  penalty:     number;
+}
+
 export interface PaymentUploadRow {
   row_num:        number;
   flat_number:    string;
@@ -28,7 +36,7 @@ export const duesApi = baseApi.injectEndpoints({
     initiatePayment: builder.mutation<{ data: { order_id: string; amount: number; key_id: string; bill: { id: string; period_month: number; period_year: number } } }, { bill_id: string }>({ query: (body) => ({ url: '/dues/payments/initiate', method: 'POST', body }), invalidatesTags: ['Payment'] }),
     verifyPayment: builder.mutation<{ data: { status: string; payment_id?: string } }, { bill_id: string; razorpay_payment_id: string; razorpay_order_id: string; razorpay_signature: string }>({ query: (body) => ({ url: '/dues/payments/verify', method: 'POST', body }), invalidatesTags: ['Bill', 'Payment'] }),
     recordOfflinePayment: builder.mutation<{ data: unknown }, object>({ query: (body) => ({ url: '/dues/payments/offline', method: 'POST', body }), invalidatesTags: ['Bill', 'Payment'] }),
-    getArrears: builder.query<{ data: unknown[] }, void>({ query: () => '/dues/arrears', providesTags: ['Bill'] }),
+    getArrears: builder.query<{ data: ArrearsRow[] }, void>({ query: () => '/dues/arrears', providesTags: ['Bill'] }),
     createLevy: builder.mutation<{ data: unknown }, object>({ query: (body) => ({ url: '/dues/levy', method: 'POST', body }), invalidatesTags: ['Bill'] }),
     getDuesDashboard: builder.query<{ data: unknown }, void>({ query: () => '/dues/dashboard', providesTags: ['Bill'] }),
     // One-time dues
