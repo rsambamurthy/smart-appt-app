@@ -1,11 +1,23 @@
 import { z } from 'zod';
 import { UserRole } from '@prisma/client';
 
+// Roles a MANAGER may assign within their own association. SUPER_USER is a
+// platform role belonging to no association — allowing it here would let any
+// manager mint a platform administrator, which is privilege escalation. Super
+// users are created out-of-band (scripts/create-super-user.js).
+const assignableRole = z.enum([
+  UserRole.MANAGER,
+  UserRole.RESIDENT,
+  UserRole.COMMITTEE,
+  UserRole.TREASURER,
+  UserRole.GATE_STAFF,
+]);
+
 export const createUserSchema = z.object({
   phone: z.string().min(10).max(15),
   email: z.string().email().optional(),
   name: z.string().min(1).max(255),
-  role: z.nativeEnum(UserRole),
+  role: assignableRole,
   unit_id: z.string().uuid().optional(),
   is_owner: z.boolean().optional().default(false),
   move_in_date: z.string().datetime().optional(),
@@ -15,7 +27,8 @@ export const createUserSchema = z.object({
 export const updateUserSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   email: z.string().email().optional().nullable(),
-  role: z.nativeEnum(UserRole).optional(),
+  // Also restricted: promoting an existing user would be the same escalation.
+  role: assignableRole.optional(),
   unit_id: z.string().uuid().optional().nullable(),
   is_owner: z.boolean().optional(),
   move_in_date: z.string().datetime().optional().nullable(),
@@ -39,7 +52,7 @@ export const inviteUserSchema = z.object({
   phone: z.string().min(10).max(15),
   email: z.string().email().optional(),
   name: z.string().min(1).max(255).optional(),
-  role: z.nativeEnum(UserRole),
+  role: assignableRole,
   unit_id: z.string().uuid().optional(),
 });
 
