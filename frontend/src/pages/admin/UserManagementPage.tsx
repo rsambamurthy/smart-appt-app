@@ -549,8 +549,11 @@ function UsersTab() {
             </div>
             <div className="form-group">
               <label>Role *</label>
+              {/* VALID_ROLES, not ROLES: SUPER_USER is a platform role that
+                  belongs to no association, so it cannot be assigned here.
+                  The form validator already rejects it. */}
               <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                {VALID_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
             <div className="form-group">
