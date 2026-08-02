@@ -4,6 +4,7 @@ import type { RootState } from '../../store';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import { useListDocumentsQuery, useUploadDocumentMutation, useDeactivateDocumentMutation } from '../../store/api/announcementsApi';
+import { API_BASE } from '../../store/api/baseApi';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -55,10 +56,25 @@ function DownloadButton({ docId, fileName }: { docId: string; fileName?: string 
     setLoading(true);
     try {
       const token = store.getState().auth.access_token;
-      const res = await fetch(`/api/v1/announcements/documents/${docId}/download`, {
-        headers: { Authorization: `Bearer ${token}` },
+      // API_BASE, not a hardcoded '/api/v1': when VITE_API_URL points at a
+      // separate backend origin, a relative path hits the frontend host
+      // instead and 404s, which is what "Download failed" was.
+      const res = await fetch(`${API_BASE}/announcements/documents/${docId}/download`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'ngrok-skip-browser-warning': 'true',
+        },
       });
-      if (!res.ok) { alert('Download failed.'); return; }
+      if (!res.ok) {
+        // Say what actually went wrong rather than a bare "failed".
+        let detail = `${res.status} ${res.statusText}`;
+        try {
+          const body = await res.json();
+          if (body?.detail || body?.message) detail = body.detail ?? body.message;
+        } catch { /* not JSON — keep the status line */ }
+        alert(`Download failed: ${detail}`);
+        return;
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
