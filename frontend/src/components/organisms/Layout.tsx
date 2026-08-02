@@ -170,6 +170,7 @@ function WebLayout({ children }: { children: React.ReactNode }) {
     'residents',   // Residents
     'documents',   // Documents
     'visitors',    // Visitors
+    'reports',     // Reports — insights describe one association's operations
   ];
 
   // Build visible groups: group-level role gate removed so Super User can grant any item to any role

@@ -144,7 +144,7 @@ export default function App() {
         {!IS_NATIVE && <Route path="/admin/menu-config"    element={<RoleRoute roles={['SUPER_USER']}><MenuConfigPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/admin/mobile-config" element={<RoleRoute roles={['SUPER_USER']}><MobileConfigPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/admin/audit-log" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><AuditLogPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/reports/insights" element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><InsightsPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/reports/insights" element={<RoleRoute roles={['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE']}><InsightsPage /></RoleRoute>} />}
 
         {/* Transactions */}
         {!IS_NATIVE && <Route path="/transactions/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><TransactionsDashboardPage /></RoleRoute>} />}
