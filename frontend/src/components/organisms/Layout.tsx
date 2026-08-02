@@ -99,10 +99,12 @@ const NAV_GROUPS: NavGroup[] = [
     id: 'reports',
     label: 'Reports',
     icon: '📈',
-    roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'],
+    // Insights are about one association's own operations, so they mean nothing
+    // to a super user, who belongs to no association.
+    roles: ['MANAGER', 'TREASURER', 'COMMITTEE'],
     landingPath: '/reports/insights',
     items: [
-      { id: 'reports_insights', label: 'Insights', path: '/reports/insights', roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#16a34a', end: true },
+      { id: 'reports_insights', label: 'Insights', path: '/reports/insights', roles: ['MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#16a34a', end: true },
     ],
   },
   {

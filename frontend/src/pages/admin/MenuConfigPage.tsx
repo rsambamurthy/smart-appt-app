@@ -3,10 +3,7 @@ import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
   useGetMenuConfigQuery, useSaveMenuConfigMutation,
-  useGetMobileConfigQuery, useSaveMobileConfigMutation,
-  MobileConfig,
 } from '../../store/api/systemApi';
-import { useListAssociationsQuery } from '../../store/api/associationsApi';
 
 // ── Web menu structure ────────────────────────────────────────────────────────
 
@@ -106,31 +103,8 @@ function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
   );
 }
 
-function SectionCard({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) {
-  return (
-    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
-      <div style={{ padding: '10px 16px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 16 }}>{icon}</span>
-        <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{title}</span>
-      </div>
-      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function ToggleRow({ label, description, on, onChange }: { label: string; description: string; on: boolean; onChange: () => void }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 500, color: '#1e293b' }}>{label}</div>
-        <div style={{ fontSize: 11.5, color: '#64748b', marginTop: 1 }}>{description}</div>
-      </div>
-      <Toggle on={on} onChange={onChange} />
-    </div>
-  );
-}
+// SectionCard and ToggleRow were only used by the removed Mobile App tab.
+// Their equivalents live in MobileConfigPage.
 
 // ── Web Menu tab ──────────────────────────────────────────────────────────────
 
@@ -221,227 +195,18 @@ function WebMenuTab() {
   );
 }
 
-// ── Mobile App tab ────────────────────────────────────────────────────────────
-
-const MOBILE_DEFAULTS: MobileConfig = {
-  feature_bills: true, feature_announcements: true, feature_complaints: true, feature_visitors: true,
-  feature_journal: true, feature_ledger: true, feature_pnl: true,
-  feature_balance_sheet: true, feature_coa: true, feature_fy_closure: true,
-  push_dues_reminder: true, push_announcements: true, push_visitor_alerts: true,
-  login_mpin_enabled: true, login_biometric: false, login_otp_only: false,
-  app_name: null, theme_color: null, logo_url: null, menu_items: null,
-};
-
-function MobileAppTab() {
-  const { data: assocData } = useListAssociationsQuery();
-  const associations = (assocData?.data ?? []) as { id: string; name: string }[];
-
-  const [selectedId, setSelectedId] = useState('');
-  const [form, setForm] = useState<MobileConfig>(MOBILE_DEFAULTS);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState('');
-
-  const { data: cfgData, isFetching } = useGetMobileConfigQuery(selectedId, { skip: !selectedId });
-  const [saveMobileConfig, { isLoading: isSaving }] = useSaveMobileConfigMutation();
-
-  useEffect(() => {
-    if (cfgData?.data) setForm({ ...MOBILE_DEFAULTS, ...cfgData.data });
-  }, [cfgData]);
-
-  const set = <K extends keyof MobileConfig>(key: K, value: MobileConfig[K]) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-    setSuccess(false); setError('');
-  };
-
-  const handleSave = async () => {
-    if (!selectedId) return;
-    setSuccess(false); setError('');
-    try {
-      await saveMobileConfig({ associationId: selectedId, body: form }).unwrap();
-      setSuccess(true);
-    } catch { setError('Failed to save mobile configuration.'); }
-  };
-
-  const inputStyle: React.CSSProperties = {
-    padding: '7px 10px', border: '1px solid #e2e8f0', borderRadius: 6,
-    fontSize: 13, color: '#1e293b', background: '#fff', outline: 'none', width: '100%',
-  };
-
-  return (
-    <div>
-      <p style={{ fontSize: '0.875rem', color: 'var(--color-text-secondary)', marginBottom: '1.25rem' }}>
-        Configure mobile app settings per association. These settings are read by the SmartAppt mobile app at login.
-      </p>
-
-      {/* Association picker */}
-      <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
-        <label style={{ fontSize: 13, fontWeight: 600, color: '#475569', whiteSpace: 'nowrap' }}>Select Association</label>
-        <select
-          value={selectedId}
-          onChange={(e) => { setSelectedId(e.target.value); setSuccess(false); setError(''); }}
-          style={{ ...inputStyle, maxWidth: 340 }}
-        >
-          <option value="">— Choose an association —</option>
-          {associations.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-        </select>
-        {isFetching && <span style={{ fontSize: 12, color: '#94a3b8' }}>Loading…</span>}
-      </div>
-
-      {!selectedId ? (
-        <div style={{ padding: '3rem', textAlign: 'center', color: '#94a3b8', fontSize: 13, background: '#f8fafc', borderRadius: 10, border: '1px dashed #e2e8f0' }}>
-          Select an association above to configure its mobile app settings.
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
-
-          {/* Left column */}
-          <div>
-            {/* Features */}
-            <SectionCard title="App Features" icon="📱">
-              <ToggleRow label="My Bills & Payments" description="Residents can view and pay dues" on={form.feature_bills} onChange={() => set('feature_bills', !form.feature_bills)} />
-              <ToggleRow label="Announcements & Feed" description="Community notices, polls, and posts" on={form.feature_announcements} onChange={() => set('feature_announcements', !form.feature_announcements)} />
-              <ToggleRow label="Complaints & Maintenance" description="Raise and track service requests" on={form.feature_complaints} onChange={() => set('feature_complaints', !form.feature_complaints)} />
-              <ToggleRow label="Visitor Management" description="Approve and log gate visitors" on={form.feature_visitors} onChange={() => set('feature_visitors', !form.feature_visitors)} />
-            </SectionCard>
-
-            {/* Accounting (Gold mobile) */}
-            <SectionCard title="Accounting (Gold)" icon="📒">
-              <ToggleRow label="Journal Entries" description="View and create accounting journal entries" on={form.feature_journal} onChange={() => set('feature_journal', !form.feature_journal)} />
-              <ToggleRow label="Ledger" description="Account-wise ledger view" on={form.feature_ledger} onChange={() => set('feature_ledger', !form.feature_ledger)} />
-              <ToggleRow label="P&L Report" description="Profit & Loss statement by financial year" on={form.feature_pnl} onChange={() => set('feature_pnl', !form.feature_pnl)} />
-              <ToggleRow label="Balance Sheet" description="Assets, liabilities and equity summary" on={form.feature_balance_sheet} onChange={() => set('feature_balance_sheet', !form.feature_balance_sheet)} />
-              <ToggleRow label="Chart of Accounts" description="View the chart of accounts" on={form.feature_coa} onChange={() => set('feature_coa', !form.feature_coa)} />
-              <ToggleRow label="FY Closure" description="Financial year close-out tool" on={form.feature_fy_closure} onChange={() => set('feature_fy_closure', !form.feature_fy_closure)} />
-            </SectionCard>
-
-            {/* Push Notifications */}
-            <SectionCard title="Push Notifications" icon="🔔">
-              <ToggleRow label="Dues Reminders" description="Notify residents before and after due dates" on={form.push_dues_reminder} onChange={() => set('push_dues_reminder', !form.push_dues_reminder)} />
-              <ToggleRow label="Announcements" description="Push when new announcements are posted" on={form.push_announcements} onChange={() => set('push_announcements', !form.push_announcements)} />
-              <ToggleRow label="Visitor Alerts" description="Notify residents when a visitor arrives at the gate" on={form.push_visitor_alerts} onChange={() => set('push_visitor_alerts', !form.push_visitor_alerts)} />
-            </SectionCard>
-          </div>
-
-          {/* Right column */}
-          <div>
-            {/* Login Options */}
-            <SectionCard title="Login Options" icon="🔐">
-              <ToggleRow label="M-PIN Login" description="Allow residents to set and use a 6-digit M-PIN" on={form.login_mpin_enabled} onChange={() => set('login_mpin_enabled', !form.login_mpin_enabled)} />
-              <ToggleRow label="Biometric Login" description="Enable fingerprint / face ID login (device must support it)" on={form.login_biometric} onChange={() => set('login_biometric', !form.login_biometric)} />
-              <ToggleRow
-                label="OTP Only Mode"
-                description="Disable all other login methods — only OTP via SMS"
-                on={form.login_otp_only}
-                onChange={() => set('login_otp_only', !form.login_otp_only)}
-              />
-              {form.login_otp_only && (
-                <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 6, padding: '8px 10px', fontSize: 11.5, color: '#854d0e' }}>
-                  ⚠ OTP Only mode disables M-PIN and Biometric login for this association.
-                </div>
-              )}
-            </SectionCard>
-
-            {/* Branding */}
-            <SectionCard title="App Branding" icon="🎨">
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>App Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Vishranthi Residents"
-                  value={form.app_name ?? ''}
-                  onChange={(e) => set('app_name', e.target.value || null)}
-                  style={inputStyle}
-                  maxLength={100}
-                />
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>Shown on the mobile app home screen and splash screen.</div>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>Theme Color</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <input
-                    type="color"
-                    value={form.theme_color ?? '#0095db'}
-                    onChange={(e) => set('theme_color', e.target.value)}
-                    style={{ width: 40, height: 34, border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', padding: 2 }}
-                  />
-                  <input
-                    type="text"
-                    placeholder="#0095db"
-                    value={form.theme_color ?? ''}
-                    onChange={(e) => set('theme_color', e.target.value || null)}
-                    style={{ ...inputStyle, width: 100 }}
-                    maxLength={7}
-                  />
-                  <span style={{ fontSize: 11, color: '#94a3b8' }}>Primary colour for buttons, header, icons.</span>
-                </div>
-              </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>Logo URL</label>
-                <input
-                  type="url"
-                  placeholder="https://cdn.example.com/logo.png"
-                  value={form.logo_url ?? ''}
-                  onChange={(e) => set('logo_url', e.target.value || null)}
-                  style={inputStyle}
-                />
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>PNG or SVG, shown on the splash and login screens.</div>
-                {form.logo_url && (
-                  <img src={form.logo_url} alt="Logo preview" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                    style={{ marginTop: 8, height: 48, objectFit: 'contain', borderRadius: 6, border: '1px solid #e2e8f0', padding: 4 }}
-                  />
-                )}
-              </div>
-            </SectionCard>
-          </div>
-        </div>
-      )}
-
-      {selectedId && (
-        <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button className="btn-primary" onClick={handleSave} disabled={isSaving || isFetching}>
-            {isSaving ? 'Saving…' : 'Save Mobile Config'}
-          </button>
-          {success && <span style={{ fontSize: 13, color: '#15803d', fontWeight: 500 }}>✓ Saved successfully</span>}
-          {error && <span style={{ fontSize: 13, color: '#dc2626' }}>{error}</span>}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Tab = 'web' | 'mobile';
-
+// The Mobile App tab that used to live here duplicated System Settings →
+// Mobile App Config (/admin/mobile-config), which is the single place mobile
+// settings are edited. This page now configures the web menu only.
 export default function MenuConfigPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('web');
-
-  // Only the active-tab comparison matters here; the button's label and icon
-  // are rendered as children by the caller.
-  const tabBtn = (tab: Tab): React.CSSProperties => ({
-    padding: '8px 20px', border: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 600,
-    borderRadius: '8px 8px 0 0', marginRight: 4, display: 'flex', alignItems: 'center', gap: 6,
-    background: activeTab === tab ? '#fff' : 'transparent',
-    color: activeTab === tab ? '#1e293b' : '#64748b',
-    borderBottom: activeTab === tab ? '2px solid var(--color-primary)' : '2px solid transparent',
-  });
-
   return (
     <Layout>
-      <PageSubHeader crumbs={[{ label: 'System Settings' }, { label: 'App Configuration' }]} />
+      <PageSubHeader crumbs={[{ label: 'System Settings' }, { label: 'Menu Configuration' }]} />
 
       <div style={{ padding: '1.5rem 2rem' }}>
-        {/* Tab bar */}
-        <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: 24 }}>
-          <button style={tabBtn('web')} onClick={() => setActiveTab('web')}>
-            🖥️ Web Menu
-          </button>
-          <button style={tabBtn('mobile')} onClick={() => setActiveTab('mobile')}>
-            📱 Mobile App
-          </button>
-        </div>
-
-        {activeTab === 'web' ? <WebMenuTab /> : <MobileAppTab />}
+        <WebMenuTab />
       </div>
     </Layout>
   );

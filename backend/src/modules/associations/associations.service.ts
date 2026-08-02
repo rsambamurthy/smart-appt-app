@@ -63,10 +63,14 @@ export class AssociationsService {
         _count: { select: { users: true, units: true } },
       },
       where: {
-        // Exclude associations that only contain SUPER_USER accounts (system placeholder)
-        users: {
-          none: { role: 'SUPER_USER' },
-        },
+        // Hide only the system placeholder — an association whose members are
+        // ALL super users. `none: { role: SUPER_USER }` was wrong: it hid any
+        // real association that happened to contain a super user, which is
+        // exactly what happens when one is created inside a live association.
+        OR: [
+          { users: { some: { role: { not: UserRole.SUPER_USER } } } },  // has at least one ordinary member
+          { users: { none: {} } },                                      // brand new, no members yet
+        ],
       },
     });
     return associations;
