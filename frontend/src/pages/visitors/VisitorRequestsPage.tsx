@@ -1,6 +1,9 @@
-import { useState, CSSProperties } from 'react';
+import { useState, useEffect, CSSProperties } from 'react';
+import { useSelector } from 'react-redux';
+import type { RootState } from '../../store';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
+import { API_BASE } from '../../store/api/baseApi';
 import {
   useGetMyVisitorRequestsQuery, useApproveVisitorMutation, GateVisitor,
 } from '../../store/api/visitorsApi';
@@ -34,6 +37,62 @@ const decisionBtn: CSSProperties = {
   flex: 1, padding: '13px 18px', borderRadius: 10, border: 'none',
   fontSize: 15, fontWeight: 700, cursor: 'pointer', minHeight: 48,
 };
+
+/**
+ * The gate photo, if one was taken.
+ *
+ * It cannot go straight into <img src> because the endpoint needs the bearer
+ * token, so it is fetched and turned into an object URL. The URL is revoked on
+ * unmount — a resident may scroll past a dozen of these and the bytes would
+ * otherwise sit in memory for the life of the tab.
+ *
+ * Anything going wrong renders nothing. A missing photo must never stand
+ * between a resident and the Allow/Deny buttons.
+ */
+function VisitorPhoto({ visitorId, name }: { visitorId: string; name: string }) {
+  const token = useSelector((s: RootState) => s.auth.access_token);
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/visitors/${visitorId}/photo`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'ngrok-skip-browser-warning': 'true',
+          },
+        });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      } catch {
+        /* no photo shown */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [visitorId, token]);
+
+  if (!url) return null;
+  return (
+    <img
+      src={url}
+      alt={`Photo of ${name} taken at the gate`}
+      style={{
+        width: 78, height: 78, borderRadius: 10, objectFit: 'cover',
+        flexShrink: 0, background: '#f1f5f9', border: '1px solid #e2e8f0',
+      }}
+    />
+  );
+}
 
 export default function VisitorRequestsPage() {
   const { data, isLoading, refetch } = useGetMyVisitorRequestsQuery(undefined, { pollingInterval: 20000 });
@@ -83,15 +142,22 @@ export default function VisitorRequestsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {pending.map(v => (
               <div key={v.id} style={{ ...card, border: '1px solid #fcd34d' }}>
-                <div style={{ padding: '14px 16px 12px' }}>
-                  <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b' }}>{v.visitor_name}</div>
-                  <div style={{ fontSize: 13.5, color: '#475569', marginTop: 3 }}>
-                    {v.purpose || 'No purpose given'}
-                  </div>
-                  <div style={{ fontSize: 12.5, color: '#94a3b8', marginTop: 4 }}>
-                    At the gate · {waitingFor(v.created_at)}
-                    {v.visitor_phone && ` · ${v.visitor_phone}`}
-                    {v.vehicle_number && ` · ${v.vehicle_number}`}
+                <div style={{ padding: '14px 16px 12px', display: 'flex', gap: 12 }}>
+                  {/* Seeing the face is the whole point of the decision, so the
+                      photo sits next to the name rather than behind a tap. */}
+                  {v.photo_captured_at && (
+                    <VisitorPhoto visitorId={v.id} name={v.visitor_name} />
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b' }}>{v.visitor_name}</div>
+                    <div style={{ fontSize: 13.5, color: '#475569', marginTop: 3 }}>
+                      {v.purpose || 'No purpose given'}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: '#94a3b8', marginTop: 4 }}>
+                      At the gate · {waitingFor(v.created_at)}
+                      {v.visitor_phone && ` · ${v.visitor_phone}`}
+                      {v.vehicle_number && ` · ${v.vehicle_number}`}
+                    </div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 10, padding: '0 16px 16px' }}>

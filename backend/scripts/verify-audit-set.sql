@@ -6,9 +6,6 @@
 --  Anything non-zero in a "difference" column is a defect.
 -- ============================================================================
 
-\set assoc '3f8e51ae-dc51-4640-ad32-7c47eaebc4e5'
-\set from  '2026-04-01'
-\set to    '2026-08-02'
 
 -- ── 1. I&E surplus must equal the Balance Sheet's net surplus ───────────────
 -- Both are income less expenditure over the same span, so they cannot differ.
@@ -19,9 +16,9 @@ WITH ie AS (
   FROM journal_lines jl
   JOIN journal_entries je ON je.id = jl.journal_entry_id
   JOIN accounts a         ON a.id = jl.account_id
-  WHERE je.association_id = :assoc::uuid
+  WHERE je.association_id = '3f8e51ae-dc51-4640-ad32-7c47eaebc4e5'::uuid
     AND je.status = 'POSTED'
-    AND je.entry_date BETWEEN :'from'::date AND :'to'::date
+    AND je.entry_date BETWEEN '2026-04-01'::date AND '2026-08-02'::date
     AND a.is_active AND NOT a.is_group
 )
 SELECT 'I&E' AS report, income, expenditure, income - expenditure AS surplus FROM ie;
@@ -38,9 +35,9 @@ WITH bs AS (
   FROM journal_lines jl
   JOIN journal_entries je ON je.id = jl.journal_entry_id
   JOIN accounts a         ON a.id = jl.account_id
-  WHERE je.association_id = :assoc::uuid
+  WHERE je.association_id = '3f8e51ae-dc51-4640-ad32-7c47eaebc4e5'::uuid
     AND je.status = 'POSTED'
-    AND je.entry_date <= :'to'::date
+    AND je.entry_date <= '2026-08-02'::date
     AND a.is_active AND NOT a.is_group
 )
 SELECT 'Balance Sheet' AS report, assets, liabilities, equity, net_surplus,
@@ -60,9 +57,9 @@ SELECT a.code, a.name,
 FROM   journal_lines jl
 JOIN   journal_entries je ON je.id = jl.journal_entry_id
 JOIN   accounts a         ON a.id = jl.account_id
-WHERE  je.association_id = :assoc::uuid
+WHERE  je.association_id = '3f8e51ae-dc51-4640-ad32-7c47eaebc4e5'::uuid
   AND  je.status = 'POSTED'
-  AND  je.entry_date <= :'to'::date
+  AND  je.entry_date <= '2026-08-02'::date
   AND  a.is_control_account
 GROUP  BY a.code, a.name;
 
@@ -75,15 +72,15 @@ GROUP  BY a.code, a.name;
 --                      - assets bought with cash (not expenditure)
 --                      = net cash movement
 WITH cash AS (
-  SELECT id FROM accounts WHERE association_id = :assoc::uuid AND code IN ('1001','1002')
+  SELECT id FROM accounts WHERE association_id = '3f8e51ae-dc51-4640-ad32-7c47eaebc4e5'::uuid AND code IN ('1001','1002')
 )
 SELECT 'net cash movement' AS item,
        SUM(jl.debit - jl.credit) AS amount
 FROM   journal_lines jl
 JOIN   journal_entries je ON je.id = jl.journal_entry_id
-WHERE  je.association_id = :assoc::uuid
+WHERE  je.association_id = '3f8e51ae-dc51-4640-ad32-7c47eaebc4e5'::uuid
   AND  je.status = 'POSTED'
-  AND  je.entry_date BETWEEN :'from'::date AND :'to'::date
+  AND  je.entry_date BETWEEN '2026-04-01'::date AND '2026-08-02'::date
   AND  jl.account_id IN (SELECT id FROM cash)
 UNION ALL
 SELECT 'receivable movement (billed not collected)',
@@ -91,9 +88,9 @@ SELECT 'receivable movement (billed not collected)',
 FROM   journal_lines jl
 JOIN   journal_entries je ON je.id = jl.journal_entry_id
 JOIN   accounts a         ON a.id = jl.account_id
-WHERE  je.association_id = :assoc::uuid
+WHERE  je.association_id = '3f8e51ae-dc51-4640-ad32-7c47eaebc4e5'::uuid
   AND  je.status = 'POSTED'
-  AND  je.entry_date BETWEEN :'from'::date AND :'to'::date
+  AND  je.entry_date BETWEEN '2026-04-01'::date AND '2026-08-02'::date
   AND  a.is_control_account;
 
 
@@ -104,5 +101,5 @@ SELECT MIN(je.entry_date) AS earliest_entry,
        MAX(je.entry_date) AS latest_entry,
        COUNT(*)           AS posted_entries
 FROM   journal_entries je
-WHERE  je.association_id = :assoc::uuid
+WHERE  je.association_id = '3f8e51ae-dc51-4640-ad32-7c47eaebc4e5'::uuid
   AND  je.status = 'POSTED';

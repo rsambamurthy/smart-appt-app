@@ -24,6 +24,9 @@ export interface GateVisitor {
   created_at:     string;
   unit:           { flat_number: string; block: string | null } | null;
   overstaying?:   boolean;
+  // Set when the gate took a photo. The image itself is fetched separately —
+  // it is never inlined in a list, which would be hundreds of KB per row.
+  photo_captured_at?: string | null;
 }
 
 export interface GateBoard {

@@ -1,4 +1,6 @@
 import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import type { RootState } from '../../store';
 import { useMobileConfig } from '../../contexts/MobileConfigContext';
 
 interface HubCardProps {
@@ -42,6 +44,11 @@ export default function MobileVisitorsPage() {
   const navigate = useNavigate();
   const config = useMobileConfig();
   const accentColor = config.theme_color ?? '#0095db';
+  const role = useSelector((s: RootState) => s.auth.user?.role);
+  // Gate staff only. A manager can read the visitor log like anyone else, but
+  // the console's actions — walk-in, entry, exit — are GATE_STAFF-only on the
+  // server, so showing them the console would only hand them dead buttons.
+  const isGate = role === 'GATE_STAFF';
 
   return (
     <div style={{ minHeight: '100%', background: '#f1f5f9' }}>
@@ -58,7 +65,17 @@ export default function MobileVisitorsPage() {
       </div>
 
       <div style={{ padding: '20px 16px' }}>
-        {/* First: the only card that needs the resident to act. */}
+        {/* Gate staff work from here all day, so it goes first for them. */}
+        {isGate && (
+          <HubCard
+            icon="🛡️"
+            title="Gate Console"
+            description="Log visitors and deliveries, record entry and exit"
+            accentColor={accentColor}
+            onClick={() => navigate('/mobile/gate')}
+          />
+        )}
+        {/* The only card that needs a resident to act. */}
         <HubCard
           icon="🔔"
           title="Visitor Requests"

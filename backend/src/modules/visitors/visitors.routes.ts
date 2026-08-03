@@ -73,18 +73,18 @@ router.patch('/frequent/:id', async (req: AuthRequest, res, next) => {
 
 // ── Gate console ──────────────────────────────────────────────────────────────
 // Declared before '/:id' routes so 'gate' is never read as a visitor id.
-router.get('/gate/units', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
+router.get('/gate/units', requireRoles(UserRole.GATE_STAFF), async (req: AuthRequest, res, next) => {
   try { res.json(await visitorsService.getGateUnits(req.user!.association_id)); }
   catch (err) { next(err); }
 });
 
-router.get('/gate/board', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
+router.get('/gate/board', requireRoles(UserRole.GATE_STAFF), async (req: AuthRequest, res, next) => {
   try { res.json(await visitorsService.getGateBoard(req.user!.association_id)); }
   catch (err) { next(err); }
 });
 
 // ── Deliveries ────────────────────────────────────────────────────────────────
-router.post('/delivery', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
+router.post('/delivery', requireRoles(UserRole.GATE_STAFF), async (req: AuthRequest, res, next) => {
   try {
     const { unit_id, provider, handling } = req.body ?? {};
     if (!unit_id)  throw new UnprocessableError('Choose the flat the delivery is for.');
@@ -96,13 +96,13 @@ router.post('/delivery', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), as
   } catch (err) { next(err); }
 });
 
-router.post('/:id/collected', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
+router.post('/:id/collected', requireRoles(UserRole.GATE_STAFF), async (req: AuthRequest, res, next) => {
   try { res.json(await visitorsService.markDeliveryCollected(req.user!.association_id, req.params['id'] as string)); }
   catch (err) { next(err); }
 });
 
 // ── Visitor photo ─────────────────────────────────────────────────────────────
-router.post('/:id/photo', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), photoUpload.single('photo'), async (req: AuthRequest, res, next) => {
+router.post('/:id/photo', requireRoles(UserRole.GATE_STAFF), photoUpload.single('photo'), async (req: AuthRequest, res, next) => {
   try {
     const file = (req as never as { file?: { buffer: Buffer; mimetype: string } }).file;
     if (!file) throw new UnprocessableError('No photo was uploaded.');
@@ -110,11 +110,16 @@ router.post('/:id/photo', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), p
   } catch (err) { next(err); }
 });
 
-// Readable by staff and by residents (their own flat's visitors are shown in
-// the app). Bytes are streamed straight out; they never appear in a list.
+// Gate staff, and the resident of the flat being visited so they can see the
+// face before approving. Scoping is enforced in the service, not here, because
+// it depends on the visitor's unit. Bytes stream straight out and never appear
+// in a list response.
 router.get('/:id/photo', async (req: AuthRequest, res, next) => {
   try {
-    const v = await visitorsService.getPhoto(req.user!.association_id, req.params['id'] as string);
+    const v = await visitorsService.getPhoto(req.user!.association_id, req.params['id'] as string, {
+      role:    req.user!.role,
+      unit_id: req.user!.unit_id ?? null,
+    });
     res.setHeader('Content-Type', v.photo_mime ?? 'image/jpeg');
     res.setHeader('Content-Length', v.photo_data!.length);
     res.setHeader('Cache-Control', 'private, max-age=300');

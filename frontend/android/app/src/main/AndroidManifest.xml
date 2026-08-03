@@ -39,4 +39,29 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Gate console photo capture.
+         The camera is optional: a tablet without one must still install. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!--
+      Required for <input type="file" capture="environment"> to reach the camera.
+
+      From Android 11 (targetSdk 30+) an app cannot see other apps' activities
+      unless it declares them here. Capacitor's file chooser calls
+      resolveActivity() on ACTION_IMAGE_CAPTURE; without this block that call
+      returns null, Capacitor logs "Media capture intent could not be launched"
+      and silently falls back to the document picker. That is why "Take photo"
+      opened Browse instead of the camera.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.GET_CONTENT" />
+            <data android:mimeType="*/*" />
+        </intent>
+    </queries>
 </manifest>

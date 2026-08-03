@@ -94,6 +94,11 @@ export default function App() {
             <Route path="/mobile/visitors/log" element={<ProtectedRoute><VisitorLogPage /></ProtectedRoute>} />
             <Route path="/mobile/visitors/preapprove" element={<ProtectedRoute><PreApproveVisitorPage /></ProtectedRoute>} />
             <Route path="/mobile/visitors/requests" element={<ProtectedRoute><VisitorRequestsPage /></ProtectedRoute>} />
+            {/* Gate console on a phone. Camera capture only works from the
+                installed app or a mobile browser, not desktop.
+                GATE_STAFF only, matching the desktop /gate route — every
+                action behind this screen is GATE_STAFF-only on the server. */}
+            <Route path="/mobile/gate" element={<RoleRoute roles={['GATE_STAFF']}><GateDashboardPage /></RoleRoute>} />
             <Route path="/mobile/more" element={<MobileMorePage />} />
             <Route path="/announcements" element={<ProtectedRoute><AnnouncementFeedPage /></ProtectedRoute>} />
             <Route path="/maintenance" element={<ProtectedRoute><TicketListPage /></ProtectedRoute>} />

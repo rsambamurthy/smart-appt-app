@@ -52,3 +52,12 @@ backend/prisma/dev.db-journal
 *.pem
 coverage/
 .nyc_output/
+
+# ── Resident data — never commit ──────────────────────────────
+# Migration dumps carry real names, phone numbers and M-PIN hashes. Once
+# pushed to GitHub they are in the history for good, and rewriting history
+# on a shared branch is far more painful than this line.
+Insert queries generated from Lite.txt
+backend/scripts/migration/
+*-import-to-gold.sql
+*export-from-lite*.sql

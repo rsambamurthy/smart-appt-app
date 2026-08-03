@@ -95,6 +95,9 @@ export class VisitorsService {
       id: true, visitor_name: true, visitor_phone: true, purpose: true,
       visit_type: true, status: true, vehicle_number: true,
       expected_at: true, entered_at: true, exited_at: true, created_at: true,
+      // The timestamp only — never photo_data. It tells the app whether to
+      // fetch the image; the bytes are hundreds of KB and would bloat the list.
+      photo_captured_at: true,
       unit: { select: { flat_number: true, block: true } },
     };
 
@@ -278,12 +281,33 @@ export class VisitorsService {
     return { data: { visitor_id: visitorId, size: file.buffer.length } };
   }
 
-  async getPhoto(associationId: string, visitorId: string) {
+  /**
+   * A gate photo is a picture of an identifiable person who is not a member and
+   * never agreed to anything, so it is not association-wide reading material.
+   * Two callers have a reason to see it:
+   *
+   *   - gate staff, who took it and work the log;
+   *   - the resident being visited, who is deciding whether to let them in and
+   *     should be able to see the face before saying yes.
+   *
+   * Everyone else in the association gets a 404 — not a 403, which would
+   * confirm the visitor exists to someone with no business knowing.
+   */
+  async getPhoto(
+    associationId: string,
+    visitorId: string,
+    requester: { role: string; unit_id: string | null },
+  ) {
     const visitor = await prisma.visitor.findFirst({
       where:  { id: visitorId, association_id: associationId },
-      select: { photo_data: true, photo_mime: true, visitor_name: true },
+      select: { photo_data: true, photo_mime: true, visitor_name: true, unit_id: true },
     });
-    if (!visitor)            throw new NotFoundError('Visitor');
+    if (!visitor) throw new NotFoundError('Visitor');
+
+    const isGateStaff = requester.role === UserRole.GATE_STAFF;
+    const isTheirFlat = !!requester.unit_id && requester.unit_id === visitor.unit_id;
+    if (!isGateStaff && !isTheirFlat) throw new NotFoundError('Visitor');
+
     if (!visitor.photo_data) throw new NotFoundError('No photo was taken for this visitor.');
     return visitor;
   }
