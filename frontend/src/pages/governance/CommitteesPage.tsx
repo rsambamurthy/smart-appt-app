@@ -60,7 +60,12 @@ function Members({ committeeId, isManaging }: { committeeId: string; isManaging:
             )}
           </span>
 
-          {m.is_convenor ? (
+          {m.via ? (
+            <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+                           background: '#f1f5f9', color: '#475569', whiteSpace: 'nowrap' }}>
+              {m.via}
+            </span>
+          ) : m.is_convenor ? (
             <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
                            background: '#eff6ff', color: '#1d4ed8' }}>
               Convenor
@@ -78,9 +83,11 @@ function Members({ committeeId, isManaging }: { committeeId: string; isManaging:
       ))}
 
       {isManaging ? (
-        <div style={{ padding: '11px 16px', fontSize: 12, color: '#64748b' }}>
-          Membership follows the Committee user role — appoint or remove people in
-          Manage Users rather than here.
+        <div style={{ padding: '11px 16px', fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
+          This roster is worked out, not edited. It is every manager, treasurer
+          and committee member, plus the convenor of each sub-committee who is
+          not already one of those. Change someone's role in Manage Users, or
+          make them a convenor, and they appear here immediately.
         </div>
       ) : (
         <div style={{ padding: '12px 16px' }}>

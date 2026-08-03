@@ -98,6 +98,8 @@ export interface CommitteeMemberRow {
   unit_id: string | null;
   flat_number: string | null;
   is_convenor: boolean;
+  /** Why they are on it — set only for the derived managing committee. */
+  via?: string;
 }
 
 export const governanceApi = baseApi.injectEndpoints({
