@@ -154,11 +154,19 @@ function AgendaRow({ item, canRun, isDraft, onDelete }: {
 
 // ── Attendance register ───────────────────────────────────────────────────────
 
-function Register({ meetingId }: { meetingId: string }) {
+function Register({ meetingId, countsMembers }: { meetingId: string; countsMembers: boolean }) {
   const { data } = useGetRegisterQuery(meetingId);
   const [mark] = useMarkAttendanceMutation();
   const rows = data?.data ?? [];
   const present = rows.filter(r => r.attended).length;
+
+  // A general body meeting marks a FLAT present; a committee meeting marks a
+  // MEMBER. Sending the wrong identifier is rejected by the server rather than
+  // writing a row nobody counts, so the key is chosen from the row itself.
+  const toggle = (r: typeof rows[number]) =>
+    mark(r.user_id
+      ? { id: meetingId, user_id: r.user_id, attended: !r.attended }
+      : { id: meetingId, unit_id: r.unit_id, attended: !r.attended });
 
   const rsvpText = (r: typeof rows[number]) =>
     r.rsvp === 'YES' ? 'Said yes' : r.rsvp === 'NO' ? 'Said no'
@@ -170,7 +178,9 @@ function Register({ meetingId }: { meetingId: string }) {
         padding: '11px 16px', borderBottom: '1px solid #f1f5f9',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
       }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>Attendance register</span>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>
+          {countsMembers ? 'Members present' : 'Attendance register'}
+        </span>
         <span style={{ fontSize: 12, color: '#94a3b8' }}>{present} of {rows.length} present</span>
       </div>
 
@@ -179,15 +189,12 @@ function Register({ meetingId }: { meetingId: string }) {
         // layout of a <label> and push its children around. The row is still
         // fully clickable.
         <div
-          key={r.unit_id}
+          key={r.user_id ?? r.unit_id}
           role="button"
           tabIndex={0}
-          onClick={() => mark({ id: meetingId, unit_id: r.unit_id, attended: !r.attended })}
+          onClick={() => toggle(r)}
           onKeyDown={e => {
-            if (e.key === ' ' || e.key === 'Enter') {
-              e.preventDefault();
-              mark({ id: meetingId, unit_id: r.unit_id, attended: !r.attended });
-            }
+            if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(r); }
           }}
           style={{
             display: 'grid',
@@ -309,7 +316,9 @@ export default function MeetingDetailPage() {
             <div style={{ flex: 1, minWidth: 220 }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 5 }}>
                 <StatusPill status={m.status} />
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>{MEETING_LABEL[m.meeting_type]}</span>
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>
+                  {m.committee ? m.committee.name : MEETING_LABEL[m.meeting_type]}
+                </span>
               </div>
               <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>{m.title}</div>
               <div style={{ fontSize: 13, color: '#64748b', marginTop: 3 }}>
@@ -371,7 +380,9 @@ export default function MeetingDetailPage() {
           {isDraft && <AgendaBuilder meetingId={id} />}
         </div>
 
-        {(m.status === 'NOTICE_ISSUED' || canRun) && <Register meetingId={id} />}
+        {(m.status === 'NOTICE_ISSUED' || canRun) && (
+          <Register meetingId={id} countsMembers={m.attendance.counts_members} />
+        )}
 
         {/* Minutes */}
         {m.status === 'CONCLUDED' && (

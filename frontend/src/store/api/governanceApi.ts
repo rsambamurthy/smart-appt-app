@@ -26,6 +26,8 @@ export interface AgendaItem {
 }
 
 export interface Attendance {
+  /** True when this meeting counts members rather than flats. */
+  counts_members: boolean;
   eligible_units: number;
   present: number;
   rsvp_yes: number;
@@ -49,6 +51,8 @@ export interface Meeting {
   concluded_at: string | null;
   minutes_body: string | null;
   minutes_published_at: string | null;
+  committee_id: string | null;
+  committee: { id: string; name: string; is_managing: boolean } | null;
   _count?: { agenda_items: number; attendees: number };
   my_rsvp?: RsvpStatus | null;
   my_attended?: boolean;
@@ -63,7 +67,9 @@ export interface MeetingDetail extends Meeting {
 }
 
 export interface RegisterRow {
-  unit_id: string;
+  /** Null for a committee meeting, where the register lists members. */
+  unit_id: string | null;
+  user_id: string | null;
   flat_number: string;
   block: string | null;
   rsvp: RsvpStatus | null;
@@ -78,8 +84,51 @@ export interface GovernanceConfig {
   voting_window_hours: number;
 }
 
+export interface Committee {
+  id: string;
+  name: string;
+  description: string | null;
+  is_managing: boolean;
+  member_count: number;
+}
+
+export interface CommitteeMemberRow {
+  user_id: string;
+  name: string;
+  unit_id: string | null;
+  flat_number: string | null;
+  is_convenor: boolean;
+}
+
 export const governanceApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
+
+    // ── Committees ────────────────────────────────────────────────────────────
+    listCommittees: builder.query<{ data: Committee[] }, void>({
+      query: () => '/governance/committees',
+      providesTags: ['Committee'],
+    }),
+    listCommitteeMembers: builder.query<{ data: CommitteeMemberRow[] }, string>({
+      query: (id) => `/governance/committees/${id}/members`,
+      providesTags: ['Committee'],
+    }),
+    createCommittee: builder.mutation<{ data: Committee }, { name: string; description?: string }>({
+      query: (body) => ({ url: '/governance/committees', method: 'POST', body }),
+      invalidatesTags: ['Committee'],
+    }),
+    updateCommittee: builder.mutation<{ data: Committee }, { id: string; name?: string; description?: string; is_active?: boolean }>({
+      query: ({ id, ...body }) => ({ url: `/governance/committees/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Committee'],
+    }),
+    addCommitteeMember: builder.mutation<{ data: unknown }, { id: string; user_id: string; is_convenor?: boolean }>({
+      query: ({ id, ...body }) => ({ url: `/governance/committees/${id}/members`, method: 'POST', body }),
+      invalidatesTags: ['Committee'],
+    }),
+    removeCommitteeMember: builder.mutation<{ data: unknown }, { id: string; userId: string }>({
+      query: ({ id, userId }) => ({ url: `/governance/committees/${id}/members/${userId}`, method: 'DELETE' }),
+      invalidatesTags: ['Committee'],
+    }),
+
     getGovernanceConfig: builder.query<{ data: GovernanceConfig }, void>({
       query: () => '/governance/config',
       providesTags: ['Meeting'],
@@ -105,6 +154,7 @@ export const governanceApi = baseApi.injectEndpoints({
 
     createMeeting: builder.mutation<{ data: Meeting }, {
       title: string; meeting_type: MeetingType; scheduled_at: string;
+      committee_id?: string | null;
       venue?: string; online_link?: string; notice_body?: string;
     }>({
       query: (body) => ({ url: '/governance/meetings', method: 'POST', body }),
@@ -143,7 +193,9 @@ export const governanceApi = baseApi.injectEndpoints({
       query: (id) => `/governance/meetings/${id}/register`,
       providesTags: ['Meeting'],
     }),
-    markAttendance: builder.mutation<{ data: Attendance }, { id: string; unit_id: string; attended: boolean }>({
+    markAttendance: builder.mutation<{ data: Attendance }, {
+      id: string; unit_id?: string | null; user_id?: string | null; attended: boolean;
+    }>({
       query: ({ id, ...body }) => ({ url: `/governance/meetings/${id}/attendance`, method: 'POST', body }),
       invalidatesTags: ['Meeting'],
     }),
@@ -169,6 +221,9 @@ export const governanceApi = baseApi.injectEndpoints({
 });
 
 export const {
+  useListCommitteesQuery, useListCommitteeMembersQuery,
+  useCreateCommitteeMutation, useUpdateCommitteeMutation,
+  useAddCommitteeMemberMutation, useRemoveCommitteeMemberMutation,
   useGetGovernanceConfigQuery, useUpdateGovernanceConfigMutation,
   useListMeetingsQuery, useListMyMeetingsQuery, useGetMeetingQuery,
   useCreateMeetingMutation, useUpdateMeetingMutation,

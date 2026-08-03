@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
-  useListMeetingsQuery, useCreateMeetingMutation, MeetingType,
+  useListMeetingsQuery, useCreateMeetingMutation, useListCommitteesQuery, MeetingType,
 } from '../../store/api/governanceApi';
 import { card, btn, field, label, StatusPill, MEETING_LABEL, fmtWhen } from './meetingUi';
 
 export default function MeetingsPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useListMeetingsQuery();
+  const { data: committeeData } = useListCommitteesQuery();
   const [create, { isLoading: creating }] = useCreateMeetingMutation();
 
   const [open, setOpen]   = useState(false);
@@ -17,20 +18,24 @@ export default function MeetingsPage() {
   const [type, setType]   = useState<MeetingType>('AGM');
   const [when, setWhen]   = useState('');
   const [venue, setVenue] = useState('');
+  const [committee, setCommittee] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const meetings = data?.data ?? [];
+  const meetings   = data?.data ?? [];
+  const committees = committeeData?.data ?? [];
 
   const submit = async () => {
     setError(null);
     const at = new Date(when);
     if (!title.trim())            return setError('Give the meeting a title.');
     if (Number.isNaN(at.getTime())) return setError('Set the date and time.');
+    if (type === 'COMMITTEE' && !committee) return setError('Choose which committee is meeting.');
 
     try {
       const res = await create({
         title: title.trim(), meeting_type: type,
         scheduled_at: at.toISOString(), venue: venue.trim() || undefined,
+        committee_id: type === 'COMMITTEE' ? committee : null,
       }).unwrap();
       navigate(`/governance/meetings/${res.data.id}`);
     } catch (e: unknown) {
@@ -86,6 +91,23 @@ export default function MeetingsPage() {
                 </div>
               </div>
 
+              {type === 'COMMITTEE' && (
+                <div>
+                  <label style={label}>Which committee</label>
+                  <select style={field} value={committee} onChange={e => setCommittee(e.target.value)}>
+                    <option value="">Choose…</option>
+                    {committees.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} · {c.member_count} {c.member_count === 1 ? 'member' : 'members'}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>
+                    Quorum and voting will count this committee's members, not flats.
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label style={label}>Venue</label>
                 <input style={field} value={venue} onChange={e => setVenue(e.target.value)}
@@ -121,7 +143,9 @@ export default function MeetingsPage() {
                 style={{ ...card, padding: '14px 16px', textAlign: 'left', cursor: 'pointer', width: '100%' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
                   <StatusPill status={m.status} />
-                  <span style={{ fontSize: 11.5, color: '#94a3b8' }}>{MEETING_LABEL[m.meeting_type]}</span>
+                  <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                    {m.committee ? m.committee.name : MEETING_LABEL[m.meeting_type]}
+                  </span>
                 </div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{m.title}</div>
                 <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 3 }}>
