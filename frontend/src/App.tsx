@@ -32,6 +32,7 @@ import DocumentRepositoryPage from './pages/announcements/DocumentRepositoryPage
 import VisitorLogPage from './pages/visitors/VisitorLogPage';
 import GateDashboardPage from './pages/visitors/GateDashboardPage';
 import PreApproveVisitorPage from './pages/visitors/PreApproveVisitorPage';
+import VisitorRequestsPage from './pages/visitors/VisitorRequestsPage';
 import UnitManagementPage from './pages/admin/UnitManagementPage';
 import UserManagementPage from './pages/admin/UserManagementPage';
 import UnitDetailPage from './pages/admin/UnitDetailPage';
@@ -92,6 +93,7 @@ export default function App() {
             <Route path="/mobile/visitors" element={<ProtectedRoute><MobileVisitorsPage /></ProtectedRoute>} />
             <Route path="/mobile/visitors/log" element={<ProtectedRoute><VisitorLogPage /></ProtectedRoute>} />
             <Route path="/mobile/visitors/preapprove" element={<ProtectedRoute><PreApproveVisitorPage /></ProtectedRoute>} />
+            <Route path="/mobile/visitors/requests" element={<ProtectedRoute><VisitorRequestsPage /></ProtectedRoute>} />
             <Route path="/mobile/more" element={<MobileMorePage />} />
             <Route path="/announcements" element={<ProtectedRoute><AnnouncementFeedPage /></ProtectedRoute>} />
             <Route path="/maintenance" element={<ProtectedRoute><TicketListPage /></ProtectedRoute>} />
@@ -135,6 +137,7 @@ export default function App() {
         {/* Visitors */}
         {!IS_NATIVE && <Route path="/visitors" element={<RoleRoute roles={['MANAGER', 'GATE_STAFF']}><VisitorLogPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/visitors/preapprove" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><PreApproveVisitorPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/visitors/requests" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><VisitorRequestsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/gate" element={<RoleRoute roles={['GATE_STAFF']}><GateDashboardPage /></RoleRoute>} />}
 
         {/* Admin */}

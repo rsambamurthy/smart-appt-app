@@ -3,7 +3,7 @@ import { NotFoundError, ForbiddenError, UnprocessableError } from '../../utils/e
 import { generateToken } from '../../utils/helpers';
 import { notificationService } from '../../services/notification.service';
 import { io } from '../../app';
-import { VisitorStatus, VisitType, UserRole } from '@prisma/client';
+import { VisitorStatus, VisitType, UserRole, DeliveryStatus } from '@prisma/client';
 
 export class VisitorsService {
   async preApprove(associationId: string, residentId: string, unitId: string, body: {
@@ -81,10 +81,64 @@ export class VisitorsService {
     return { data: visitor };
   }
 
+  // ── RESIDENT: requests waiting on me ─────────────────────────────────────────
+  // Anyone living in the flat may answer, not only the person the visitor was
+  // logged against — a walk-in is assigned to the owner, who may not be home.
+  async getMyVisitorRequests(associationId: string, userId: string) {
+    const me = await prisma.user.findFirst({
+      where:  { id: userId, association_id: associationId },
+      select: { unit_id: true },
+    });
+    if (!me?.unit_id) return { data: { pending: [], recent: [] } };
+
+    const select = {
+      id: true, visitor_name: true, visitor_phone: true, purpose: true,
+      visit_type: true, status: true, vehicle_number: true,
+      expected_at: true, entered_at: true, exited_at: true, created_at: true,
+      unit: { select: { flat_number: true, block: true } },
+    };
+
+    const [pending, recent] = await Promise.all([
+      prisma.visitor.findMany({
+        where:   { association_id: associationId, unit_id: me.unit_id, status: VisitorStatus.PENDING },
+        select,
+        orderBy: { created_at: 'desc' },
+        take:    20,
+      }),
+      // Recently decided, so the resident can see what happened after they tapped.
+      prisma.visitor.findMany({
+        where: {
+          association_id: associationId,
+          unit_id:        me.unit_id,
+          status:         { in: [VisitorStatus.APPROVED, VisitorStatus.DENIED, VisitorStatus.ENTERED, VisitorStatus.EXITED] },
+        },
+        select,
+        orderBy: { created_at: 'desc' },
+        take:    15,
+      }),
+    ]);
+
+    return { data: { pending, recent } };
+  }
+
   async approveVisitor(associationId: string, visitorId: string, residentId: string, decision: 'APPROVED' | 'DENIED') {
     const visitor = await prisma.visitor.findFirst({ where: { id: visitorId, association_id: associationId } });
     if (!visitor) throw new NotFoundError('Visitor');
-    if (visitor.resident_id !== residentId) throw new ForbiddenError();
+
+    // Any active occupant of the flat may decide, not just the one the visitor
+    // happened to be logged against. Requiring an exact match meant a visitor
+    // for a shared flat could only be approved by whoever was listed as owner.
+    const decider = await prisma.user.findFirst({
+      where:  { id: residentId, association_id: associationId, is_active: true, deleted_at: null },
+      select: { unit_id: true },
+    });
+    if (!decider || decider.unit_id !== visitor.unit_id) throw new ForbiddenError();
+
+    if (visitor.status !== VisitorStatus.PENDING) {
+      throw new UnprocessableError(
+        `This visitor has already been ${visitor.status.toLowerCase()}.`,
+      );
+    }
 
     const newStatus = decision === 'APPROVED' ? VisitorStatus.APPROVED : VisitorStatus.DENIED;
     await prisma.visitor.update({ where: { id: visitorId }, data: { status: newStatus } });
@@ -192,6 +246,137 @@ export class VisitorsService {
     return { data: updated };
   }
 
+  // ── PHOTO: capture at the gate ───────────────────────────────────────────────
+  // One photo per visitor, replaced if taken again. Images only — a guard has
+  // no reason to attach anything else, and this keeps the download endpoint
+  // from becoming a general file host.
+  async attachPhoto(
+    associationId: string,
+    visitorId: string,
+    file: { buffer: Buffer; mimetype: string },
+  ) {
+    const visitor = await prisma.visitor.findFirst({
+      where:  { id: visitorId, association_id: associationId },
+      select: { id: true, visitor_name: true },
+    });
+    if (!visitor) throw new NotFoundError('Visitor');
+
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
+    if (!ALLOWED.includes(file.mimetype)) {
+      throw new UnprocessableError(`${file.mimetype} is not an image. Capture a photo instead.`);
+    }
+
+    await prisma.visitor.update({
+      where: { id: visitorId },
+      data:  {
+        photo_data:        file.buffer,
+        photo_mime:        file.mimetype,
+        photo_captured_at: new Date(),
+      },
+    });
+
+    return { data: { visitor_id: visitorId, size: file.buffer.length } };
+  }
+
+  async getPhoto(associationId: string, visitorId: string) {
+    const visitor = await prisma.visitor.findFirst({
+      where:  { id: visitorId, association_id: associationId },
+      select: { photo_data: true, photo_mime: true, visitor_name: true },
+    });
+    if (!visitor)            throw new NotFoundError('Visitor');
+    if (!visitor.photo_data) throw new NotFoundError('No photo was taken for this visitor.');
+    return visitor;
+  }
+
+  // ── DELIVERY: log a parcel ───────────────────────────────────────────────────
+  // Deliveries do not wait for approval — nobody approves their food arriving.
+  // The courier's own status reflects whether they came inside:
+  //   sent up   → ENTERED, and they are counted in "inside now" until they leave
+  //   at gate   → EXITED, because they never crossed into the premises
+  // The parcel itself is tracked by delivery_status, which outlives the courier.
+  async logDelivery(associationId: string, staffId: string, body: {
+    unit_id: string; provider: string; courier_name?: string;
+    courier_phone?: string; handling: 'AT_GATE' | 'SENT_UP'; note?: string;
+  }) {
+    const unit = await prisma.unit.findFirst({
+      where:  { id: body.unit_id, association_id: associationId, deleted_at: null },
+      select: { id: true, flat_number: true },
+    });
+    if (!unit) throw new NotFoundError('Unit');
+
+    const resident = await prisma.user.findFirst({
+      where:   { unit_id: body.unit_id, is_active: true, deleted_at: null },
+      orderBy: [{ is_owner: 'desc' }, { created_at: 'asc' }],
+      select:  { id: true },
+    });
+    if (!resident) {
+      throw new UnprocessableError(
+        `Flat ${unit.flat_number} has no active occupant on record, so there is nobody to notify.`,
+      );
+    }
+
+    const sentUp = body.handling === 'SENT_UP';
+    const now    = new Date();
+
+    const visitor = await prisma.visitor.create({
+      data: {
+        association_id:    associationId,
+        unit_id:           body.unit_id,
+        resident_id:       resident.id,
+        visitor_name:      body.courier_name?.trim() || body.provider,
+        visitor_phone:     body.courier_phone,
+        purpose:           body.note || `Delivery — ${body.provider}`,
+        visit_type:        VisitType.DELIVERY,
+        // No PENDING state: a delivery is never held for approval.
+        status:            sentUp ? VisitorStatus.ENTERED : VisitorStatus.EXITED,
+        entered_at:        sentUp ? now : null,
+        exited_at:         sentUp ? null : now,
+        delivery_status:   sentUp ? DeliveryStatus.SENT_UP : DeliveryStatus.AT_GATE,
+        delivery_provider: body.provider,
+        logged_by:         staffId,
+      },
+    });
+
+    await notificationService.dispatch({
+      type:       'VISITOR_WALKIN',
+      channels:   ['PUSH'],
+      recipients: [resident.id],
+      data: {
+        visitor_id:   visitor.id,
+        visitor_name: body.provider,
+        message: sentUp
+          ? `${body.provider} delivery on its way up to flat ${unit.flat_number}.`
+          : `${body.provider} parcel is waiting at the gate for flat ${unit.flat_number}.`,
+      },
+    });
+
+    return { data: visitor };
+  }
+
+  // ── DELIVERY: parcel handed over ─────────────────────────────────────────────
+  async markDeliveryCollected(associationId: string, visitorId: string) {
+    const visitor = await prisma.visitor.findFirst({
+      where:  { id: visitorId, association_id: associationId },
+      select: { id: true, visitor_name: true, delivery_status: true, visit_type: true },
+    });
+    if (!visitor) throw new NotFoundError('Visitor');
+    if (visitor.visit_type !== VisitType.DELIVERY) {
+      throw new UnprocessableError('This is not a delivery.');
+    }
+    if (visitor.delivery_status !== DeliveryStatus.AT_GATE) {
+      throw new UnprocessableError(
+        `That parcel is already marked ${visitor.delivery_status ?? 'unknown'}.`,
+      );
+    }
+
+    await prisma.visitor.update({
+      where: { id: visitorId },
+      data:  { delivery_status: DeliveryStatus.COLLECTED, collected_at: new Date() },
+    });
+
+    return { data: { message: 'Parcel collected' } };
+  }
+
   // ── GATE: flat directory ─────────────────────────────────────────────────────
   // The console needs to offer a searchable list of flats. Gate staff cannot
   // read /users/units (manager-only, and it exposes resident contact details),
@@ -233,7 +418,7 @@ export class VisitorsService {
 
     // Only the fields the console renders. Written out per query rather than
     // shared, because Prisma infers the row type from the literal.
-    const [awaiting, approved, inside, todayCount] = await Promise.all([
+    const [awaiting, approved, inside, parcels, todayCount] = await Promise.all([
       // Waiting on the resident to say yes.
       prisma.visitor.findMany({
         where:   { association_id: associationId, status: VisitorStatus.PENDING },
@@ -268,6 +453,24 @@ export class VisitorsService {
           unit: { select: { flat_number: true, block: true } },
         },
         orderBy: { entered_at: 'asc' },
+        take:    100,
+      }),
+      // Parcels still sitting at the gate, oldest first — those are the ones
+      // the guard is most likely to be asked about.
+      prisma.visitor.findMany({
+        where: {
+          association_id:  associationId,
+          visit_type:      VisitType.DELIVERY,
+          delivery_status: DeliveryStatus.AT_GATE,
+        },
+        select: {
+          id: true, visitor_name: true, visitor_phone: true, purpose: true,
+          visit_type: true, status: true, vehicle_number: true,
+          expected_at: true, entered_at: true, created_at: true,
+          delivery_provider: true, delivery_status: true,
+          unit: { select: { flat_number: true, block: true } },
+        },
+        orderBy: { created_at: 'asc' },
         take:    100,
       }),
       prisma.visitor.count({

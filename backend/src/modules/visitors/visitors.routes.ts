@@ -38,6 +38,13 @@ router.get('/log', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Visitors waiting on THIS resident's decision, plus what happened recently.
+// Declared before '/:id' so 'my-requests' is not read as a visitor id.
+router.get('/my-requests', async (req: AuthRequest, res, next) => {
+  try { res.json(await visitorsService.getMyVisitorRequests(req.user!.association_id, req.user!.id)); }
+  catch (err) { next(err); }
+});
+
 // All authenticated users can manage their own frequent visitors
 router.get('/frequent/my', async (req: AuthRequest, res, next) => {
   try { res.json(await visitorsService.listFrequentVisitors(req.user!.association_id, req.user!.id)); }

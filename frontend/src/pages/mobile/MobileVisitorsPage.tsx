@@ -58,6 +58,14 @@ export default function MobileVisitorsPage() {
       </div>
 
       <div style={{ padding: '20px 16px' }}>
+        {/* First: the only card that needs the resident to act. */}
+        <HubCard
+          icon="🔔"
+          title="Visitor Requests"
+          description="Approve or deny someone waiting at the gate"
+          accentColor={accentColor}
+          onClick={() => navigate('/mobile/visitors/requests')}
+        />
         <HubCard
           icon="📋"
           title="Visitor Dashboard"

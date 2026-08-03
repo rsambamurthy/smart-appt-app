@@ -63,6 +63,13 @@ export const visitorsApi = baseApi.injectEndpoints({
       query: () => '/visitors/gate/board',
       providesTags: ['Visitor'],
     }),
+
+    // ── Resident ──────────────────────────────────────────────────────────────
+    // Visitors waiting on this resident, and recently decided ones.
+    getMyVisitorRequests: builder.query<{ data: { pending: GateVisitor[]; recent: GateVisitor[] } }, void>({
+      query: () => '/visitors/my-requests',
+      providesTags: ['Visitor'],
+    }),
   }),
 });
 
@@ -70,5 +77,5 @@ export const {
   usePreApproveVisitorMutation, useLogWalkInMutation, useApproveVisitorMutation,
   useRecordEntryMutation, useRecordExitMutation, useGetGateLogQuery,
   useLookupQrQuery, useListFrequentVisitorsQuery, useAddFrequentVisitorMutation, useTriggerEmergencyMutation,
-  useGetGateUnitsQuery, useGetGateBoardQuery,
+  useGetGateUnitsQuery, useGetGateBoardQuery, useGetMyVisitorRequestsQuery,
 } = visitorsApi;

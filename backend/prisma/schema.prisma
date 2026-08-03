@@ -144,6 +144,15 @@ enum VisitorStatus {
   EXPIRED
 }
 
+// Where a parcel is. Independent of VisitorStatus, which describes the courier:
+// a courier can leave (EXITED) while their parcel is still AT_GATE.
+enum DeliveryStatus {
+  AT_GATE     // held at the gate, waiting for the resident
+  SENT_UP     // courier took it to the flat
+  COLLECTED   // resident picked it up from the gate
+  RETURNED    // went back with the courier
+}
+
 enum AuditAction {
   CREATE
   UPDATE
@@ -811,6 +820,20 @@ model Visitor {
   entered_at     DateTime?     @db.Timestamptz
   exited_at      DateTime?     @db.Timestamptz
   vehicle_number String?       @db.VarChar(20)
+
+  // Photo taken at the gate. Stored in-row like Document.file_data.
+  // NEVER select photo_data in a list query — it is hundreds of KB per row.
+  // Personal data: see scripts/purge-visitor-photos.sql for retention.
+  photo_data        Bytes?
+  photo_mime        String?         @db.VarChar(100)
+  photo_captured_at DateTime?       @db.Timestamptz
+
+  // Deliveries only. A parcel has its own lifecycle independent of whether the
+  // courier set foot on the premises, so it is tracked separately from status.
+  delivery_status   DeliveryStatus?
+  delivery_provider String?         @db.VarChar(60)
+  collected_at      DateTime?       @db.Timestamptz
+
   logged_by      String        @db.Uuid
   logger         User          @relation("LoggedBy", fields: [logged_by], references: [id])
   created_at     DateTime      @default(now()) @db.Timestamptz
@@ -821,6 +844,7 @@ model Visitor {
   @@index([created_at])
   @@index([qr_token])
   @@index([visitor_name])
+  @@index([association_id, delivery_status])
   @@map("visitors")
 }
 
