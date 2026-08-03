@@ -47,6 +47,12 @@ function eligibleUnitsWhere(associationId: string) {
   return { association_id: associationId, deleted_at: null };
 }
 
+// Typed as the full union rather than inferred from the literals: an array of
+// two members infers as that narrow pair, and .includes() then refuses the
+// wider MeetingStatus it is being asked about.
+const OVER: MeetingStatus[]         = [MeetingStatus.CONCLUDED, MeetingStatus.CANCELLED];
+const ABOUT_TO_RUN: MeetingStatus[] = [MeetingStatus.NOTICE_ISSUED, MeetingStatus.IN_PROGRESS];
+
 export class GovernanceService {
 
   // ── Config ──────────────────────────────────────────────────────────────────
@@ -432,7 +438,7 @@ export class GovernanceService {
   async rsvp(associationId: string, meetingId: string, unitId: string, userId: string, status: RsvpStatus) {
     const meeting = await this.mustFind(associationId, meetingId);
     if (meeting.status === MeetingStatus.DRAFT) throw new NotFoundError('Meeting');
-    if ([MeetingStatus.CONCLUDED, MeetingStatus.CANCELLED].includes(meeting.status)) {
+    if (OVER.includes(meeting.status)) {
       throw new UnprocessableError('This meeting is over.');
     }
 
@@ -448,7 +454,7 @@ export class GovernanceService {
   /** Committee marking a flat present or absent during the meeting. */
   async markAttendance(associationId: string, meetingId: string, unitId: string, attended: boolean) {
     const meeting = await this.mustFind(associationId, meetingId);
-    if (![MeetingStatus.NOTICE_ISSUED, MeetingStatus.IN_PROGRESS].includes(meeting.status)) {
+    if (!ABOUT_TO_RUN.includes(meeting.status)) {
       throw new UnprocessableError('Attendance can only be marked for a meeting that is about to start or under way.');
     }
 
