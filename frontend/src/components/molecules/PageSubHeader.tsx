@@ -1,5 +1,10 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useDispatch } from 'react-redux';
+import { IS_NATIVE } from '../../hooks/usePlatform';
+import { clearCredentials } from '../../features/auth/authSlice';
+import { useLogoutMutation } from '../../store/api/authApi';
+import { baseApi } from '../../store/api/baseApi';
 
 export interface Crumb {
   label: string;
@@ -32,6 +37,20 @@ export default function PageSubHeader({
   submitLabel = 'Submit',
   saving,
 }: Props) {
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
+  const [logout] = useLogoutMutation();
+
+  // On the web the sidebar header carries Logout. Native drops that whole
+  // chrome — Layout returns bare children — so without this the only way out
+  // of the app is the More tab, which is not where anyone looks for it.
+  const handleLogout = async () => {
+    try { await logout(undefined).unwrap(); } catch { /* signing out locally regardless */ }
+    dispatch(clearCredentials());
+    dispatch(baseApi.util.resetApiState());
+    navigate('/login', { replace: true });
+  };
+
   return (
     <div className="ent-subhdr">
       {/* Breadcrumbs */}
@@ -76,6 +95,22 @@ export default function PageSubHeader({
         {onSubmit && (
           <button className="ent-btn-submit" onClick={onSubmit} disabled={saving}>
             {submitLabel}
+          </button>
+        )}
+
+        {/* Native only — the web header already has one. */}
+        {IS_NATIVE && (
+          <button
+            onClick={handleLogout}
+            title="Logout"
+            aria-label="Logout"
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 18, lineHeight: 1, padding: '6px 4px 6px 10px',
+              color: '#64748b', minHeight: 40, minWidth: 40,
+            }}
+          >
+            🚪
           </button>
         )}
       </div>

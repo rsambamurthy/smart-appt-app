@@ -111,6 +111,13 @@ echo [OK] .env.local written.
 echo.
 echo [2/4] Building frontend (production mode)...
 cd frontend
+
+:: Dependencies first. Without this, pulling a change that adds a package
+:: fails here with a module-not-found error that reads like a code bug.
+:: With the lockfile already satisfied this takes a couple of seconds.
+call npm install --no-audit --no-fund
+if errorlevel 1 ( echo   ERROR: npm install failed & pause & exit /b 1 )
+
 call npm run build:mobile
 if errorlevel 1 ( echo Build failed & pause & exit /b 1 )
 echo [OK] dist/ ready.
