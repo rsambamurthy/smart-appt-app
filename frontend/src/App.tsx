@@ -45,6 +45,7 @@ import MeetingsPage from './pages/governance/MeetingsPage';
 import CommitteesPage from './pages/governance/CommitteesPage';
 import RegisterPage from './pages/governance/RegisterPage';
 import ElectionsPage from './pages/governance/ElectionsPage';
+import CompliancePage from './pages/governance/CompliancePage';
 import MeetingDetailPage from './pages/governance/MeetingDetailPage';
 import MyMeetingsPage from './pages/governance/MyMeetingsPage';
 import OneTimeDuesPage from './pages/dues/OneTimeDuesPage';
@@ -169,6 +170,7 @@ export default function App() {
         {/* Every member can reach elections: standing, seconding and voting
             are things a member does, not an organiser. */}
         {!IS_NATIVE && <Route path="/governance/elections" element={<ProtectedRoute><ElectionsPage /></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/governance/compliance" element={<RoleRoute roles={['MANAGER', 'COMMITTEE', 'TREASURER', 'SUPER_USER']}><CompliancePage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/meetings" element={<ProtectedRoute><MyMeetingsPage /></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/admin/menu-config"    element={<RoleRoute roles={['SUPER_USER']}><MenuConfigPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/admin/mobile-config" element={<RoleRoute roles={['SUPER_USER']}><MobileConfigPage /></RoleRoute>} />}

@@ -12,6 +12,7 @@ import { governanceService } from './governance.service';
 import { committeeService } from './committee.service';
 import { membershipService } from './membership.service';
 import { electionService } from './election.service';
+import { complianceService } from './compliance.service';
 
 const router = Router();
 router.use(authenticate);
@@ -286,6 +287,62 @@ router.delete('/committees/:id/members/:userId', requireRoles(UserRole.MANAGER, 
   try {
     res.json(await committeeService.endMembership(
       req.user!.association_id, req.params['id'] as string, req.params['userId'] as string,
+    ));
+  } catch (err) { next(err); }
+});
+
+// ── Compliance calendar ───────────────────────────────────────────────────────
+// Readable by organisers; editable by the manager. An obligation is the
+// association's, not one person's, so the committee can see what is outstanding.
+
+router.get('/compliance', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await complianceService.list(req.user!.association_id, {
+      openOnly: req.query['open'] === 'true',
+    }));
+  } catch (err) { next(err); }
+});
+
+router.get('/compliance/items', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
+  try { res.json(await complianceService.listItems(req.user!.association_id)); }
+  catch (err) { next(err); }
+});
+
+router.post('/compliance/items', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), async (req: AuthRequest, res, next) => {
+  try {
+    res.status(201).json(await complianceService.createItem(
+      req.user!.association_id, req.user!.id, req.body ?? {},
+    ));
+  } catch (err) { next(err); }
+});
+
+router.patch('/compliance/items/:itemId', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await complianceService.updateItem(
+      req.user!.association_id, req.params['itemId'] as string, req.body ?? {},
+    ));
+  } catch (err) { next(err); }
+});
+
+/** Fill in any missing due dates. Safe to call repeatedly. */
+router.post('/compliance/generate', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), async (req: AuthRequest, res, next) => {
+  try { res.json(await complianceService.generateAll(req.user!.association_id)); }
+  catch (err) { next(err); }
+});
+
+router.post('/compliance/:occurrenceId/complete', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await complianceService.complete(
+      req.user!.association_id, req.params['occurrenceId'] as string,
+      req.user!.id, req.body ?? {},
+    ));
+  } catch (err) { next(err); }
+});
+
+router.post('/compliance/:occurrenceId/reopen', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await complianceService.reopen(
+      req.user!.association_id, req.params['occurrenceId'] as string, req.user!.id,
     ));
   } catch (err) { next(err); }
 });

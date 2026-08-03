@@ -236,6 +236,7 @@ model Association {
   committees          Committee[]
   memberships         Membership[]
   elections           Election[]
+  compliance_items    ComplianceItem[]
 
   @@map("associations")
 }
@@ -350,6 +351,8 @@ model User {
   membership_holdings MembershipHolder[]   @relation("MembershipHolderUser")
   elections_declared  Election[]           @relation("ElectionDeclaredBy")
   candidacies         ElectionCandidate[]  @relation("ElectionCandidateUser")
+  compliance_owned    ComplianceItem[]     @relation("ComplianceOwner")
+  compliance_done     ComplianceOccurrence[] @relation("ComplianceCompletedBy")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
   invite_received     UserInvite?         @relation("InvitedUser")
@@ -1837,4 +1840,99 @@ model ElectionVoterRoll {
 
   @@unique([election_id, unit_id])
   @@map("election_voter_roll")
+}
+
+// ─── Compliance calendar ──────────────────────────────────────────────────────
+//
+// Statutory obligations with dates: the AGM window, the audit, the return, the
+// lift certificate. An item recurs; each due date is an occurrence that is
+// marked done separately, so last year's filing stays on the record.
+
+enum ComplianceCategory {
+  MEETING
+  AUDIT
+  FILING
+  TAX
+  INSURANCE
+  LICENCE
+  OTHER
+}
+
+enum Recurrence {
+  NONE
+  MONTHLY
+  QUARTERLY
+  HALF_YEARLY
+  ANNUAL
+}
+
+enum ComplianceStatus {
+  PENDING
+  DONE
+  WAIVED
+}
+
+model ComplianceItem {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+
+  title       String             @db.VarChar(200)
+  description String?            @db.Text
+  category    ComplianceCategory @default(OTHER)
+  recurrence  Recurrence         @default(ANNUAL)
+
+  /// Anchor for the due date. `due_month` is 1–12 and used by annual, half
+  /// yearly and quarterly items; monthly items use only `due_day`.
+  due_month Int? @db.SmallInt
+  due_day   Int  @default(1) @db.SmallInt
+
+  /// Who is answerable. Null means nobody has taken it on, which is worth
+  /// seeing rather than hiding behind a default.
+  owner_user_id String? @db.Uuid
+  owner         User?   @relation("ComplianceOwner", fields: [owner_user_id], references: [id], onDelete: SetNull)
+
+  remind_days_before Int     @default(14) @db.SmallInt
+  is_active          Boolean @default(true)
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  occurrences ComplianceOccurrence[]
+
+  @@index([association_id, is_active])
+  @@map("compliance_items")
+}
+
+model ComplianceOccurrence {
+  id      String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  item_id String         @db.Uuid
+  item    ComplianceItem @relation(fields: [item_id], references: [id], onDelete: Cascade)
+
+  /// Denormalised so "what is overdue for this association" is one query
+  /// rather than a join through items on every dashboard load.
+  association_id String @db.Uuid
+
+  due_on DateTime         @db.Date
+  status ComplianceStatus @default(PENDING)
+
+  completed_on    DateTime? @db.Date
+  completed_by_id String?   @db.Uuid
+  completed_by    User?     @relation("ComplianceCompletedBy", fields: [completed_by_id], references: [id])
+
+  /// Acknowledgement number, receipt, certificate reference.
+  reference String? @db.VarChar(160)
+  notes     String? @db.Text
+
+  /// Set when the owner has been told this is coming, so they are not told
+  /// again every time the scheduler runs.
+  reminded_at DateTime? @db.Timestamptz
+  escalated_at DateTime? @db.Timestamptz
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  @@unique([item_id, due_on])
+  @@index([association_id, status, due_on])
+  @@map("compliance_occurrences")
 }

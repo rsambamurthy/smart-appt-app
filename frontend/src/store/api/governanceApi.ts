@@ -196,8 +196,71 @@ export interface ElectionDetail extends Election {
   } | null;
 }
 
+export type ComplianceCategory =
+  'MEETING' | 'AUDIT' | 'FILING' | 'TAX' | 'INSURANCE' | 'LICENCE' | 'OTHER';
+export type Recurrence = 'NONE' | 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'ANNUAL';
+
+export interface ComplianceItem {
+  id: string;
+  title: string;
+  description: string | null;
+  category: ComplianceCategory;
+  recurrence: Recurrence;
+  due_month: number | null;
+  due_day: number;
+  remind_days_before: number;
+  is_active: boolean;
+  owner: { id: string; name: string } | null;
+}
+
+export interface ComplianceOccurrence {
+  id: string;
+  due_on: string;
+  status: 'PENDING' | 'DONE' | 'WAIVED';
+  completed_on: string | null;
+  reference: string | null;
+  notes: string | null;
+  completed_by: { name: string } | null;
+  item: ComplianceItem;
+  overdue: boolean;
+  days_until: number;
+}
+
 export const governanceApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
+
+    // ── Compliance ────────────────────────────────────────────────────────────
+    listCompliance: builder.query<{
+      data: ComplianceOccurrence[];
+      summary: { overdue: number; due_soon: number; open: number };
+    }, { open?: boolean } | void>({
+      query: (a) => ({ url: '/governance/compliance', params: { open: a?.open ? 'true' : undefined } }),
+      providesTags: ['Compliance'],
+    }),
+    createComplianceItem: builder.mutation<{ data: ComplianceItem }, {
+      title: string; description?: string; category?: ComplianceCategory;
+      recurrence?: Recurrence; due_month?: number | null; due_day?: number;
+      owner_user_id?: string | null; remind_days_before?: number;
+    }>({
+      query: (body) => ({ url: '/governance/compliance/items', method: 'POST', body }),
+      invalidatesTags: ['Compliance'],
+    }),
+    updateComplianceItem: builder.mutation<{ data: ComplianceItem }, { itemId: string } & Partial<ComplianceItem>>({
+      query: ({ itemId, ...body }) => ({ url: `/governance/compliance/items/${itemId}`, method: 'PATCH', body }),
+      invalidatesTags: ['Compliance'],
+    }),
+    completeCompliance: builder.mutation<{ data: unknown }, {
+      occurrenceId: string; completed_on?: string; reference?: string; notes?: string; waived?: boolean;
+    }>({
+      query: ({ occurrenceId, ...body }) => ({
+        url: `/governance/compliance/${occurrenceId}/complete`, method: 'POST', body,
+      }),
+      invalidatesTags: ['Compliance'],
+    }),
+    reopenCompliance: builder.mutation<{ data: unknown }, string>({
+      query: (occurrenceId) => ({ url: `/governance/compliance/${occurrenceId}/reopen`, method: 'POST' }),
+      invalidatesTags: ['Compliance'],
+    }),
 
     // ── Elections ─────────────────────────────────────────────────────────────
     listElections: builder.query<{ data: Election[] }, void>({
@@ -439,6 +502,9 @@ export const governanceApi = baseApi.injectEndpoints({
 });
 
 export const {
+  useListComplianceQuery, useCreateComplianceItemMutation,
+  useUpdateComplianceItemMutation, useCompleteComplianceMutation,
+  useReopenComplianceMutation,
   useListElectionsQuery, useGetElectionQuery, useCreateElectionMutation,
   useSetElectionStatusMutation, useDeclareElectionMutation,
   useProposeCandidateMutation, useSecondNominationMutation,
