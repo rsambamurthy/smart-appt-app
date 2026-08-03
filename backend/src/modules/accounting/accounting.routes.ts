@@ -10,7 +10,8 @@ import { bankUploadController }   from './bank-upload.controller';
 import { fyClosureController }    from './fy-closure.controller';
 import { authenticate }  from '../../middleware/auth';
 import { requireRoles }  from '../../middleware/rbac';
-import { UserRole }      from '@prisma/client';
+import { requireModule, requireModuleFull } from '../../middleware/entitlement';
+import { UserRole, ModuleKey } from '@prisma/client';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -20,6 +21,12 @@ const managerRoles = [UserRole.MANAGER, UserRole.TREASURER, UserRole.SUPER_USER]
 const viewRoles    = [UserRole.MANAGER, UserRole.TREASURER, UserRole.COMMITTEE, UserRole.SUPER_USER];
 
 router.use(authenticate);
+
+// Accounting is a paid module. Applied at the router so every endpoint below
+// is covered — including any added later, which is the point of putting it
+// here rather than on each route. Reads still work for a lapsed subscription;
+// writes return 402.
+router.use(requireModule(ModuleKey.ACCOUNTING));
 
 // ── Chart of Accounts ─────────────────────────────────────────────────────────
 router.get   ('/accounts',             requireRoles(...managerRoles), accountingController.listAccounts);
@@ -49,17 +56,17 @@ router.patch ('/bp-masters/:id/toggle',  requireRoles(...managerRoles), bpMaster
 router.delete('/bp-masters/:id',         requireRoles(...managerRoles), bpMasterController.delete);
 router.get   ('/bp-masters/units',                requireRoles(...managerRoles), bpMasterController.listUnits);
 router.get   ('/bp-masters/units/with-balances',  requireRoles(...managerRoles), unitOBController.listWithBalances);
-router.get   ('/bp-masters/units/template',        requireRoles(...managerRoles), unitOBController.downloadTemplate);
+router.get   ('/bp-masters/units/template',        requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...managerRoles), unitOBController.downloadTemplate);
 router.post  ('/bp-masters/units/upload/preview',  requireRoles(...managerRoles), upload.single('file'), unitOBController.previewUpload);
 router.post  ('/bp-masters/units/upload/apply',    requireRoles(...managerRoles), unitOBController.applyUpload);
 
 // ── Vendor Bulk Upload ────────────────────────────────────────────────────────
-router.get ('/vendors/template',        requireRoles(...managerRoles), vendorUploadController.downloadTemplate);
+router.get ('/vendors/template',        requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...managerRoles), vendorUploadController.downloadTemplate);
 router.post('/vendors/upload/preview',  requireRoles(...managerRoles), upload.single('file'), vendorUploadController.previewUpload);
 router.post('/vendors/upload/apply',    requireRoles(...managerRoles), vendorUploadController.applyUpload);
 
 // ── Bank Bulk Upload ──────────────────────────────────────────────────────────
-router.get ('/banks/template',        requireRoles(...managerRoles), bankUploadController.downloadTemplate);
+router.get ('/banks/template',        requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...managerRoles), bankUploadController.downloadTemplate);
 router.post('/banks/upload/preview',  requireRoles(...managerRoles), upload.single('file'), bankUploadController.previewUpload);
 router.post('/banks/upload/apply',    requireRoles(...managerRoles), bankUploadController.applyUpload);
 
@@ -74,21 +81,21 @@ router.post ('/fy/reopen',    requireRoles(...managerRoles), fyClosureController
 // ── Journal Entries ───────────────────────────────────────────────────────────
 router.get ('/journal',         requireRoles(...viewRoles),    journalController.list);
 router.post('/journal',         requireRoles(...managerRoles), ...journalController.createManual);
-router.get ('/journal/ledger',     requireRoles(...viewRoles), journalController.getLedger);
-router.get ('/journal/ledger/all', requireRoles(...viewRoles), journalController.getAllLedger);
-router.get ('/journal/ledger/sub', requireRoles(...viewRoles), journalController.getSubLedger);
-router.get ('/journal/pnl',           requireRoles(...viewRoles), journalController.getPnL);
-router.get ('/journal/balance-sheet', requireRoles(...viewRoles),    journalController.getBalanceSheet);
-router.get ('/journal/trial-balance', requireRoles(...viewRoles),    journalController.getTrialBalance);
-router.get ('/journal/day-book',      requireRoles(...viewRoles),    journalController.getDayBook);
-router.get ('/journal/cash-book',     requireRoles(...viewRoles),    journalController.getCashBook);
-router.get ('/journal/receipts-payments', requireRoles(...viewRoles), journalController.getReceiptsAndPayments);
-router.get ('/journal/income-expenditure', requireRoles(...viewRoles), journalController.getIncomeExpenditure);
+router.get ('/journal/ledger',     requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles), journalController.getLedger);
+router.get ('/journal/ledger/all', requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles), journalController.getAllLedger);
+router.get ('/journal/ledger/sub', requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles), journalController.getSubLedger);
+router.get ('/journal/pnl',           requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles), journalController.getPnL);
+router.get ('/journal/balance-sheet', requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles),    journalController.getBalanceSheet);
+router.get ('/journal/trial-balance', requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles),    journalController.getTrialBalance);
+router.get ('/journal/day-book',      requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles),    journalController.getDayBook);
+router.get ('/journal/cash-book',     requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles),    journalController.getCashBook);
+router.get ('/journal/receipts-payments', requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles), journalController.getReceiptsAndPayments);
+router.get ('/journal/income-expenditure', requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles), journalController.getIncomeExpenditure);
 router.post('/journal/backfill',         requireRoles(...managerRoles), journalController.backfill);
 router.post('/journal/backfill-bp-tags', requireRoles(...managerRoles), journalController.backfillBPTags);
 // Supporting document for a voucher — invoice, receipt, bank slip.
 router.post  ('/journal/:id/attachment', requireRoles(...managerRoles), upload.single('file'), journalController.uploadAttachment);
-router.get   ('/journal/:id/attachment', requireRoles(...viewRoles),    journalController.downloadAttachment);
+router.get   ('/journal/:id/attachment', requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles),    journalController.downloadAttachment);
 router.delete('/journal/:id/attachment', requireRoles(...managerRoles), journalController.deleteAttachment);
 
 router.patch('/journal/:id',          requireRoles(...managerRoles), ...journalController.updateEntry);

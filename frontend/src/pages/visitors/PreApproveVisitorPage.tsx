@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
+import { Share } from '@capacitor/share';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import { IS_NATIVE } from '../../hooks/usePlatform';
@@ -55,14 +57,65 @@ function QrToken({ token, name, whenIso }: { token: string; name: string; whenIs
     } catch { /* clipboard blocked — the token is on screen to read */ }
   };
 
+  /**
+   * Send the pass to the visitor — the QR image itself, not just the text.
+   *
+   * Android WebView does not implement navigator.share at all, so inside the
+   * APK the Web Share path is dead and Capacitor's native plugin is the only
+   * way to reach the system share sheet. The browser path is kept for the web
+   * app, where the plugin falls back to Web Share anyway.
+   *
+   * Capacitor only permits sharing files from the cache directory unless
+   * file_paths.xml says otherwise; ours already exposes cache-path.
+   */
   const share = async () => {
-    // Present in the Capacitor WebView and on Android Chrome; absent on
-    // desktop, where Copy is the sensible path anyway.
+    const fileName = `gate-pass-${token.slice(0, 8)}.png`;
+
+    if (IS_NATIVE) {
+      // Writing the image can fail (no space, odd device). Sharing the text
+      // alone is still useful, so a write failure degrades rather than aborts.
+      let uri: string | null = null;
+      if (png) {
+        try {
+          const base64 = png.split(',')[1] ?? '';
+          const written = await Filesystem.writeFile({
+            path: fileName,
+            data: base64,
+            directory: Directory.Cache,
+          });
+          uri = written.uri;
+        } catch { uri = null; }
+      }
+
+      try {
+        await Share.share({
+          title: 'Gate pass',
+          text: shareText,
+          dialogTitle: 'Send gate pass',
+          ...(uri ? { files: [uri] } : {}),
+        });
+      } catch { /* dismissed, or nothing installed to share with */ }
+      return;
+    }
+
+    // ── Browser ──────────────────────────────────────────────────────────
+    if (png && navigator.canShare) {
+      try {
+        const blob = await (await fetch(png)).blob();
+        const file = new File([blob], fileName, { type: 'image/png' });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ title: 'Gate pass', text: shareText, files: [file] });
+          return;
+        }
+      } catch { /* fall through to text, then to copy */ }
+    }
+
     if (navigator.share) {
       try { await navigator.share({ title: 'Gate pass', text: shareText }); } catch { /* dismissed */ }
-    } else {
-      copy();
+      return;
     }
+
+    copy();
   };
 
   return (

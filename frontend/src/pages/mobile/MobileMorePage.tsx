@@ -1,3 +1,4 @@
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store';
@@ -5,9 +6,13 @@ import { clearCredentials } from '../../features/auth/authSlice';
 import { useLogoutMutation } from '../../store/api/authApi';
 import { baseApi } from '../../store/api/baseApi';
 import { useMobileConfig } from '../../contexts/MobileConfigContext';
+import LogoutIcon from '../../components/atoms/LogoutIcon';
 
+// icon is a ReactNode rather than a string: most rows use an emoji, but
+// Logout uses the shared LogoutIcon so it matches the one in the tab headers
+// and the breadcrumb bar.
 function MenuRow({ icon, label, sublabel, onClick, danger = false }: {
-  icon: string; label: string; sublabel?: string; onClick: () => void; danger?: boolean;
+  icon: React.ReactNode; label: string; sublabel?: string; onClick: () => void; danger?: boolean;
 }) {
   return (
     <button
@@ -86,7 +91,7 @@ export default function MobileMorePage() {
 
         {/* Logout — always at the top */}
         <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-          <MenuRow icon="🚪" label="Logout" sublabel="Sign out of your account" danger onClick={handleLogout} />
+          <MenuRow icon={<LogoutIcon size={19} />} label="Logout" sublabel="Sign out of your account" danger onClick={handleLogout} />
         </div>
 
         {/* Account */}

@@ -3,6 +3,8 @@ import { normalisePhone } from '../../utils/helpers';
 import { ConflictError, NotFoundError, UnprocessableError } from '../../utils/errors';
 import { RegisterAssociationBody, UpdateAssociationBody } from './associations.schema';
 import { UserRole } from '@prisma/client';
+import logger from '../../utils/logger';
+import { entitlementService } from '../../services/entitlement.service';
 
 export class AssociationsService {
   // ── Public: register new association + first admin ───────────────────────────
@@ -46,6 +48,19 @@ export class AssociationsService {
 
       return { association, admin };
     });
+
+    // 4. Start the free trial. Outside the transaction deliberately: a failure
+    //    here must not roll back a successfully registered association. If it
+    //    does fail, the association exists with no entitlement and can be
+    //    granted one from the subscription screen — recoverable, and visible.
+    try {
+      await entitlementService.startTrial(result.association.id);
+    } catch (err) {
+      logger.error('Failed to start trial for new association', {
+        association_id: result.association.id,
+        error: (err as Error).message,
+      });
+    }
 
     return {
       association_id:   result.association.id,

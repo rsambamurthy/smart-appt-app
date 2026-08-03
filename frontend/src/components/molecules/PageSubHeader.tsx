@@ -5,6 +5,7 @@ import { IS_NATIVE } from '../../hooks/usePlatform';
 import { clearCredentials } from '../../features/auth/authSlice';
 import { useLogoutMutation } from '../../store/api/authApi';
 import { baseApi } from '../../store/api/baseApi';
+import LogoutIcon from '../atoms/LogoutIcon';
 
 export interface Crumb {
   label: string;
@@ -106,11 +107,12 @@ export default function PageSubHeader({
             aria-label="Logout"
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: 18, lineHeight: 1, padding: '6px 4px 6px 10px',
+              lineHeight: 1, padding: '6px 4px 6px 10px',
               color: '#64748b', minHeight: 40, minWidth: 40,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
-            🚪
+            <LogoutIcon />
           </button>
         )}
       </div>

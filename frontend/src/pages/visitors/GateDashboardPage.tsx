@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, CSSProperties } from 'react';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
+import QrScanner from '../../components/organisms/QrScanner';
 import {
   useGetGateUnitsQuery, useGetGateBoardQuery,
   useLogWalkInMutation, useRecordEntryMutation, useRecordExitMutation,
@@ -105,7 +106,8 @@ export default function GateDashboardPage() {
   const [phone, setPhone]     = useState('');
   const [purpose, setPurpose] = useState('');
   const [vehicle, setVehicle] = useState('');
-  const [qrToken, setQrToken] = useState('');
+  const [qrToken, setQrToken]   = useState('');
+  const [scanning, setScanning] = useState(false);
   const [msg, setMsg]         = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
   // Visitor vs delivery. Deliveries skip approval entirely.
@@ -512,8 +514,18 @@ export default function GateDashboardPage() {
             {/* QR / code lookup */}
             <div style={{ borderTop: '1px solid #f1f5f9', padding: 16 }}>
               <label style={label}>Pre-approved code</label>
-              <input style={field} value={qrToken} onChange={e => setQrToken(e.target.value)}
-                     placeholder="Scan or type the visitor's code" autoComplete="off" />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input style={{ ...field, flex: 1 }} value={qrToken} onChange={e => setQrToken(e.target.value)}
+                       placeholder="Scan or type the visitor's code" autoComplete="off" />
+                <button type="button" onClick={() => setScanning(true)}
+                  style={{
+                    padding: '0 16px', minHeight: 44, borderRadius: 9, cursor: 'pointer',
+                    border: '1px solid #2563eb', background: '#eff6ff', color: '#1d4ed8',
+                    fontWeight: 700, fontSize: 14, whiteSpace: 'nowrap',
+                  }}>
+                  Scan
+                </button>
+              </div>
               {qrVisitor && (
                 <div style={{ marginTop: 12, padding: '12px 14px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 9 }}>
                   <div style={{ fontSize: 14.5, fontWeight: 600, color: '#1e293b' }}>{qrVisitor.visitor_name}</div>
@@ -605,6 +617,15 @@ export default function GateDashboardPage() {
           Updates every 15 seconds.
         </div>
       </div>
+
+      {/* Scanning fills the token box, which the lookup query already watches,
+          so the visitor's details appear without another tap. */}
+      {scanning && (
+        <QrScanner
+          onScan={value => { setQrToken(value); setScanning(false); }}
+          onClose={() => setScanning(false)}
+        />
+      )}
     </Layout>
   );
 }

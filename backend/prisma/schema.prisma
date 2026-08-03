@@ -230,6 +230,7 @@ model Association {
   voucher_sequences   VoucherSequence[]
   mobile_config       MobileConfig?
   fy_closes           FinancialYearClose[]
+  modules             AssociationModule[]
 
   @@map("associations")
 }
@@ -331,6 +332,7 @@ model User {
   je_cancelled        JournalEntry[]      @relation("JECancelledBy")
   fy_closed           FinancialYearClose[] @relation("FYClosedBy")
   fy_reopened         FinancialYearClose[] @relation("FYReopenedBy")
+  modules_granted     AssociationModule[]  @relation("ModuleGrantedBy")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
   invite_received     UserInvite?         @relation("InvitedUser")
@@ -1245,4 +1247,57 @@ model FinancialYearClose {
 
   @@unique([association_id, financial_year])
   @@map("financial_year_closes")
+}
+
+// ─── Module subscriptions ─────────────────────────────────────────────────────
+//
+// Which paid modules an association may use. This is ENTITLEMENT, and it is
+// deliberately separate from MobileConfig and MenuGroupConfig, which are
+// PREFERENCE — what an association chooses to show. Conflating the two would
+// let an association toggle itself into a module it has not paid for.
+//
+// Core features (dues, receipts, maintenance, announcements, documents, polls,
+// visitors) are never listed here. They are free for everyone and must not
+// depend on a row existing.
+
+enum ModuleKey {
+  ACCOUNTING
+  GOVERNANCE
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  CANCELLED
+}
+
+model AssociationModule {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String             @db.Uuid
+  association    Association        @relation(fields: [association_id], references: [id], onDelete: Cascade)
+
+  module         ModuleKey
+  status         SubscriptionStatus @default(ACTIVE)
+
+  starts_on      DateTime           @db.Date
+  // NULL means perpetual — used for the reference association and for anyone
+  // grandfathered in. Effective access is computed from this date at read
+  // time, never from `status` alone, because a stored status goes stale the
+  // moment a date passes with nobody looking.
+  expires_on     DateTime?          @db.Date
+
+  // For your own records. Invoicing happens outside the application.
+  amount         Decimal?           @db.Decimal(12, 2)
+  reference      String?            @db.VarChar(120)
+  note           String?            @db.Text
+
+  granted_by_id  String?            @db.Uuid
+  granted_by     User?              @relation("ModuleGrantedBy", fields: [granted_by_id], references: [id])
+
+  created_at     DateTime           @default(now()) @db.Timestamptz
+  updated_at     DateTime           @updatedAt @db.Timestamptz
+
+  @@unique([association_id, module])
+  @@index([module, expires_on])
+  @@map("association_modules")
 }

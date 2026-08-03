@@ -8,6 +8,9 @@ import { baseApi } from '../../store/api/baseApi';
 import { useTheme, PRESETS, type ThemePreset } from '../../contexts/ThemeContext';
 import { useGetMenuConfigQuery } from '../../store/api/systemApi';
 import { IS_NATIVE } from '../../hooks/usePlatform';
+import { useEntitlements } from '../../hooks/useEntitlements';
+import type { ModuleKey } from '../../store/api/subscriptionsApi';
+import SubscriptionBanner from '../molecules/SubscriptionBanner';
 
 interface NavItem {
   id: string;
@@ -52,6 +55,7 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ['SUPER_USER'],
     items: [
       { id: 'admin_associations', label: 'All Associations', path: '/admin/associations', roles: ['SUPER_USER'], dot: '#f59e0b', end: true },
+      { id: 'admin_subscriptions', label: 'Subscriptions', path: '/admin/subscriptions', roles: ['SUPER_USER'], dot: '#15803d', end: true },
     ],
   },
   {
@@ -161,6 +165,7 @@ function WebLayout({ children }: { children: React.ReactNode }) {
   const role = user?.role ?? '';
   const { data: menuConfigData } = useGetMenuConfigQuery();
   const menuConfig = menuConfigData?.data;
+  const { canSee, expiring, lapsed } = useEntitlements();
 
   // Super User is a platform administrator, not a day-to-day association user.
   // These operational groups are hidden from their SIDEBAR only — every route
@@ -175,9 +180,21 @@ function WebLayout({ children }: { children: React.ReactNode }) {
     'reports',     // Reports — insights describe one association's operations
   ];
 
+  // Paid modules an association has never subscribed to are hidden entirely.
+  // A lapsed subscription is NOT hidden — they keep seeing their own records,
+  // and the read-only notice explains the rest. Hiding it would look like data
+  // loss rather than a billing state.
+  //
+  // Presentation only: every one of these routes is enforced server-side.
+  const MODULE_GROUPS: Record<string, ModuleKey> = { accounting: 'ACCOUNTING' };
+
   // Build visible groups: group-level role gate removed so Super User can grant any item to any role
   const visibleGroups = NAV_GROUPS
     .filter((g) => !(role === 'SUPER_USER' && SUPER_USER_HIDDEN_GROUPS.includes(g.id)))
+    .filter((g) => {
+      const module = MODULE_GROUPS[g.id];
+      return !module || canSee(module);
+    })
     .map((g) => ({
       ...g,
       items: g.items.filter((i) => {
@@ -423,6 +440,7 @@ function WebLayout({ children }: { children: React.ReactNode }) {
 
         {/* ── Main Content ── */}
         <main className="sa-main">
+          <SubscriptionBanner expiring={expiring} lapsed={lapsed} />
           {children}
         </main>
       </div>

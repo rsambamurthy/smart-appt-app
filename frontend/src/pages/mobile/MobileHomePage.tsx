@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { useMobileConfig } from '../../contexts/MobileConfigContext';
+import MobileLogoutButton from '../../components/molecules/MobileLogoutButton';
 import { useListMyBillsQuery } from '../../store/api/duesApi';
 import { useListAnnouncementsQuery } from '../../store/api/announcementsApi';
 import { useListTicketsQuery, useListMyTicketsQuery } from '../../store/api/maintenanceApi';
@@ -80,7 +81,9 @@ export default function MobileHomePage() {
         background: `linear-gradient(135deg, ${accentColor} 0%, ${accentColor}cc 100%)`,
         padding: '52px 20px 24px',
         paddingTop: 'max(52px, calc(env(safe-area-inset-top) + 20px))',
+        position: 'relative',
       }}>
+        <MobileLogoutButton />
         {config.logo_url && (
           <img src={config.logo_url} alt="Logo" style={{ height: 36, objectFit: 'contain', marginBottom: 10, display: 'block' }} />
         )}

@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { useMobileConfig } from '../../contexts/MobileConfigContext';
+import MobileLogoutButton from '../../components/molecules/MobileLogoutButton';
 
 interface HubCardProps {
   icon: string;
@@ -57,7 +58,9 @@ export default function MobileVisitorsPage() {
         background: `linear-gradient(135deg, ${accentColor} 0%, ${accentColor}cc 100%)`,
         padding: '52px 20px 24px',
         paddingTop: 'max(52px, calc(env(safe-area-inset-top) + 20px))',
+        position: 'relative',
       }}>
+        <MobileLogoutButton />
         <div style={{ fontSize: 24, fontWeight: 700, color: '#fff' }}>Visitors</div>
         <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', marginTop: 4 }}>
           Manage gate activity and pre-approvals

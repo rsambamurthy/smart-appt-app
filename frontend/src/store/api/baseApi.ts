@@ -17,6 +17,6 @@ export const baseApi = createApi({
       return headers;
     },
   }),
-  tagTypes: ['Ticket', 'Bill', 'Payment', 'Expense', 'Announcement', 'Document', 'Visitor', 'User', 'Unit', 'Association', 'MenuConfig', 'MobileConfig', 'Receipt', 'Account', 'Journal', 'BPMaster', 'ServiceType'],
+  tagTypes: ['Ticket', 'Bill', 'Payment', 'Expense', 'Announcement', 'Document', 'Visitor', 'User', 'Unit', 'Association', 'MenuConfig', 'MobileConfig', 'Receipt', 'Account', 'Journal', 'BPMaster', 'ServiceType', 'Subscription'],
   endpoints: () => ({}),
 });
