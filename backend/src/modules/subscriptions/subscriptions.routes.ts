@@ -9,6 +9,7 @@ import { AuditAction } from '@prisma/client';
 import prisma from '../../config/database';
 import {
   entitlementService, MODULE_CATALOG, ALL_MODULES, TRIAL_DAYS,
+  WARN_WINDOW_DAYS, resolveAccess,
 } from '../../services/entitlement.service';
 
 const router = Router();
@@ -43,21 +44,106 @@ router.get('/mine', async (req: AuthRequest, res, next) => {
 // ── Super user only, from here ────────────────────────────────────────────────
 router.use(requireRoles(UserRole.SUPER_USER));
 
-/** Every association with its module standing. The subscription console. */
-router.get('/', async (_req: AuthRequest, res, next) => {
+/**
+ * The subscription console: associations with their module standing.
+ *
+ * Searched, filtered and paged in the database. The first version fetched
+ * every association and then queried modules once per association — fine for
+ * a dozen, an N+1 and an unscrollable page at a few hundred.
+ *
+ * `?q=` name or city · `?filter=` see FILTERS · `?page=` 1-based · `?limit=`
+ */
+type Filter = 'ALL' | 'EXPIRING' | 'LAPSED' | 'TRIAL' | 'UNSUBSCRIBED';
+
+router.get('/', async (req: AuthRequest, res, next) => {
   try {
-    const associations = await prisma.association.findMany({
-      where:   { is_active: true },
-      select:  { id: true, name: true, city: true },
-      orderBy: { name: 'asc' },
+    const q      = String(req.query['q'] ?? '').trim();
+    const filter = String(req.query['filter'] ?? 'ALL').toUpperCase() as Filter;
+    const limit  = Math.min(Math.max(Number(req.query['limit'] ?? 25), 1), 100);
+    const page   = Math.max(Number(req.query['page'] ?? 1), 1);
+
+    const today = new Date();
+    const soon  = new Date();
+    soon.setDate(soon.getDate() + WARN_WINDOW_DAYS.PAID);
+
+    // Filters are expressed against the modules relation so the database does
+    // the work. UNSUBSCRIBED is the awkward one: "has at least one module it
+    // has never been granted" cannot be written as a simple `some`, so it is
+    // the absence of a full set.
+    const moduleFilter: Record<Filter, object> = {
+      ALL: {},
+      EXPIRING: {
+        modules: { some: { status: 'ACTIVE', expires_on: { not: null, gte: today, lte: soon } } },
+      },
+      LAPSED: {
+        OR: [
+          { modules: { some: { status: SubscriptionStatus.CANCELLED } } },
+          { modules: { some: { expires_on: { not: null, lt: today } } } },
+        ],
+      },
+      TRIAL: {
+        modules: { some: { status: SubscriptionStatus.TRIAL, expires_on: { gte: today } } },
+      },
+      UNSUBSCRIBED: {
+        modules: { none: {} },
+      },
+    };
+
+    const where = {
+      is_active: true,
+      ...(q ? {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' as const } },
+          { city: { contains: q, mode: 'insensitive' as const } },
+        ],
+      } : {}),
+      ...(moduleFilter[filter] ?? {}),
+    };
+
+    // One query for the page, one for the count, one for the summary tiles.
+    const [associations, total, allModules] = await Promise.all([
+      prisma.association.findMany({
+        where,
+        select: {
+          id: true, name: true, city: true,
+          modules: {
+            select: { module: true, status: true, starts_on: true, expires_on: true },
+          },
+        },
+        orderBy: { name: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.association.count({ where }),
+      // Summary counts are over EVERY association, not the filtered page —
+      // the tiles are a dashboard, not a description of what you filtered to.
+      prisma.associationModule.findMany({
+        where:  { association: { is_active: true } },
+        select: { status: true, expires_on: true },
+      }),
+    ]);
+
+    const data = associations.map(a => ({
+      id: a.id, name: a.name, city: a.city,
+      modules: entitlementService.buildEntitlements(a.modules),
+    }));
+
+    const summary = { active: 0, trial: 0, expiring: 0, lapsed: 0 };
+    for (const m of allModules) {
+      const access = resolveAccess(m);
+      if (access === 'READ_ONLY') { summary.lapsed++; continue; }
+      if (m.status === SubscriptionStatus.TRIAL) summary.trial++;
+      else summary.active++;
+      if (m.expires_on && m.expires_on >= today && m.expires_on <= soon) summary.expiring++;
+    }
+
+    res.json({
+      data,
+      meta: { page, limit, total, pages: Math.max(Math.ceil(total / limit), 1) },
+      summary,
+      catalog: MODULE_CATALOG,
+      trial_days: TRIAL_DAYS,
     });
-
-    const data = await Promise.all(associations.map(async a => ({
-      ...a,
-      modules: await entitlementService.listFor(a.id),
-    })));
-
-    res.json({ data, catalog: MODULE_CATALOG, trial_days: TRIAL_DAYS });
   } catch (err) { next(err); }
 });
 

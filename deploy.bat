@@ -115,16 +115,22 @@ if not errorlevel 1 (
 )
 
 :: ── Message ──────────────────────────────────────────────────────────────────
+:: Passing the message as an argument skips this entirely:
+::     deploy.bat "fix: whatever changed"
 set "MSG=%~1"
-if "!MSG!"=="" (
-    echo   Commit message ^(describe what changed^):
-    set /p "MSG=  > "
-)
-if "!MSG!"=="" (
-    echo   ERROR: a commit message is required.
-    git reset >nul
-    pause & exit /b 1
-)
+
+:ask_message
+if not "!MSG!"=="" goto :have_message
+echo   Commit message ^(describe what changed^):
+set /p "MSG=  > "
+if not "!MSG!"=="" goto :have_message
+echo.
+echo   A commit message is required. Type one, or press Ctrl+C to stop.
+echo   ^(Your changes are still staged either way - nothing is lost.^)
+echo.
+goto :ask_message
+
+:have_message
 
 echo.
 git commit -m "!MSG!"

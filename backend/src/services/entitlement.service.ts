@@ -157,6 +157,20 @@ export class EntitlementService {
       select: { module: true, status: true, starts_on: true, expires_on: true },
     });
 
+    return this.buildEntitlements(rows, role);
+  }
+
+  /**
+   * The same shaping, from rows already in hand.
+   *
+   * The subscription console loads a page of associations WITH their modules
+   * in one query; calling listFor per association would put it straight back
+   * into an N+1.
+   */
+  buildEntitlements(
+    rows: { module: ModuleKey; status: SubscriptionStatus; starts_on: Date; expires_on: Date | null }[],
+    role?: UserRole,
+  ): ModuleEntitlement[] {
     const byModule = new Map(rows.map(r => [r.module, r]));
 
     return ALL_MODULES.map(module => {

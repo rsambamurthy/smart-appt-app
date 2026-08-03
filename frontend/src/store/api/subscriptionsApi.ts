@@ -15,6 +15,8 @@ export interface ModuleEntitlement {
   expiring_soon: boolean;
 }
 
+export type SubscriptionFilter = 'ALL' | 'EXPIRING' | 'LAPSED' | 'TRIAL' | 'UNSUBSCRIBED';
+
 export interface AssociationSubscriptions {
   id:      string;
   name:    string;
@@ -33,10 +35,23 @@ export const subscriptionsApi = baseApi.injectEndpoints({
 
     // ── Super user ────────────────────────────────────────────────────────────
     listSubscriptions: builder.query<
-      { data: AssociationSubscriptions[]; trial_days: number },
-      void
+      {
+        data: AssociationSubscriptions[];
+        meta: { page: number; limit: number; total: number; pages: number };
+        summary: { active: number; trial: number; expiring: number; lapsed: number };
+        trial_days: number;
+      },
+      { q?: string; filter?: SubscriptionFilter; page?: number; limit?: number } | void
     >({
-      query: () => '/subscriptions',
+      query: (args) => ({
+        url: '/subscriptions',
+        params: {
+          q:      args?.q      || undefined,
+          filter: args?.filter || undefined,
+          page:   args?.page   ?? 1,
+          limit:  args?.limit  ?? 25,
+        },
+      }),
       providesTags: ['Subscription'],
     }),
 
