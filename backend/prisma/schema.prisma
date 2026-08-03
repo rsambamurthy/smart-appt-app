@@ -231,6 +231,8 @@ model Association {
   mobile_config       MobileConfig?
   fy_closes           FinancialYearClose[]
   modules             AssociationModule[]
+  governance_config   GovernanceConfig?
+  meetings            Meeting[]
 
   @@map("associations")
 }
@@ -281,6 +283,8 @@ model Unit {
   visitors            Visitor[]
   frequent_visitors   FrequentVisitor[]
   business_partners   BusinessPartner[]
+  meeting_attendees   MeetingAttendee[]
+  resolution_votes    ResolutionVote[]
 
   @@unique([association_id, flat_number])
   @@index([flat_number])
@@ -333,6 +337,9 @@ model User {
   fy_closed           FinancialYearClose[] @relation("FYClosedBy")
   fy_reopened         FinancialYearClose[] @relation("FYReopenedBy")
   modules_granted     AssociationModule[]  @relation("ModuleGrantedBy")
+  meetings_created    Meeting[]            @relation("MeetingCreatedBy")
+  meeting_attendance  MeetingAttendee[]    @relation("MeetingAttendeeUser")
+  resolution_votes    ResolutionVote[]     @relation("ResolutionVoteUser")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
   invite_received     UserInvite?         @relation("InvitedUser")
@@ -1300,4 +1307,194 @@ model AssociationModule {
   @@unique([association_id, module])
   @@index([module, expires_on])
   @@map("association_modules")
+}
+
+// ─── Governance ───────────────────────────────────────────────────────────────
+//
+// Meetings, agendas, resolutions and minutes — the statutory side of running a
+// registered association. Gated behind the GOVERNANCE module.
+//
+// Voting is one vote per FLAT, not per person: two owners of the same unit
+// share a single vote, which is how apartment associations almost always work
+// in practice. The unique constraints on unit_id are what enforce that, rather
+// than application logic that can be forgotten.
+
+enum MeetingType {
+  AGM         // Annual General Meeting
+  EGM         // Extraordinary General Meeting
+  COMMITTEE   // Managing committee meeting
+}
+
+enum MeetingStatus {
+  DRAFT           // being prepared; residents cannot see it
+  NOTICE_ISSUED   // circulated; agenda is now fixed
+  IN_PROGRESS     // being held
+  CONCLUDED       // over; minutes may be published
+  CANCELLED
+}
+
+enum RsvpStatus {
+  YES
+  NO
+  MAYBE
+}
+
+enum ResolutionStatus {
+  NOT_OPEN
+  OPEN
+  CLOSED
+}
+
+enum ResolutionOutcome {
+  CARRIED
+  DEFEATED
+  WITHDRAWN
+}
+
+enum VoteChoice {
+  FOR
+  AGAINST
+  ABSTAIN
+}
+
+/// Per-association rules. No jurisdiction is assumed — notice periods and
+/// quorum differ by state and by an association's own bye-laws, so every
+/// figure here is configurable rather than hardcoded to one act.
+model GovernanceConfig {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @unique @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+
+  /// Minimum clear days between issuing notice and holding the meeting.
+  notice_days           Int     @default(21) @db.SmallInt
+  /// Percentage of eligible units that must attend for the meeting to be valid.
+  quorum_percent        Decimal @default(33.33) @db.Decimal(5, 2)
+  /// Reconvened meetings usually need a lower quorum, or none at all.
+  adjourned_quorum_percent Decimal? @db.Decimal(5, 2)
+  /// How long voting stays open after a meeting concludes, for members who
+  /// attended but had not voted by the time it ended.
+  voting_window_hours   Int     @default(24) @db.SmallInt
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  @@map("governance_config")
+}
+
+model Meeting {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String        @db.Uuid
+  association    Association   @relation(fields: [association_id], references: [id], onDelete: Cascade)
+
+  title          String        @db.VarChar(200)
+  meeting_type   MeetingType
+  status         MeetingStatus @default(DRAFT)
+
+  scheduled_at   DateTime      @db.Timestamptz
+  venue          String?       @db.VarChar(300)
+  online_link    String?       @db.VarChar(500)
+
+  notice_body      String?     @db.Text
+  notice_issued_at DateTime?   @db.Timestamptz
+
+  /// Snapshotted when the notice is issued, NOT read live from
+  /// GovernanceConfig. A meeting's validity is judged by the rules in force
+  /// when it was called; changing the quorum setting next year must not
+  /// retroactively invalidate a meeting held under the old one.
+  quorum_percent Decimal?      @db.Decimal(5, 2)
+  eligible_units Int?          @db.SmallInt
+
+  concluded_at         DateTime? @db.Timestamptz
+  minutes_body         String?   @db.Text
+  minutes_published_at DateTime? @db.Timestamptz
+
+  created_by_id String?      @db.Uuid
+  created_by    User?        @relation("MeetingCreatedBy", fields: [created_by_id], references: [id])
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  agenda_items AgendaItem[]
+  attendees    MeetingAttendee[]
+
+  @@index([association_id, scheduled_at])
+  @@index([association_id, status])
+  @@map("meetings")
+}
+
+model AgendaItem {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  meeting_id String  @db.Uuid
+  meeting    Meeting @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
+
+  seq         Int     @db.SmallInt
+  title       String  @db.VarChar(300)
+  description String? @db.Text
+
+  /// Discussion items are minuted but not voted on.
+  is_resolution Boolean          @default(false)
+  voting_status ResolutionStatus @default(NOT_OPEN)
+  /// A secret ballot hides attribution from the committee: only tallies are
+  /// returned. The row still records which flat voted, because that is what
+  /// stops a flat voting twice — so this is enforced discretion at the API,
+  /// not cryptographic secrecy. Say so plainly to anyone who asks.
+  is_secret     Boolean          @default(false)
+  /// Share of votes cast (excluding abstentions) needed to carry. Ordinary
+  /// resolutions are a simple majority; bye-law amendments and similar often
+  /// require three quarters, so it is per item rather than per association.
+  pass_threshold_percent Decimal @default(50.00) @db.Decimal(5, 2)
+
+  voting_opened_at DateTime?          @db.Timestamptz
+  voting_closed_at DateTime?          @db.Timestamptz
+  outcome          ResolutionOutcome?
+
+  votes ResolutionVote[]
+
+  @@unique([meeting_id, seq])
+  @@map("agenda_items")
+}
+
+model MeetingAttendee {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  meeting_id String  @db.Uuid
+  meeting    Meeting @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
+
+  unit_id String @db.Uuid
+  unit    Unit   @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+
+  /// Who answered or turned up on behalf of the flat.
+  user_id String? @db.Uuid
+  user    User?   @relation("MeetingAttendeeUser", fields: [user_id], references: [id])
+
+  rsvp        RsvpStatus?
+  attended    Boolean     @default(false)
+  marked_at   DateTime?   @db.Timestamptz
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  /// One record per flat: quorum counts flats, not heads.
+  @@unique([meeting_id, unit_id])
+  @@map("meeting_attendees")
+}
+
+model ResolutionVote {
+  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  agenda_item_id  String     @db.Uuid
+  agenda_item     AgendaItem @relation(fields: [agenda_item_id], references: [id], onDelete: Cascade)
+
+  unit_id String @db.Uuid
+  unit    Unit   @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+
+  /// Which occupant actually cast it, for the audit trail.
+  user_id String @db.Uuid
+  user    User   @relation("ResolutionVoteUser", fields: [user_id], references: [id])
+
+  choice  VoteChoice
+  cast_at DateTime   @default(now()) @db.Timestamptz
+
+  /// One vote per flat, enforced by the database. Two owners of the same unit
+  /// cannot vote twice, and a second attempt updates rather than duplicates.
+  @@unique([agenda_item_id, unit_id])
+  @@map("resolution_votes")
 }

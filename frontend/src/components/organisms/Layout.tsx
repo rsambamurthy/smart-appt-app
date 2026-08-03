@@ -82,6 +82,17 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
+    id: 'governance',
+    label: 'Governance',
+    icon: 'G',
+    roles: ['SUPER_USER', 'MANAGER', 'COMMITTEE'],
+    landingPath: '/governance/meetings',
+    items: [
+      { id: 'gov_meetings', label: 'Meetings',   path: '/governance/meetings', roles: ['SUPER_USER', 'MANAGER', 'COMMITTEE'], dot: '#7c3aed', end: true },
+      { id: 'gov_my',       label: 'My Meetings', path: '/meetings',           roles: ['SUPER_USER', 'MANAGER', 'COMMITTEE', 'TREASURER', 'RESIDENT'], dot: '#0891b2', end: true },
+    ],
+  },
+  {
     id: 'accounting',
     label: 'Accounting',
     icon: 'A',
@@ -177,6 +188,7 @@ function WebLayout({ children }: { children: React.ReactNode }) {
     'residents',   // Residents
     'documents',   // Documents
     'visitors',    // Visitors
+    'governance',  // Governance — meetings belong to one association
     'reports',     // Reports — insights describe one association's operations
   ];
 
@@ -186,7 +198,10 @@ function WebLayout({ children }: { children: React.ReactNode }) {
   // loss rather than a billing state.
   //
   // Presentation only: every one of these routes is enforced server-side.
-  const MODULE_GROUPS: Record<string, ModuleKey> = { accounting: 'ACCOUNTING' };
+  const MODULE_GROUPS: Record<string, ModuleKey> = {
+    accounting: 'ACCOUNTING',
+    governance: 'GOVERNANCE',
+  };
 
   // Build visible groups: group-level role gate removed so Super User can grant any item to any role
   const visibleGroups = NAV_GROUPS
