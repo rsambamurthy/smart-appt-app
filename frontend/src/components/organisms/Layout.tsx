@@ -91,6 +91,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'gov_meetings',   label: 'Meetings',   path: '/governance/meetings',   roles: ['SUPER_USER', 'MANAGER', 'COMMITTEE'], dot: '#7c3aed', end: true },
       { id: 'gov_committees', label: 'Committees', path: '/governance/committees', roles: ['SUPER_USER', 'MANAGER', 'COMMITTEE'], dot: '#c2410c', end: true },
       { id: 'gov_register',   label: 'Register of Members', path: '/governance/register', roles: ['SUPER_USER', 'MANAGER', 'COMMITTEE'], dot: '#15803d', end: true },
+      { id: 'gov_elections',  label: 'Elections',  path: '/governance/elections',  roles: ['SUPER_USER', 'MANAGER', 'COMMITTEE', 'TREASURER', 'RESIDENT'], dot: '#dc2626', end: true },
       { id: 'gov_my',       label: 'My Meetings', path: '/meetings',           roles: ['SUPER_USER', 'MANAGER', 'COMMITTEE', 'TREASURER', 'RESIDENT'], dot: '#0891b2', end: true },
     ],
   },

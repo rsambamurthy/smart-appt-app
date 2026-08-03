@@ -235,6 +235,7 @@ model Association {
   meetings            Meeting[]
   committees          Committee[]
   memberships         Membership[]
+  elections           Election[]
 
   @@map("associations")
 }
@@ -288,6 +289,8 @@ model Unit {
   meeting_attendees   MeetingAttendee[]
   resolution_votes    ResolutionVote[]
   memberships         Membership[]
+  election_candidates ElectionCandidate[]
+  election_roll       ElectionVoterRoll[]
 
   @@unique([association_id, flat_number])
   @@index([flat_number])
@@ -345,6 +348,8 @@ model User {
   resolution_votes    ResolutionVote[]     @relation("ResolutionVoteUser")
   committee_seats     CommitteeMember[]    @relation("CommitteeMemberUser")
   membership_holdings MembershipHolder[]   @relation("MembershipHolderUser")
+  elections_declared  Election[]           @relation("ElectionDeclaredBy")
+  candidacies         ElectionCandidate[]  @relation("ElectionCandidateUser")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
   invite_received     UserInvite?         @relation("InvitedUser")
@@ -1547,8 +1552,9 @@ model Committee {
   created_at DateTime @default(now()) @db.Timestamptz
   updated_at DateTime @updatedAt @db.Timestamptz
 
-  members  CommitteeMember[]
-  meetings Meeting[]
+  members   CommitteeMember[]
+  meetings  Meeting[]
+  elections Election[]
 
   @@unique([association_id, name])
   @@map("committees")
@@ -1689,4 +1695,146 @@ model MembershipNominee {
 
   @@index([membership_id])
   @@map("membership_nominees")
+}
+
+// ─── Committee elections ──────────────────────────────────────────────────────
+//
+// General seats, top N win. Nominations need a proposer and a seconder.
+// Declaring the result replaces the committee roster.
+//
+// SECRECY IS STRUCTURAL HERE, unlike resolution voting. The choices live on an
+// anonymous ballot paper; a separate voter roll records only that a flat has
+// voted. Nothing in the schema links the two. A resolution can be an open
+// vote and often should be; an election should not.
+
+enum ElectionStatus {
+  DRAFT
+  NOMINATIONS_OPEN
+  NOMINATIONS_CLOSED
+  VOTING_OPEN
+  VOTING_CLOSED
+  DECLARED
+  CANCELLED
+}
+
+enum NominationStatus {
+  PROPOSED   // awaiting a seconder
+  SECONDED   // awaiting the candidate's acceptance
+  ACCEPTED   // standing
+  WITHDRAWN  // stood down
+  REJECTED   // ruled ineligible by the organiser
+}
+
+model Election {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+
+  /// Which committee is being elected.
+  committee_id String    @db.Uuid
+  committee    Committee @relation(fields: [committee_id], references: [id], onDelete: Cascade)
+
+  title  String         @db.VarChar(200)
+  seats  Int            @db.SmallInt
+  status ElectionStatus @default(DRAFT)
+
+  term_starts_on DateTime @db.Date
+  term_ends_on   DateTime @db.Date
+
+  nominations_close_at DateTime? @db.Timestamptz
+  voting_closes_at     DateTime? @db.Timestamptz
+
+  declared_at   DateTime? @db.Timestamptz
+  declared_by_id String?  @db.Uuid
+  declared_by    User?    @relation("ElectionDeclaredBy", fields: [declared_by_id], references: [id])
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  candidates ElectionCandidate[]
+  ballots    ElectionBallot[]
+  roll       ElectionVoterRoll[]
+
+  @@index([association_id, status])
+  @@map("elections")
+}
+
+model ElectionCandidate {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  election_id String   @db.Uuid
+  election    Election @relation(fields: [election_id], references: [id], onDelete: Cascade)
+
+  /// The person standing. Must be a member of record when nominated —
+  /// eligibility is checked against the register, not against having an
+  /// account.
+  user_id String @db.Uuid
+  user    User   @relation("ElectionCandidateUser", fields: [user_id], references: [id], onDelete: Cascade)
+
+  /// Their flat, captured at nomination so the ballot still reads correctly if
+  /// they later move or transfer.
+  unit_id String @db.Uuid
+  unit    Unit   @relation(fields: [unit_id], references: [id])
+
+  status    NominationStatus @default(PROPOSED)
+  statement String?          @db.Text
+
+  /// Two other members must back a nomination before it stands.
+  proposed_by_unit_id String?  @db.Uuid
+  seconded_by_unit_id String?  @db.Uuid
+  seconded_at         DateTime? @db.Timestamptz
+  accepted_at         DateTime? @db.Timestamptz
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  choices ElectionBallotChoice[]
+
+  /// One nomination per person per election.
+  @@unique([election_id, user_id])
+  @@index([election_id, status])
+  @@map("election_candidates")
+}
+
+/// An anonymous ballot paper. Deliberately carries NO reference to the voter.
+model ElectionBallot {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  election_id String   @db.Uuid
+  election    Election @relation(fields: [election_id], references: [id], onDelete: Cascade)
+
+  cast_at DateTime @default(now()) @db.Timestamptz
+
+  choices ElectionBallotChoice[]
+
+  @@index([election_id])
+  @@map("election_ballots")
+}
+
+model ElectionBallotChoice {
+  id        String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ballot_id String            @db.Uuid
+  ballot    ElectionBallot    @relation(fields: [ballot_id], references: [id], onDelete: Cascade)
+
+  candidate_id String            @db.Uuid
+  candidate    ElectionCandidate @relation(fields: [candidate_id], references: [id], onDelete: Cascade)
+
+  /// A ballot cannot name the same candidate twice.
+  @@unique([ballot_id, candidate_id])
+  @@index([candidate_id])
+  @@map("election_ballot_choices")
+}
+
+/// Who has voted — and nothing about how. This is what stops a flat voting
+/// twice while keeping the ballot itself anonymous.
+model ElectionVoterRoll {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  election_id String   @db.Uuid
+  election    Election @relation(fields: [election_id], references: [id], onDelete: Cascade)
+
+  unit_id String @db.Uuid
+  unit    Unit   @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+
+  voted_at DateTime @default(now()) @db.Timestamptz
+
+  @@unique([election_id, unit_id])
+  @@map("election_voter_roll")
 }

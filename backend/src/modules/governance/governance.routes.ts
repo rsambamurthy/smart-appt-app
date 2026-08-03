@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   UserRole, ModuleKey, MeetingStatus, MeetingType, RsvpStatus, VoteChoice,
+  ElectionStatus,
 } from '@prisma/client';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
@@ -10,6 +11,7 @@ import { UnprocessableError, ForbiddenError } from '../../utils/errors';
 import { governanceService } from './governance.service';
 import { committeeService } from './committee.service';
 import { membershipService } from './membership.service';
+import { electionService } from './election.service';
 
 const router = Router();
 router.use(authenticate);
@@ -284,6 +286,111 @@ router.delete('/committees/:id/members/:userId', requireRoles(UserRole.MANAGER, 
   try {
     res.json(await committeeService.endMembership(
       req.user!.association_id, req.params['id'] as string, req.params['userId'] as string,
+    ));
+  } catch (err) { next(err); }
+});
+
+// ── Elections ─────────────────────────────────────────────────────────────────
+//
+// Readable by any signed-in member: standing, seconding and voting are all
+// things a member does. Running the election is organiser-only.
+
+router.get('/elections', async (req: AuthRequest, res, next) => {
+  try { res.json(await electionService.list(req.user!.association_id)); }
+  catch (err) { next(err); }
+});
+
+router.get('/elections/:id', async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await electionService.get(
+      req.user!.association_id, req.params['id'] as string, req.user!.unit_id ?? null,
+    ));
+  } catch (err) { next(err); }
+});
+
+router.post('/elections', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), async (req: AuthRequest, res, next) => {
+  try {
+    const { committee_id, title, seats, term_starts_on, term_ends_on } = req.body ?? {};
+    if (!committee_id)   throw new UnprocessableError('Which committee is being elected?');
+    if (!title?.trim())  throw new UnprocessableError('Give the election a title.');
+    if (!term_starts_on || !term_ends_on) throw new UnprocessableError('Set the term dates.');
+
+    res.status(201).json(await electionService.create(
+      req.user!.association_id, req.user!.id,
+      { committee_id, title, seats, term_starts_on, term_ends_on },
+    ));
+  } catch (err) { next(err); }
+});
+
+router.post('/elections/:id/status', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await electionService.setStatus(
+      req.user!.association_id, req.params['id'] as string,
+      enumOr(ElectionStatus, req.body?.status, 'status'), req.user!.id,
+    ));
+  } catch (err) { next(err); }
+});
+
+/** Declaring replaces the committee roster, so it is manager-only. */
+router.post('/elections/:id/declare', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await electionService.declare(
+      req.user!.association_id, req.params['id'] as string, req.user!.id,
+    ));
+  } catch (err) { next(err); }
+});
+
+// ── Nominations ───────────────────────────────────────────────────────────────
+
+/** A member proposes someone. Never their own flat. */
+router.post('/elections/:id/nominations', async (req: AuthRequest, res, next) => {
+  try {
+    if (!req.body?.user_id) throw new UnprocessableError('Who is being nominated?');
+    res.status(201).json(await electionService.propose(
+      req.user!.association_id, req.params['id'] as string,
+      requireUnit(req), req.body.user_id,
+    ));
+  } catch (err) { next(err); }
+});
+
+router.post('/nominations/:candidateId/second', async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await electionService.second(
+      req.user!.association_id, req.params['candidateId'] as string, requireUnit(req),
+    ));
+  } catch (err) { next(err); }
+});
+
+/** Only the candidate may accept. Nobody can be made to stand. */
+router.post('/nominations/:candidateId/accept', async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await electionService.accept(
+      req.user!.association_id, req.params['candidateId'] as string,
+      req.user!.id, req.body?.statement,
+    ));
+  } catch (err) { next(err); }
+});
+
+router.post('/nominations/:candidateId/withdraw', async (req: AuthRequest, res, next) => {
+  try {
+    const byOrganiser = req.user!.role === UserRole.MANAGER
+                     || req.user!.role === UserRole.SUPER_USER
+                     || req.user!.role === UserRole.COMMITTEE;
+    res.json(await electionService.withdraw(
+      req.user!.association_id, req.params['candidateId'] as string,
+      req.user!.id, byOrganiser && req.body?.as_organiser === true,
+    ));
+  } catch (err) { next(err); }
+});
+
+/** Cast the ballot. One per flat, anonymous, and final. */
+router.post('/elections/:id/ballot', async (req: AuthRequest, res, next) => {
+  try {
+    const ids = req.body?.candidate_ids;
+    if (!Array.isArray(ids)) throw new UnprocessableError('Choose your candidates.');
+    res.status(201).json(await electionService.castBallot(
+      req.user!.association_id, req.params['id'] as string,
+      requireUnit(req), req.user!.id, ids,
     ));
   } catch (err) { next(err); }
 });

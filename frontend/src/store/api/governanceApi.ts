@@ -149,8 +149,104 @@ export interface HolderInput {
   name: string; phone?: string; email?: string; user_id?: string | null;
 }
 
+export type ElectionStatus =
+  'DRAFT' | 'NOMINATIONS_OPEN' | 'NOMINATIONS_CLOSED'
+  | 'VOTING_OPEN' | 'VOTING_CLOSED' | 'DECLARED' | 'CANCELLED';
+
+export type NominationStatus = 'PROPOSED' | 'SECONDED' | 'ACCEPTED' | 'WITHDRAWN' | 'REJECTED';
+
+export interface Candidate {
+  id: string;
+  status: NominationStatus;
+  statement: string | null;
+  proposed_by_unit_id: string | null;
+  seconded_by_unit_id: string | null;
+  seconded_at: string | null;
+  accepted_at: string | null;
+  user: { id: string; name: string };
+  unit: { id: string; flat_number: string; block: string | null };
+  votes?: number;
+}
+
+export interface Election {
+  id: string;
+  title: string;
+  seats: number;
+  status: ElectionStatus;
+  term_starts_on: string;
+  term_ends_on: string;
+  nominations_close_at: string | null;
+  voting_closes_at: string | null;
+  declared_at: string | null;
+  committee: { id: string; name: string; is_managing: boolean };
+  _count?: { candidates: number; roll: number };
+}
+
+export interface ElectionDetail extends Election {
+  candidates: Candidate[];
+  turnout: { eligible: number; voted: number };
+  my_vote_cast: boolean;
+  results: {
+    standing: Candidate[];
+    elected: string[];
+    tied: boolean;
+    tie_at_votes: number | null;
+  } | null;
+}
+
 export const governanceApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
+
+    // ── Elections ─────────────────────────────────────────────────────────────
+    listElections: builder.query<{ data: Election[] }, void>({
+      query: () => '/governance/elections',
+      providesTags: ['Election'],
+    }),
+    getElection: builder.query<{ data: ElectionDetail }, string>({
+      query: (id) => `/governance/elections/${id}`,
+      providesTags: ['Election'],
+    }),
+    createElection: builder.mutation<{ data: Election }, {
+      committee_id: string; title: string; seats: number;
+      term_starts_on: string; term_ends_on: string;
+    }>({
+      query: (body) => ({ url: '/governance/elections', method: 'POST', body }),
+      invalidatesTags: ['Election'],
+    }),
+    setElectionStatus: builder.mutation<{ data: Election }, { id: string; status: ElectionStatus }>({
+      query: ({ id, status }) => ({ url: `/governance/elections/${id}/status`, method: 'POST', body: { status } }),
+      invalidatesTags: ['Election'],
+    }),
+    declareElection: builder.mutation<{ data: { roster_updated: boolean; tied: boolean } }, string>({
+      query: (id) => ({ url: `/governance/elections/${id}/declare`, method: 'POST' }),
+      invalidatesTags: ['Election', 'Committee'],
+    }),
+    proposeCandidate: builder.mutation<{ data: Candidate }, { id: string; user_id: string }>({
+      query: ({ id, user_id }) => ({ url: `/governance/elections/${id}/nominations`, method: 'POST', body: { user_id } }),
+      invalidatesTags: ['Election'],
+    }),
+    secondNomination: builder.mutation<{ data: Candidate }, string>({
+      query: (candidateId) => ({ url: `/governance/nominations/${candidateId}/second`, method: 'POST' }),
+      invalidatesTags: ['Election'],
+    }),
+    acceptNomination: builder.mutation<{ data: Candidate }, { candidateId: string; statement?: string }>({
+      query: ({ candidateId, statement }) => ({
+        url: `/governance/nominations/${candidateId}/accept`, method: 'POST', body: { statement },
+      }),
+      invalidatesTags: ['Election'],
+    }),
+    withdrawNomination: builder.mutation<{ data: Candidate }, { candidateId: string; as_organiser?: boolean }>({
+      query: ({ candidateId, as_organiser }) => ({
+        url: `/governance/nominations/${candidateId}/withdraw`, method: 'POST', body: { as_organiser },
+      }),
+      invalidatesTags: ['Election'],
+    }),
+    castBallot: builder.mutation<{ data: { cast: boolean } }, { id: string; candidate_ids: string[] }>({
+      query: ({ id, candidate_ids }) => ({
+        url: `/governance/elections/${id}/ballot`, method: 'POST', body: { candidate_ids },
+      }),
+      invalidatesTags: ['Election'],
+    }),
 
     // ── Register of members ───────────────────────────────────────────────────
     listRegister: builder.query<
@@ -341,6 +437,11 @@ export const governanceApi = baseApi.injectEndpoints({
 });
 
 export const {
+  useListElectionsQuery, useGetElectionQuery, useCreateElectionMutation,
+  useSetElectionStatusMutation, useDeclareElectionMutation,
+  useProposeCandidateMutation, useSecondNominationMutation,
+  useAcceptNominationMutation, useWithdrawNominationMutation,
+  useCastBallotMutation,
   useListRegisterQuery, useGetUnitRegisterQuery,
   useAdmitMemberMutation, useTransferMembershipMutation,
   useAddHolderMutation, useSetPrimaryHolderMutation, useRemoveHolderMutation,
