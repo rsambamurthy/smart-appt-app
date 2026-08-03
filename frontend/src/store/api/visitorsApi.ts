@@ -30,14 +30,22 @@ export interface GateBoard {
   awaiting: GateVisitor[];
   approved: GateVisitor[];
   inside:   GateVisitor[];
+  parcels:  GateVisitor[];
   counts: {
     awaiting:    number;
     approved:    number;
     inside:      number;
     today:       number;
     overstaying: number;
+    parcels:     number;
   };
 }
+
+// The couriers a guard sees most. "Other" lets them type anything else.
+export const DELIVERY_PROVIDERS = [
+  'Amazon', 'Flipkart', 'Swiggy', 'Zomato', 'Blinkit', 'Zepto',
+  'BigBasket', 'Dunzo', 'Courier', 'Other',
+];
 
 export const visitorsApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
@@ -64,6 +72,27 @@ export const visitorsApi = baseApi.injectEndpoints({
       providesTags: ['Visitor'],
     }),
 
+    logDelivery: builder.mutation<{ data: { id: string } }, {
+      unit_id: string; provider: string; courier_name?: string;
+      courier_phone?: string; handling: 'AT_GATE' | 'SENT_UP'; note?: string;
+    }>({
+      query: (body) => ({ url: '/visitors/delivery', method: 'POST', body }),
+      invalidatesTags: ['Visitor'],
+    }),
+    markParcelCollected: builder.mutation<{ data: unknown }, string>({
+      query: (id) => ({ url: `/visitors/${id}/collected`, method: 'POST' }),
+      invalidatesTags: ['Visitor'],
+    }),
+    // Multipart: the browser sets the boundary, so no Content-Type here.
+    uploadVisitorPhoto: builder.mutation<{ data: { size: number } }, { id: string; photo: Blob }>({
+      query: ({ id, photo }) => {
+        const form = new FormData();
+        form.append('photo', photo, 'gate-photo.jpg');
+        return { url: `/visitors/${id}/photo`, method: 'POST', body: form };
+      },
+      invalidatesTags: ['Visitor'],
+    }),
+
     // ── Resident ──────────────────────────────────────────────────────────────
     // Visitors waiting on this resident, and recently decided ones.
     getMyVisitorRequests: builder.query<{ data: { pending: GateVisitor[]; recent: GateVisitor[] } }, void>({
@@ -78,4 +107,5 @@ export const {
   useRecordEntryMutation, useRecordExitMutation, useGetGateLogQuery,
   useLookupQrQuery, useListFrequentVisitorsQuery, useAddFrequentVisitorMutation, useTriggerEmergencyMutation,
   useGetGateUnitsQuery, useGetGateBoardQuery, useGetMyVisitorRequestsQuery,
+  useLogDeliveryMutation, useMarkParcelCollectedMutation, useUploadVisitorPhotoMutation,
 } = visitorsApi;

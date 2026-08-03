@@ -491,12 +491,14 @@ export class VisitorsService {
           ...v,
           overstaying: v.entered_at ? v.entered_at < cutoff : false,
         })),
+        parcels,
         counts: {
           awaiting:    awaiting.length,
           approved:    approved.length,
           inside:      inside.length,
           today:       todayCount,
           overstaying: inside.filter(v => v.entered_at && v.entered_at < cutoff).length,
+          parcels:     parcels.length,
         },
       },
     };

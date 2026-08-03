@@ -1,10 +1,12 @@
-import { useState, useMemo, CSSProperties } from 'react';
+import { useState, useMemo, useRef, CSSProperties } from 'react';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
   useGetGateUnitsQuery, useGetGateBoardQuery,
   useLogWalkInMutation, useRecordEntryMutation, useRecordExitMutation,
-  useLookupQrQuery,
+  useLookupQrQuery, useLogDeliveryMutation, useMarkParcelCollectedMutation,
+  useUploadVisitorPhotoMutation,
+  DELIVERY_PROVIDERS,
   GateUnit, GateVisitor,
 } from '../../store/api/visitorsApi';
 
@@ -106,6 +108,22 @@ export default function GateDashboardPage() {
   const [qrToken, setQrToken] = useState('');
   const [msg, setMsg]         = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
+  // Visitor vs delivery. Deliveries skip approval entirely.
+  const [mode, setMode]         = useState<'VISITOR' | 'DELIVERY'>('VISITOR');
+  const [provider, setProvider] = useState('');
+  const [handling, setHandling] = useState<'AT_GATE' | 'SENT_UP'>('AT_GATE');
+
+  // Photo is captured before saving and uploaded once the visitor exists.
+  const [photo, setPhoto]       = useState<File | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
+
+  const takePhoto = (f: File | null) => {
+    if (photoUrl) URL.revokeObjectURL(photoUrl);
+    setPhoto(f);
+    setPhotoUrl(f ? URL.createObjectURL(f) : null);
+  };
+
   const { data: unitsData } = useGetGateUnitsQuery();
   // Polled rather than socket-driven: a gate phone drops connection constantly,
   // and a 15-second refresh is well within what this screen needs.
@@ -114,6 +132,9 @@ export default function GateDashboardPage() {
   const [logWalkIn,   { isLoading: logging }] = useLogWalkInMutation();
   const [recordEntry, { isLoading: entering }] = useRecordEntryMutation();
   const [recordExit,  { isLoading: exiting }]  = useRecordExitMutation();
+  const [logDelivery, { isLoading: delivering }] = useLogDeliveryMutation();
+  const [markCollected] = useMarkParcelCollectedMutation();
+  const [uploadPhoto]   = useUploadVisitorPhotoMutation();
   const { data: qrData } = useLookupQrQuery(qrToken, { skip: qrToken.trim().length < 6 });
 
   const units: GateUnit[] = unitsData?.data ?? [];
@@ -133,27 +154,78 @@ export default function GateDashboardPage() {
 
   const resetForm = () => {
     setUnitId(''); setSearch(''); setName(''); setPhone(''); setPurpose(''); setVehicle('');
+    setProvider(''); setHandling('AT_GATE'); takePhoto(null);
+    if (photoInput.current) photoInput.current.value = '';
+  };
+
+  // The photo can only be attached once the visitor row exists, so a failure
+  // here must not read as though the whole entry failed.
+  const sendPhoto = async (visitorId: string): Promise<string> => {
+    if (!photo) return '';
+    try {
+      await uploadPhoto({ id: visitorId, photo }).unwrap();
+      return ' Photo saved.';
+    } catch {
+      return ' (photo did not upload — the entry is still logged)';
+    }
   };
 
   const submitWalkIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setMsg(null);
-    if (!unitId)      { setMsg({ kind: 'err', text: 'Choose the flat being visited.' }); return; }
-    if (!name.trim()) { setMsg({ kind: 'err', text: "Enter the visitor's name." }); return; }
+    if (!unitId) { setMsg({ kind: 'err', text: 'Choose the flat.' }); return; }
+
     try {
-      await logWalkIn({
-        visitor_name:   name.trim(),
-        visitor_phone:  phone.trim() || undefined,
-        unit_id:        unitId,
-        purpose:        purpose.trim() || undefined,
-        vehicle_number: vehicle.trim() || undefined,
-      }).unwrap();
-      setMsg({ kind: 'ok', text: `${name.trim()} logged for flat ${selected?.flat_number}. Waiting for approval.` });
+      if (mode === 'DELIVERY') {
+        if (!provider) { setMsg({ kind: 'err', text: 'Choose the delivery company.' }); return; }
+        const res = await logDelivery({
+          unit_id:       unitId,
+          provider,
+          courier_name:  name.trim() || undefined,
+          courier_phone: phone.trim() || undefined,
+          handling,
+          note:          purpose.trim() || undefined,
+        }).unwrap();
+        const photoNote = await sendPhoto(res.data.id);
+        setMsg({
+          kind: 'ok',
+          text: handling === 'AT_GATE'
+            ? `${provider} parcel held at the gate for flat ${selected?.flat_number}. Resident notified.${photoNote}`
+            : `${provider} sent up to flat ${selected?.flat_number}.${photoNote}`,
+        });
+      } else {
+        if (!name.trim()) { setMsg({ kind: 'err', text: "Enter the visitor's name." }); return; }
+        const res = await logWalkIn({
+          visitor_name:   name.trim(),
+          visitor_phone:  phone.trim() || undefined,
+          unit_id:        unitId,
+          purpose:        purpose.trim() || undefined,
+          vehicle_number: vehicle.trim() || undefined,
+        }).unwrap();
+        const created = (res as { data?: { id?: string } }).data;
+        const photoNote = created?.id ? await sendPhoto(created.id) : '';
+        setMsg({
+          kind: 'ok',
+          text: `${name.trim()} logged for flat ${selected?.flat_number}. Waiting for approval.${photoNote}`,
+        });
+      }
       resetForm();
       refetch();
     } catch (err: unknown) {
       const e2 = err as { data?: { detail?: string; message?: string } };
-      setMsg({ kind: 'err', text: e2?.data?.detail ?? e2?.data?.message ?? 'Could not log the visitor.' });
+      setMsg({ kind: 'err', text: e2?.data?.detail ?? e2?.data?.message ?? 'Could not log this.' });
+    }
+  };
+
+  const doCollected = async (v: GateVisitor) => {
+    setMsg(null);
+    try {
+      await markCollected(v.id).unwrap();
+      setMsg({ kind: 'ok', text: `Parcel for flat ${flatLabel(v.unit)} collected.` });
+      refetch();
+    } catch (err: unknown) {
+      const e2 = err as { data?: { detail?: string; message?: string } };
+      setMsg({ kind: 'err', text: e2?.data?.detail ?? e2?.data?.message ?? 'Could not update the parcel.' });
     }
   };
 
@@ -196,6 +268,9 @@ export default function GateDashboardPage() {
             <Tile n={board.counts.awaiting} label="Awaiting"     color="#b45309" bg="#fffbeb" />
             <Tile n={board.counts.approved} label="Cleared"      color="#15803d" bg="#f0fdf4" />
             <Tile n={board.counts.today}    label="Today"        color="#475569" bg="#f8fafc" />
+            {board.counts.parcels > 0 && (
+              <Tile n={board.counts.parcels} label="Parcels" color="#c2410c" bg="#fff7ed" />
+            )}
             {board.counts.overstaying > 0 && (
               <Tile n={board.counts.overstaying} label="Overstaying" color="#dc2626" bg="#fef2f2" />
             )}
@@ -218,7 +293,24 @@ export default function GateDashboardPage() {
 
           {/* ── Log a walk-in ── */}
           <div style={{ ...card, flex: '1 1 340px' }}>
-            <div style={{ ...sectionHead, color: '#1e293b', background: '#f8fafc' }}>New visitor</div>
+            {/* Visitor or delivery. A delivery needs no approval, so the two
+                paths differ enough to be an explicit choice rather than a
+                guess from the purpose field. */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #f1f5f9' }}>
+              {(['VISITOR', 'DELIVERY'] as const).map(m => (
+                <button key={m} type="button"
+                  onClick={() => { setMode(m); setMsg(null); }}
+                  style={{
+                    flex: 1, padding: '13px 10px', border: 'none', cursor: 'pointer',
+                    fontSize: 14, fontWeight: mode === m ? 700 : 500, minHeight: 48,
+                    background: mode === m ? '#fff' : '#f8fafc',
+                    color:      mode === m ? '#1e293b' : '#64748b',
+                    borderBottom: mode === m ? '2px solid #2563eb' : '2px solid transparent',
+                  }}>
+                  {m === 'VISITOR' ? 'Visitor' : 'Delivery'}
+                </button>
+              ))}
+            </div>
             <form onSubmit={submitWalkIn} style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 13 }}>
 
               {/* Flat — searchable, never a raw id */}
@@ -280,9 +372,58 @@ export default function GateDashboardPage() {
                 )}
               </div>
 
+              {/* Delivery: company and what happened to the parcel */}
+              {mode === 'DELIVERY' && (
+                <>
+                  <div>
+                    <label style={label}>Delivery company *</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                      {DELIVERY_PROVIDERS.map(p => (
+                        <button key={p} type="button" onClick={() => setProvider(p)}
+                          style={{
+                            padding: '9px 14px', borderRadius: 99, cursor: 'pointer', fontSize: 13.5,
+                            minHeight: 40,
+                            fontWeight: provider === p ? 700 : 500,
+                            border: `1px solid ${provider === p ? '#2563eb' : '#cbd5e1'}`,
+                            background: provider === p ? '#eff6ff' : '#fff',
+                            color:      provider === p ? '#1d4ed8' : '#475569',
+                          }}>
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={label}>What happened to it *</label>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {([
+                        { id: 'AT_GATE', text: 'Left at gate' },
+                        { id: 'SENT_UP', text: 'Sent up to flat' },
+                      ] as const).map(h => (
+                        <button key={h.id} type="button" onClick={() => setHandling(h.id)}
+                          style={{
+                            flex: 1, padding: '11px 10px', borderRadius: 9, cursor: 'pointer',
+                            fontSize: 13.5, minHeight: 44,
+                            fontWeight: handling === h.id ? 700 : 500,
+                            border: `1px solid ${handling === h.id ? '#2563eb' : '#cbd5e1'}`,
+                            background: handling === h.id ? '#eff6ff' : '#fff',
+                            color:      handling === h.id ? '#1d4ed8' : '#475569',
+                          }}>
+                          {h.text}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
               <div>
-                <label style={label}>Visitor name *</label>
-                <input style={field} value={name} onChange={e => setName(e.target.value)} placeholder="Name" />
+                <label style={label}>
+                  {mode === 'DELIVERY' ? 'Courier name' : 'Visitor name *'}
+                </label>
+                <input style={field} value={name} onChange={e => setName(e.target.value)}
+                       placeholder={mode === 'DELIVERY' ? 'Optional' : 'Name'} />
               </div>
 
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -290,20 +431,55 @@ export default function GateDashboardPage() {
                   <label style={label}>Phone</label>
                   <input style={field} value={phone} onChange={e => setPhone(e.target.value)} inputMode="tel" placeholder="Optional" />
                 </div>
-                <div style={{ flex: '1 1 140px' }}>
-                  <label style={label}>Vehicle</label>
-                  <input style={field} value={vehicle} onChange={e => setVehicle(e.target.value)} placeholder="Optional" />
-                </div>
+                {mode === 'VISITOR' && (
+                  <div style={{ flex: '1 1 140px' }}>
+                    <label style={label}>Vehicle</label>
+                    <input style={field} value={vehicle} onChange={e => setVehicle(e.target.value)} placeholder="Optional" />
+                  </div>
+                )}
               </div>
 
               <div>
-                <label style={label}>Purpose</label>
-                <input style={field} value={purpose} onChange={e => setPurpose(e.target.value)} placeholder="Delivery, guest, service…" />
+                <label style={label}>{mode === 'DELIVERY' ? 'Note' : 'Purpose'}</label>
+                <input style={field} value={purpose} onChange={e => setPurpose(e.target.value)}
+                       placeholder={mode === 'DELIVERY' ? 'Two boxes, fragile…' : 'Guest, service, interview…'} />
               </div>
 
-              <button type="submit" disabled={logging}
-                style={{ ...bigBtn, background: '#2563eb', color: '#fff', opacity: logging ? 0.6 : 1 }}>
-                {logging ? 'Logging…' : 'Log visitor & notify resident'}
+              {/* Photo. capture="environment" opens the rear camera directly on
+                  a phone; on a desktop it falls back to a file picker. */}
+              <div>
+                <label style={label}>Photo</label>
+                {photoUrl ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <img src={photoUrl} alt="Captured"
+                         style={{ width: 68, height: 68, objectFit: 'cover', borderRadius: 9, border: '1px solid #cbd5e1' }} />
+                    <button type="button"
+                      onClick={() => { takePhoto(null); if (photoInput.current) photoInput.current.value = ''; }}
+                      style={{ ...bigBtn, background: '#fff', color: '#dc2626', border: '1px solid #fecaca', padding: '9px 16px' }}>
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => photoInput.current?.click()}
+                    style={{ ...bigBtn, width: '100%', background: '#fff', color: '#475569', border: '1px dashed #cbd5e1' }}>
+                    Take photo (optional)
+                  </button>
+                )}
+                <input
+                  ref={photoInput}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={e => takePhoto(e.target.files?.[0] ?? null)}
+                  style={{ display: 'none' }}
+                />
+              </div>
+
+              <button type="submit" disabled={logging || delivering}
+                style={{ ...bigBtn, background: '#2563eb', color: '#fff', opacity: (logging || delivering) ? 0.6 : 1 }}>
+                {logging || delivering
+                  ? 'Saving…'
+                  : mode === 'DELIVERY' ? 'Log delivery & notify resident' : 'Log visitor & notify resident'}
               </button>
             </form>
 
@@ -365,6 +541,23 @@ export default function GateDashboardPage() {
                 } />
               ))}
             </div>
+
+            {/* Parcels held at the gate */}
+            {!!board?.parcels.length && (
+              <div style={card}>
+                <div style={{ ...sectionHead, color: '#c2410c', background: '#fff7ed' }}>
+                  Parcels at gate ({board.parcels.length})
+                </div>
+                {board.parcels.map(v => (
+                  <VisitorRow key={v.id} v={v} action={
+                    <button onClick={() => doCollected(v)}
+                      style={{ ...bigBtn, background: '#c2410c', color: '#fff', padding: '9px 16px' }}>
+                      Collected
+                    </button>
+                  } />
+                ))}
+              </div>
+            )}
 
             {/* Awaiting the resident */}
             <div style={card}>

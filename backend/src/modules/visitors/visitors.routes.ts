@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { UserRole } from '@prisma/client';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
@@ -9,6 +10,13 @@ import { AuthRequest } from '../../types';
 
 const router = Router();
 router.use(authenticate);
+
+// Gate photos come straight off a phone camera. 5 MB is generous for a single
+// snap and keeps a mis-selected video out of the database.
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits:  { fileSize: 5 * 1024 * 1024, files: 1 },
+});
 
 // All authenticated users can pre-approve visitors (mobile — no role difference)
 router.post('/preapprove', async (req: AuthRequest, res, next) => {
@@ -73,6 +81,45 @@ router.get('/gate/units', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), a
 router.get('/gate/board', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
   try { res.json(await visitorsService.getGateBoard(req.user!.association_id)); }
   catch (err) { next(err); }
+});
+
+// ── Deliveries ────────────────────────────────────────────────────────────────
+router.post('/delivery', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
+  try {
+    const { unit_id, provider, handling } = req.body ?? {};
+    if (!unit_id)  throw new UnprocessableError('Choose the flat the delivery is for.');
+    if (!provider) throw new UnprocessableError('Choose the delivery company.');
+    if (handling !== 'AT_GATE' && handling !== 'SENT_UP') {
+      throw new UnprocessableError('handling must be AT_GATE or SENT_UP.');
+    }
+    res.status(201).json(await visitorsService.logDelivery(req.user!.association_id, req.user!.id, req.body));
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/collected', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
+  try { res.json(await visitorsService.markDeliveryCollected(req.user!.association_id, req.params['id'] as string)); }
+  catch (err) { next(err); }
+});
+
+// ── Visitor photo ─────────────────────────────────────────────────────────────
+router.post('/:id/photo', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), photoUpload.single('photo'), async (req: AuthRequest, res, next) => {
+  try {
+    const file = (req as never as { file?: { buffer: Buffer; mimetype: string } }).file;
+    if (!file) throw new UnprocessableError('No photo was uploaded.');
+    res.json(await visitorsService.attachPhoto(req.user!.association_id, req.params['id'] as string, file));
+  } catch (err) { next(err); }
+});
+
+// Readable by staff and by residents (their own flat's visitors are shown in
+// the app). Bytes are streamed straight out; they never appear in a list.
+router.get('/:id/photo', async (req: AuthRequest, res, next) => {
+  try {
+    const v = await visitorsService.getPhoto(req.user!.association_id, req.params['id'] as string);
+    res.setHeader('Content-Type', v.photo_mime ?? 'image/jpeg');
+    res.setHeader('Content-Length', v.photo_data!.length);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.end(v.photo_data);
+  } catch (err) { next(err); }
 });
 
 router.post('/emergency', requireRoles(UserRole.GATE_STAFF), async (req: AuthRequest, res, next) => {
