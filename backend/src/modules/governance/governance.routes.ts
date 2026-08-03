@@ -9,6 +9,7 @@ import { AuthRequest } from '../../types';
 import { UnprocessableError, ForbiddenError } from '../../utils/errors';
 import { governanceService } from './governance.service';
 import { committeeService } from './committee.service';
+import { membershipService } from './membership.service';
 
 const router = Router();
 router.use(authenticate);
@@ -283,6 +284,105 @@ router.delete('/committees/:id/members/:userId', requireRoles(UserRole.MANAGER, 
   try {
     res.json(await committeeService.endMembership(
       req.user!.association_id, req.params['id'] as string, req.params['userId'] as string,
+    ));
+  } catch (err) { next(err); }
+});
+
+// ── Register of members ───────────────────────────────────────────────────────
+//
+// Readable by organisers. The register names people who may have no account
+// and records nominees, so it is not resident-facing: a member sees their own
+// standing through their flat, not by browsing everyone else's.
+//
+// Editing is manager-only. Membership is a legal record, not an operational
+// one — a committee member should not be able to change who owns a flat.
+
+const registrar = [UserRole.MANAGER, UserRole.SUPER_USER];
+
+router.get('/register', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await membershipService.list(req.user!.association_id, {
+      q:        req.query['q'] as string,
+      gapsOnly: req.query['gaps'] === 'true',
+    }));
+  } catch (err) { next(err); }
+});
+
+router.get('/register/units/:unitId', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await membershipService.getForUnit(
+      req.user!.association_id, req.params['unitId'] as string,
+    ));
+  } catch (err) { next(err); }
+});
+
+/** Admit a member to a flat that has none. */
+router.post('/register/units/:unitId', requireRoles(...registrar), async (req: AuthRequest, res, next) => {
+  try {
+    res.status(201).json(await membershipService.admit(
+      req.user!.association_id, req.params['unitId'] as string, req.user!.id, req.body ?? {},
+    ));
+  } catch (err) { next(err); }
+});
+
+/** Transfer: closes the outgoing membership and opens the incoming one. */
+router.post('/register/units/:unitId/transfer', requireRoles(...registrar), async (req: AuthRequest, res, next) => {
+  try {
+    res.status(201).json(await membershipService.transfer(
+      req.user!.association_id, req.params['unitId'] as string, req.user!.id, req.body ?? {},
+    ));
+  } catch (err) { next(err); }
+});
+
+router.patch('/register/:membershipId', requireRoles(...registrar), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await membershipService.update(
+      req.user!.association_id, req.params['membershipId'] as string, req.body ?? {},
+    ));
+  } catch (err) { next(err); }
+});
+
+// ── Holders ───────────────────────────────────────────────────────────────────
+
+router.post('/register/:membershipId/holders', requireRoles(...registrar), async (req: AuthRequest, res, next) => {
+  try {
+    res.status(201).json(await membershipService.addHolder(
+      req.user!.association_id, req.params['membershipId'] as string, req.body ?? {},
+    ));
+  } catch (err) { next(err); }
+});
+
+/** Move the vote to a different joint holder. */
+router.post('/register/:membershipId/holders/:holderId/primary', requireRoles(...registrar), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await membershipService.setPrimary(
+      req.user!.association_id, req.params['membershipId'] as string, req.params['holderId'] as string,
+    ));
+  } catch (err) { next(err); }
+});
+
+router.delete('/register/:membershipId/holders/:holderId', requireRoles(...registrar), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await membershipService.removeHolder(
+      req.user!.association_id, req.params['membershipId'] as string, req.params['holderId'] as string,
+    ));
+  } catch (err) { next(err); }
+});
+
+// ── Nominees ──────────────────────────────────────────────────────────────────
+
+router.post('/register/:membershipId/nominees', requireRoles(...registrar), async (req: AuthRequest, res, next) => {
+  try {
+    res.status(201).json(await membershipService.addNominee(
+      req.user!.association_id, req.params['membershipId'] as string, req.body ?? {},
+    ));
+  } catch (err) { next(err); }
+});
+
+router.delete('/register/:membershipId/nominees/:nomineeId', requireRoles(...registrar), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await membershipService.removeNominee(
+      req.user!.association_id, req.params['membershipId'] as string, req.params['nomineeId'] as string,
     ));
   } catch (err) { next(err); }
 });

@@ -43,6 +43,7 @@ import AssociationDetailPage from './pages/admin/AssociationDetailPage';
 import SubscriptionsPage from './pages/admin/SubscriptionsPage';
 import MeetingsPage from './pages/governance/MeetingsPage';
 import CommitteesPage from './pages/governance/CommitteesPage';
+import RegisterPage from './pages/governance/RegisterPage';
 import MeetingDetailPage from './pages/governance/MeetingDetailPage';
 import MyMeetingsPage from './pages/governance/MyMeetingsPage';
 import OneTimeDuesPage from './pages/dues/OneTimeDuesPage';
@@ -163,6 +164,7 @@ export default function App() {
         {!IS_NATIVE && <Route path="/governance/meetings" element={<RoleRoute roles={['MANAGER', 'COMMITTEE', 'SUPER_USER']}><MeetingsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/governance/meetings/:id" element={<RoleRoute roles={['MANAGER', 'COMMITTEE', 'SUPER_USER']}><MeetingDetailPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/governance/committees" element={<RoleRoute roles={['MANAGER', 'COMMITTEE', 'SUPER_USER']}><CommitteesPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/governance/register" element={<RoleRoute roles={['MANAGER', 'COMMITTEE', 'SUPER_USER']}><RegisterPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/meetings" element={<ProtectedRoute><MyMeetingsPage /></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/admin/menu-config"    element={<RoleRoute roles={['SUPER_USER']}><MenuConfigPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/admin/mobile-config" element={<RoleRoute roles={['SUPER_USER']}><MobileConfigPage /></RoleRoute>} />}

@@ -102,8 +102,126 @@ export interface CommitteeMemberRow {
   via?: string;
 }
 
+export interface RegisterUnitRow {
+  unit_id: string;
+  flat_number: string;
+  block: string | null;
+  member_no: number | null;
+  admitted_on: string | null;
+  member_name: string | null;
+  joint_count: number;
+  has_member: boolean;
+}
+
+export interface Holder {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  user_id: string | null;
+  is_primary: boolean;
+}
+
+export interface Nominee {
+  id: string;
+  name: string;
+  relationship: string | null;
+  share_percent: string | null;
+  recorded_on: string;
+}
+
+export interface Membership {
+  id: string;
+  member_no: number;
+  admitted_on: string;
+  ceased_on: string | null;
+  cessation_reason: string | null;
+  status: 'ACTIVE' | 'CEASED';
+  share_percent: string | null;
+  deed_reference: string | null;
+  notes: string | null;
+  preceded_by_id: string | null;
+  holders: Holder[];
+  nominees: Nominee[];
+}
+
+export interface HolderInput {
+  name: string; phone?: string; email?: string; user_id?: string | null;
+}
+
 export const governanceApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
+
+    // ── Register of members ───────────────────────────────────────────────────
+    listRegister: builder.query<
+      { data: RegisterUnitRow[]; gaps: number; total: number },
+      { q?: string; gaps?: boolean } | void
+    >({
+      query: (args) => ({ url: '/governance/register', params: {
+        q: args?.q || undefined, gaps: args?.gaps ? 'true' : undefined,
+      } }),
+      providesTags: ['Membership'],
+    }),
+    getUnitRegister: builder.query<{ data: {
+      unit: { id: string; flat_number: string; block: string | null; area_sqft: string | null };
+      current: Membership | null;
+      history: Membership[];
+    } }, string>({
+      query: (unitId) => `/governance/register/units/${unitId}`,
+      providesTags: ['Membership'],
+    }),
+    admitMember: builder.mutation<{ data: Membership }, {
+      unitId: string; admitted_on: string; holders: HolderInput[];
+      primary_index?: number; share_percent?: number | null;
+      deed_reference?: string | null; notes?: string | null;
+    }>({
+      query: ({ unitId, ...body }) => ({
+        url: `/governance/register/units/${unitId}`, method: 'POST', body,
+      }),
+      invalidatesTags: ['Membership'],
+    }),
+    transferMembership: builder.mutation<{ data: Membership }, {
+      unitId: string; transferred_on: string; holders: HolderInput[];
+      primary_index?: number; cessation_reason?: string;
+      share_percent?: number | null; deed_reference?: string | null;
+    }>({
+      query: ({ unitId, ...body }) => ({
+        url: `/governance/register/units/${unitId}/transfer`, method: 'POST', body,
+      }),
+      invalidatesTags: ['Membership'],
+    }),
+    addHolder: builder.mutation<{ data: Membership }, { membershipId: string } & HolderInput>({
+      query: ({ membershipId, ...body }) => ({
+        url: `/governance/register/${membershipId}/holders`, method: 'POST', body,
+      }),
+      invalidatesTags: ['Membership'],
+    }),
+    setPrimaryHolder: builder.mutation<{ data: Membership }, { membershipId: string; holderId: string }>({
+      query: ({ membershipId, holderId }) => ({
+        url: `/governance/register/${membershipId}/holders/${holderId}/primary`, method: 'POST',
+      }),
+      invalidatesTags: ['Membership'],
+    }),
+    removeHolder: builder.mutation<{ data: Membership }, { membershipId: string; holderId: string }>({
+      query: ({ membershipId, holderId }) => ({
+        url: `/governance/register/${membershipId}/holders/${holderId}`, method: 'DELETE',
+      }),
+      invalidatesTags: ['Membership'],
+    }),
+    addNominee: builder.mutation<{ data: Membership }, {
+      membershipId: string; name: string; relationship?: string; share_percent?: number | null;
+    }>({
+      query: ({ membershipId, ...body }) => ({
+        url: `/governance/register/${membershipId}/nominees`, method: 'POST', body,
+      }),
+      invalidatesTags: ['Membership'],
+    }),
+    removeNominee: builder.mutation<{ data: Membership }, { membershipId: string; nomineeId: string }>({
+      query: ({ membershipId, nomineeId }) => ({
+        url: `/governance/register/${membershipId}/nominees/${nomineeId}`, method: 'DELETE',
+      }),
+      invalidatesTags: ['Membership'],
+    }),
 
     // ── Committees ────────────────────────────────────────────────────────────
     listCommittees: builder.query<{ data: Committee[] }, void>({
@@ -223,6 +341,10 @@ export const governanceApi = baseApi.injectEndpoints({
 });
 
 export const {
+  useListRegisterQuery, useGetUnitRegisterQuery,
+  useAdmitMemberMutation, useTransferMembershipMutation,
+  useAddHolderMutation, useSetPrimaryHolderMutation, useRemoveHolderMutation,
+  useAddNomineeMutation, useRemoveNomineeMutation,
   useListCommitteesQuery, useListCommitteeMembersQuery,
   useCreateCommitteeMutation, useUpdateCommitteeMutation,
   useAddCommitteeMemberMutation, useRemoveCommitteeMemberMutation,

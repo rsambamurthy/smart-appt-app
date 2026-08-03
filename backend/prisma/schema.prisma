@@ -234,6 +234,7 @@ model Association {
   governance_config   GovernanceConfig?
   meetings            Meeting[]
   committees          Committee[]
+  memberships         Membership[]
 
   @@map("associations")
 }
@@ -286,6 +287,7 @@ model Unit {
   business_partners   BusinessPartner[]
   meeting_attendees   MeetingAttendee[]
   resolution_votes    ResolutionVote[]
+  memberships         Membership[]
 
   @@unique([association_id, flat_number])
   @@index([flat_number])
@@ -342,6 +344,7 @@ model User {
   meeting_attendance  MeetingAttendee[]    @relation("MeetingAttendeeUser")
   resolution_votes    ResolutionVote[]     @relation("ResolutionVoteUser")
   committee_seats     CommitteeMember[]    @relation("CommitteeMemberUser")
+  membership_holdings MembershipHolder[]   @relation("MembershipHolderUser")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
   invite_received     UserInvite?         @relation("InvitedUser")
@@ -1575,4 +1578,115 @@ model CommitteeMember {
   @@unique([committee_id, user_id])
   @@index([committee_id, ended_on])
   @@map("committee_members")
+}
+
+// ─── Register of members ──────────────────────────────────────────────────────
+//
+// A MEMBER IS NOT A USER. A user is a login; a member is the person holding
+// membership rights in respect of a flat. The two overlap but neither implies
+// the other:
+//
+//   - a joint holder or a nominee may never open the app;
+//   - a tenant may hold an account and no membership;
+//   - a member who sells stays on the register with a cessation date, because
+//     a register that forgets former members is not a register.
+//
+// This is the statutory record. Once it exists it governs who votes at a
+// general body meeting — the register is the authority, not the flat.
+
+enum MembershipStatus {
+  ACTIVE
+  CEASED
+}
+
+model Membership {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+
+  unit_id String @db.Uuid
+  unit    Unit   @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+
+  /// Sequential per association, in order of admission. Allocated by the
+  /// service under a transaction, not by a database sequence, because a
+  /// sequence would leave gaps on any rolled-back insert and a register with
+  /// unexplained gaps invites exactly the questions it exists to answer.
+  member_no Int
+
+  admitted_on      DateTime         @db.Date
+  ceased_on        DateTime?        @db.Date
+  cessation_reason String?          @db.VarChar(200)
+  status           MembershipStatus @default(ACTIVE)
+
+  /// Undivided share in the common property. Recorded now so share-weighted
+  /// voting can be switched on later without revisiting every register.
+  share_percent Decimal? @db.Decimal(7, 4)
+
+  /// Sale deed, gift deed, succession certificate — whatever conferred it.
+  deed_reference String? @db.VarChar(120)
+  notes          String? @db.Text
+
+  /// The membership this one succeeded, forming the chain of title for a flat.
+  preceded_by_id String?     @db.Uuid
+  preceded_by    Membership? @relation("MembershipChain", fields: [preceded_by_id], references: [id])
+  succeeded_by   Membership[] @relation("MembershipChain")
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  holders  MembershipHolder[]
+  nominees MembershipNominee[]
+
+  @@unique([association_id, member_no])
+  @@index([association_id, status])
+  @@index([unit_id, status])
+  @@map("memberships")
+}
+
+model MembershipHolder {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  membership_id String     @db.Uuid
+  membership    Membership @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+
+  /// Held as text, not a foreign key to User. Many holders never have an
+  /// account, and the register must still name them.
+  name  String  @db.VarChar(200)
+  phone String? @db.VarChar(20)
+  email String? @db.VarChar(255)
+
+  /// Linked account, when there is one. This is what lets someone vote in the
+  /// app; a holder without it votes in person and is marked present by the
+  /// committee.
+  user_id String? @db.Uuid
+  user    User?   @relation("MembershipHolderUser", fields: [user_id], references: [id], onDelete: SetNull)
+
+  /// Exactly one holder per membership carries the vote. Joint holders are
+  /// members in full, but a flat still has one vote.
+  is_primary Boolean @default(false)
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  @@index([membership_id])
+  @@index([user_id])
+  @@map("membership_holders")
+}
+
+model MembershipNominee {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  membership_id String     @db.Uuid
+  membership    Membership @relation(fields: [membership_id], references: [id], onDelete: Cascade)
+
+  name         String  @db.VarChar(200)
+  relationship String? @db.VarChar(60)
+  /// Where a member nominates more than one person, in stated proportions.
+  share_percent Decimal? @db.Decimal(7, 4)
+
+  recorded_on DateTime @default(now()) @db.Date
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  @@index([membership_id])
+  @@map("membership_nominees")
 }

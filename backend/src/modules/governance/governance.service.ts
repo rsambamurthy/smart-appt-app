@@ -8,6 +8,7 @@ import {
 } from '../../utils/errors';
 import { notificationService } from '../../services/notification.service';
 import { committeeService } from './committee.service';
+import { membershipService } from './membership.service';
 import { auditService } from '../../services/audit.service';
 import logger from '../../utils/logger';
 
@@ -779,12 +780,27 @@ export class GovernanceService {
       return { data: vote };
     }
 
-    // General body: the vote belongs to the FLAT. A second occupant of the
-    // same flat changes it rather than adding to it.
+    // General body: the vote belongs to the FLAT — one vote, whoever casts it.
     if (!unitId) {
       throw new UnprocessableError(
         'Voting in a general body meeting is by flat, and your account is not ' +
         'linked to one. Ask your manager to link it.',
+      );
+    }
+
+    // WHO may cast it comes from the register. A flat still has exactly one
+    // vote; this decides whose it is. Before the register existed, whichever
+    // occupant opened the app first spoke for the flat and nobody could undo
+    // it — including the owner.
+    //
+    // A flat with no membership recorded, or whose member has no app account,
+    // returns null. They are not blocked from the meeting: they attend and are
+    // marked present, and the vote is taken in the room.
+    const voter = await membershipService.voterFor(associationId, unitId);
+    if (voter && voter !== userId) {
+      throw new ForbiddenError(
+        'Your flat\'s vote is cast by the member on the register. ' +
+        'Ask them to vote, or ask the manager to change who holds the vote for your flat.',
       );
     }
 
