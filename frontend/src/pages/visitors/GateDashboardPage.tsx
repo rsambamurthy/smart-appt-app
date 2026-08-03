@@ -1,72 +1,391 @@
-import { useState, useEffect } from 'react';
-import { io } from 'socket.io-client';
+import { useState, useMemo, CSSProperties } from 'react';
 import Layout from '../../components/organisms/Layout';
-import { useLogWalkInMutation, useApproveVisitorMutation, useLookupQrQuery } from '../../store/api/visitorsApi';
+import PageSubHeader from '../../components/molecules/PageSubHeader';
+import {
+  useGetGateUnitsQuery, useGetGateBoardQuery,
+  useLogWalkInMutation, useRecordEntryMutation, useRecordExitMutation,
+  useLookupQrQuery,
+  GateUnit, GateVisitor,
+} from '../../store/api/visitorsApi';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const flatLabel = (u: { flat_number: string; block: string | null } | null) =>
+  !u ? '—' : u.block ? `${u.flat_number} · ${u.block}` : u.flat_number;
+
+function timeOnly(iso: string | null) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}
+
+// "2h 15m" — a guard reads elapsed time faster than a timestamp.
+function elapsed(iso: string | null) {
+  if (!iso) return '';
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  return `${h}h ${mins % 60}m`;
+}
+
+// ── Shared styles ─────────────────────────────────────────────────────────────
+// Touch targets are deliberately large: this is used one-handed on a phone at a
+// gate, often in poor light.
+
+const card: CSSProperties = {
+  background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden',
+};
+const sectionHead: CSSProperties = {
+  padding: '11px 16px', borderBottom: '1px solid #f1f5f9',
+  fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+};
+const bigBtn: CSSProperties = {
+  padding: '11px 18px', borderRadius: 9, border: 'none', cursor: 'pointer',
+  fontSize: 14, fontWeight: 600, minHeight: 44,
+};
+const field: CSSProperties = {
+  width: '100%', padding: '11px 12px', border: '1px solid #cbd5e1', borderRadius: 9,
+  fontSize: 15, color: '#1e293b', background: '#fff', outline: 'none', minHeight: 44,
+  boxSizing: 'border-box',
+};
+const label: CSSProperties = {
+  fontSize: 11.5, fontWeight: 600, color: '#64748b', textTransform: 'uppercase',
+  letterSpacing: '0.04em', display: 'block', marginBottom: 5,
+};
+
+// ── Count tile ────────────────────────────────────────────────────────────────
+function Tile({ n, label: text, color, bg }: { n: number; label: string; color: string; bg: string }) {
+  return (
+    <div style={{ flex: '1 1 90px', background: bg, borderRadius: 10, padding: '10px 12px' }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color, lineHeight: 1.1 }}>{n}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', marginTop: 2 }}>{text}</div>
+    </div>
+  );
+}
+
+// ── Visitor row ───────────────────────────────────────────────────────────────
+function VisitorRow({ v, action }: { v: GateVisitor; action?: React.ReactNode }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px',
+      borderBottom: '1px solid #f8fafc', flexWrap: 'wrap',
+    }}>
+      <div style={{ flex: '1 1 180px', minWidth: 0 }}>
+        <div style={{ fontSize: 14.5, fontWeight: 600, color: '#1e293b' }}>
+          {v.visitor_name}
+          {v.overstaying && (
+            <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: '#dc2626', background: '#fef2f2', padding: '2px 7px', borderRadius: 99 }}>
+              overstaying
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 2 }}>
+          Flat {flatLabel(v.unit)}
+          {v.purpose && ` · ${v.purpose}`}
+          {v.vehicle_number && ` · ${v.vehicle_number}`}
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'right', whiteSpace: 'nowrap' }}>
+        {v.entered_at
+          ? <>in {timeOnly(v.entered_at)}<br /><span style={{ fontWeight: 600, color: '#475569' }}>{elapsed(v.entered_at)}</span></>
+          : v.expected_at ? `expected ${timeOnly(v.expected_at)}` : timeOnly(v.created_at)}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function GateDashboardPage() {
-  const [tab, setTab] = useState<'walkin' | 'qr'>('walkin');
-  const [form, setForm] = useState({ visitor_name: '', visitor_phone: '', unit_id: '', purpose: '', vehicle_number: '' });
+  const [search, setSearch]   = useState('');
+  const [unitId, setUnitId]   = useState('');
+  const [name, setName]       = useState('');
+  const [phone, setPhone]     = useState('');
+  const [purpose, setPurpose] = useState('');
+  const [vehicle, setVehicle] = useState('');
   const [qrToken, setQrToken] = useState('');
-  const [pendingVisitor, setPendingVisitor] = useState<Record<string, unknown> | null>(null);
-  const [logWalkIn, { isLoading }] = useLogWalkInMutation();
-  const [approveVisitor] = useApproveVisitorMutation();
-  const { data: qrData } = useLookupQrQuery(qrToken, { skip: qrToken.length < 10 });
+  const [msg, setMsg]         = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
 
-  useEffect(() => {
-    const socket = io('/', { auth: { token: sessionStorage.getItem('access_token') } });
-    socket.emit('join:gate', 'assoc_id_placeholder');
-    socket.on('visitor:walkin', (data: Record<string, unknown>) => setPendingVisitor(data));
-    socket.on('visitor:decision', () => setPendingVisitor(null));
-    return () => { socket.disconnect(); };
-  }, []);
+  const { data: unitsData } = useGetGateUnitsQuery();
+  // Polled rather than socket-driven: a gate phone drops connection constantly,
+  // and a 15-second refresh is well within what this screen needs.
+  const { data: boardData, refetch } = useGetGateBoardQuery(undefined, { pollingInterval: 15000 });
 
-  const handleWalkIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await logWalkIn(form).unwrap();
-    setForm({ visitor_name: '', visitor_phone: '', unit_id: '', purpose: '', vehicle_number: '' });
+  const [logWalkIn,   { isLoading: logging }] = useLogWalkInMutation();
+  const [recordEntry, { isLoading: entering }] = useRecordEntryMutation();
+  const [recordExit,  { isLoading: exiting }]  = useRecordExitMutation();
+  const { data: qrData } = useLookupQrQuery(qrToken, { skip: qrToken.trim().length < 6 });
+
+  const units: GateUnit[] = unitsData?.data ?? [];
+  const board = boardData?.data;
+
+  const matches = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return [];
+    return units.filter(u =>
+      u.flat_number.toLowerCase().includes(q) ||
+      (u.block ?? '').toLowerCase().includes(q) ||
+      (u.primary_contact ?? '').toLowerCase().includes(q),
+    ).slice(0, 8);
+  }, [search, units]);
+
+  const selected = units.find(u => u.id === unitId) ?? null;
+
+  const resetForm = () => {
+    setUnitId(''); setSearch(''); setName(''); setPhone(''); setPurpose(''); setVehicle('');
   };
+
+  const submitWalkIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMsg(null);
+    if (!unitId)      { setMsg({ kind: 'err', text: 'Choose the flat being visited.' }); return; }
+    if (!name.trim()) { setMsg({ kind: 'err', text: "Enter the visitor's name." }); return; }
+    try {
+      await logWalkIn({
+        visitor_name:   name.trim(),
+        visitor_phone:  phone.trim() || undefined,
+        unit_id:        unitId,
+        purpose:        purpose.trim() || undefined,
+        vehicle_number: vehicle.trim() || undefined,
+      }).unwrap();
+      setMsg({ kind: 'ok', text: `${name.trim()} logged for flat ${selected?.flat_number}. Waiting for approval.` });
+      resetForm();
+      refetch();
+    } catch (err: unknown) {
+      const e2 = err as { data?: { detail?: string; message?: string } };
+      setMsg({ kind: 'err', text: e2?.data?.detail ?? e2?.data?.message ?? 'Could not log the visitor.' });
+    }
+  };
+
+  const doEntry = async (v: GateVisitor) => {
+    setMsg(null);
+    try {
+      await recordEntry(v.id).unwrap();
+      setMsg({ kind: 'ok', text: `${v.visitor_name} entered.` });
+      refetch();
+    } catch (err: unknown) {
+      const e2 = err as { data?: { detail?: string; message?: string } };
+      setMsg({ kind: 'err', text: e2?.data?.detail ?? e2?.data?.message ?? 'Could not record entry.' });
+    }
+  };
+
+  const doExit = async (v: GateVisitor) => {
+    setMsg(null);
+    try {
+      await recordExit(v.id).unwrap();
+      setMsg({ kind: 'ok', text: `${v.visitor_name} exited.` });
+      refetch();
+    } catch (err: unknown) {
+      const e2 = err as { data?: { detail?: string; message?: string } };
+      setMsg({ kind: 'err', text: e2?.data?.detail ?? e2?.data?.message ?? 'Could not record exit.' });
+    }
+  };
+
+  const qrVisitor = qrData?.data as GateVisitor | undefined;
 
   return (
     <Layout>
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>Gate Dashboard</h1>
-        {pendingVisitor && <div className="badge badge-yellow" style={{ animation: 'pulse 1s infinite' }}>⚠ Pending Approval</div>}
-      </div>
+      <PageSubHeader crumbs={[{ label: 'Visitors' }, { label: 'Gate' }]} />
 
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-        <button className={tab === 'walkin' ? 'btn-primary' : 'btn-secondary'} onClick={() => setTab('walkin')}>Walk-in</button>
-        <button className={tab === 'qr' ? 'btn-primary' : 'btn-secondary'} onClick={() => setTab('qr')}>Scan QR</button>
-      </div>
+      <div style={{ padding: '1rem 1.25rem 3rem', maxWidth: 1100, margin: '0 auto' }}>
 
-      {tab === 'walkin' && (
-        <div className="card" style={{ maxWidth: 500 }}>
-          <form onSubmit={handleWalkIn}>
-            {['visitor_name', 'visitor_phone', 'unit_id', 'purpose', 'vehicle_number'].map((f) => (
-              <div className="form-group" key={f}>
-                <label>{f.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())}{f === 'visitor_name' || f === 'unit_id' ? ' *' : ''}</label>
-                <input type="text" value={(form as Record<string, string>)[f]} onChange={(e) => setForm({ ...form, [f]: e.target.value })} required={f === 'visitor_name' || f === 'unit_id'} />
-              </div>
-            ))}
-            <button type="submit" className="btn-primary" disabled={isLoading}>{isLoading ? 'Logging...' : 'Log Walk-in'}</button>
-          </form>
-        </div>
-      )}
-
-      {tab === 'qr' && (
-        <div className="card" style={{ maxWidth: 400 }}>
-          <div className="form-group">
-            <label>Enter QR Token</label>
-            <input type="text" placeholder="Paste or scan QR token" value={qrToken} onChange={(e) => setQrToken(e.target.value)} />
+        {/* Counts */}
+        {board && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            <Tile n={board.counts.inside}   label="Inside now"   color="#1d4ed8" bg="#eff6ff" />
+            <Tile n={board.counts.awaiting} label="Awaiting"     color="#b45309" bg="#fffbeb" />
+            <Tile n={board.counts.approved} label="Cleared"      color="#15803d" bg="#f0fdf4" />
+            <Tile n={board.counts.today}    label="Today"        color="#475569" bg="#f8fafc" />
+            {board.counts.overstaying > 0 && (
+              <Tile n={board.counts.overstaying} label="Overstaying" color="#dc2626" bg="#fef2f2" />
+            )}
           </div>
-          {qrData && (
-            <div style={{ marginTop: '1rem', padding: '1rem', background: 'var(--color-bg)', borderRadius: 'var(--radius)' }}>
-              <div style={{ fontWeight: 600 }}>{(qrData.data as Record<string, string>)?.visitor_name}</div>
-              <div style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Status: {(qrData.data as Record<string, string>)?.status}</div>
-              <button className="btn-primary" style={{ marginTop: '0.75rem' }} onClick={() => approveVisitor({ id: (qrData.data as Record<string, string>).id, decision: 'APPROVED' })}>Allow Entry</button>
+        )}
+
+        {/* Result banner */}
+        {msg && (
+          <div style={{
+            marginBottom: 14, padding: '11px 14px', borderRadius: 9, fontSize: 13.5,
+            background: msg.kind === 'ok' ? '#f0fdf4' : '#fef2f2',
+            border:     `1px solid ${msg.kind === 'ok' ? '#86efac' : '#fecaca'}`,
+            color:      msg.kind === 'ok' ? '#15803d' : '#b91c1c',
+          }}>
+            {msg.text}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+
+          {/* ── Log a walk-in ── */}
+          <div style={{ ...card, flex: '1 1 340px' }}>
+            <div style={{ ...sectionHead, color: '#1e293b', background: '#f8fafc' }}>New visitor</div>
+            <form onSubmit={submitWalkIn} style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 13 }}>
+
+              {/* Flat — searchable, never a raw id */}
+              <div style={{ position: 'relative' }}>
+                <label style={label}>Flat *</label>
+                {selected ? (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '11px 12px', border: '1px solid #2563eb', borderRadius: 9, background: '#eff6ff',
+                  }}>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: '#1e293b' }}>
+                      {selected.flat_number}{selected.block ? ` · ${selected.block}` : ''}
+                      {selected.primary_contact && (
+                        <span style={{ fontWeight: 400, color: '#64748b', fontSize: 13 }}> · {selected.primary_contact}</span>
+                      )}
+                    </span>
+                    <button type="button" onClick={() => { setUnitId(''); setSearch(''); }}
+                      style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
+                      Change
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <input
+                      style={field}
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      placeholder="Flat number or resident name"
+                      autoComplete="off"
+                    />
+                    {matches.length > 0 && (
+                      <div style={{
+                        position: 'absolute', zIndex: 20, left: 0, right: 0, marginTop: 4,
+                        background: '#fff', border: '1px solid #e2e8f0', borderRadius: 9,
+                        boxShadow: '0 8px 20px rgba(0,0,0,0.10)', maxHeight: 260, overflowY: 'auto',
+                      }}>
+                        {matches.map(u => (
+                          <button key={u.id} type="button"
+                            onClick={() => { setUnitId(u.id); setSearch(''); }}
+                            style={{
+                              display: 'block', width: '100%', textAlign: 'left', padding: '11px 13px',
+                              border: 'none', borderBottom: '1px solid #f8fafc', background: '#fff',
+                              cursor: 'pointer', fontSize: 14.5, minHeight: 44,
+                            }}>
+                            <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                              {u.flat_number}{u.block ? ` · ${u.block}` : ''}
+                            </span>
+                            {u.primary_contact && (
+                              <span style={{ color: '#64748b', fontSize: 13 }}> — {u.primary_contact}</span>
+                            )}
+                            {u.occupant_count === 0 && (
+                              <span style={{ color: '#dc2626', fontSize: 12 }}> · nobody registered</span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div>
+                <label style={label}>Visitor name *</label>
+                <input style={field} value={name} onChange={e => setName(e.target.value)} placeholder="Name" />
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 140px' }}>
+                  <label style={label}>Phone</label>
+                  <input style={field} value={phone} onChange={e => setPhone(e.target.value)} inputMode="tel" placeholder="Optional" />
+                </div>
+                <div style={{ flex: '1 1 140px' }}>
+                  <label style={label}>Vehicle</label>
+                  <input style={field} value={vehicle} onChange={e => setVehicle(e.target.value)} placeholder="Optional" />
+                </div>
+              </div>
+
+              <div>
+                <label style={label}>Purpose</label>
+                <input style={field} value={purpose} onChange={e => setPurpose(e.target.value)} placeholder="Delivery, guest, service…" />
+              </div>
+
+              <button type="submit" disabled={logging}
+                style={{ ...bigBtn, background: '#2563eb', color: '#fff', opacity: logging ? 0.6 : 1 }}>
+                {logging ? 'Logging…' : 'Log visitor & notify resident'}
+              </button>
+            </form>
+
+            {/* QR / code lookup */}
+            <div style={{ borderTop: '1px solid #f1f5f9', padding: 16 }}>
+              <label style={label}>Pre-approved code</label>
+              <input style={field} value={qrToken} onChange={e => setQrToken(e.target.value)}
+                     placeholder="Scan or type the visitor's code" autoComplete="off" />
+              {qrVisitor && (
+                <div style={{ marginTop: 12, padding: '12px 14px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 9 }}>
+                  <div style={{ fontSize: 14.5, fontWeight: 600, color: '#1e293b' }}>{qrVisitor.visitor_name}</div>
+                  <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 2 }}>
+                    Flat {flatLabel(qrVisitor.unit)} · {qrVisitor.status}
+                  </div>
+                  {qrVisitor.status === 'APPROVED' && (
+                    <button onClick={() => { doEntry(qrVisitor); setQrToken(''); }} disabled={entering}
+                      style={{ ...bigBtn, background: '#15803d', color: '#fff', marginTop: 10, width: '100%' }}>
+                      Allow entry
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-          )}
+          </div>
+
+          {/* ── Live board ── */}
+          <div style={{ flex: '1 1 380px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+            {/* Cleared to enter */}
+            <div style={card}>
+              <div style={{ ...sectionHead, color: '#15803d', background: '#f0fdf4' }}>
+                Cleared to enter {board ? `(${board.approved.length})` : ''}
+              </div>
+              {!board?.approved.length ? (
+                <div style={{ padding: '16px', fontSize: 13, color: '#94a3b8' }}>Nobody waiting to come in.</div>
+              ) : board.approved.map(v => (
+                <VisitorRow key={v.id} v={v} action={
+                  <button onClick={() => doEntry(v)} disabled={entering}
+                    style={{ ...bigBtn, background: '#15803d', color: '#fff', padding: '9px 16px' }}>
+                    Entry
+                  </button>
+                } />
+              ))}
+            </div>
+
+            {/* Inside now */}
+            <div style={card}>
+              <div style={{ ...sectionHead, color: '#1d4ed8', background: '#eff6ff' }}>
+                Inside now {board ? `(${board.inside.length})` : ''}
+              </div>
+              {!board?.inside.length ? (
+                <div style={{ padding: '16px', fontSize: 13, color: '#94a3b8' }}>Nobody on the premises.</div>
+              ) : board.inside.map(v => (
+                <VisitorRow key={v.id} v={v} action={
+                  <button onClick={() => doExit(v)} disabled={exiting}
+                    style={{ ...bigBtn, background: '#fff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '9px 16px' }}>
+                    Exit
+                  </button>
+                } />
+              ))}
+            </div>
+
+            {/* Awaiting the resident */}
+            <div style={card}>
+              <div style={{ ...sectionHead, color: '#b45309', background: '#fffbeb' }}>
+                Awaiting resident approval {board ? `(${board.awaiting.length})` : ''}
+              </div>
+              {!board?.awaiting.length ? (
+                <div style={{ padding: '16px', fontSize: 13, color: '#94a3b8' }}>Nothing pending.</div>
+              ) : board.awaiting.map(v => (
+                <VisitorRow key={v.id} v={v} action={
+                  <span style={{ fontSize: 12, color: '#b45309', fontWeight: 600 }}>waiting</span>
+                } />
+              ))}
+            </div>
+          </div>
         </div>
-      )}
+
+        <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 14, textAlign: 'center' }}>
+          Updates every 15 seconds.
+        </div>
+      </div>
     </Layout>
   );
 }

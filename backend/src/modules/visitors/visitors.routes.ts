@@ -56,6 +56,18 @@ router.patch('/frequent/:id', async (req: AuthRequest, res, next) => {
   catch (err) { next(err); }
 });
 
+// ── Gate console ──────────────────────────────────────────────────────────────
+// Declared before '/:id' routes so 'gate' is never read as a visitor id.
+router.get('/gate/units', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
+  try { res.json(await visitorsService.getGateUnits(req.user!.association_id)); }
+  catch (err) { next(err); }
+});
+
+router.get('/gate/board', requireRoles(UserRole.GATE_STAFF, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
+  try { res.json(await visitorsService.getGateBoard(req.user!.association_id)); }
+  catch (err) { next(err); }
+});
+
 router.post('/emergency', requireRoles(UserRole.GATE_STAFF), async (req: AuthRequest, res, next) => {
   try { res.json(await visitorsService.triggerEmergency(req.user!.association_id, req.user!.id, req.body)); }
   catch (err) { next(err); }
