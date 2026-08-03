@@ -154,29 +154,81 @@ function Register({ meetingId }: { meetingId: string }) {
   const { data } = useGetRegisterQuery(meetingId);
   const [mark] = useMarkAttendanceMutation();
   const rows = data?.data ?? [];
+  const present = rows.filter(r => r.attended).length;
+
+  const rsvpText = (r: typeof rows[number]) =>
+    r.rsvp === 'YES' ? 'Said yes' : r.rsvp === 'NO' ? 'Said no'
+    : r.rsvp === 'MAYBE' ? 'Maybe' : 'No reply';
 
   return (
-    <div style={{ ...card, marginTop: 14 }}>
-      <div style={{ padding: '11px 16px', borderBottom: '1px solid #f1f5f9',
-                    fontSize: 12, fontWeight: 700, color: '#475569' }}>
-        Attendance register
+    <div style={{ ...card, marginTop: 14, overflow: 'hidden' }}>
+      <div style={{
+        padding: '11px 16px', borderBottom: '1px solid #f1f5f9',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+      }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>Attendance register</span>
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>{present} of {rows.length} present</span>
       </div>
+
       {rows.map(r => (
-        <label key={r.unit_id} style={{
-          display: 'flex', alignItems: 'center', gap: 12, padding: '9px 16px',
-          borderBottom: '1px solid #f8fafc', cursor: 'pointer',
-        }}>
-          <input type="checkbox" checked={r.attended}
-                 onChange={e => mark({ id: meetingId, unit_id: r.unit_id, attended: e.target.checked })} />
-          <span style={{ fontSize: 13.5, fontWeight: 600, color: '#1e293b', minWidth: 70 }}>
+        // A div rather than a label: the app's global form styles hijack the
+        // layout of a <label> and push its children around. The row is still
+        // fully clickable.
+        <div
+          key={r.unit_id}
+          role="button"
+          tabIndex={0}
+          onClick={() => mark({ id: meetingId, unit_id: r.unit_id, attended: !r.attended })}
+          onKeyDown={e => {
+            if (e.key === ' ' || e.key === 'Enter') {
+              e.preventDefault();
+              mark({ id: meetingId, unit_id: r.unit_id, attended: !r.attended });
+            }
+          }}
+          style={{
+            display: 'grid',
+            // Fixed checkbox column, flexible flat name, right-aligned status
+            // that never wraps. One row per flat at any width.
+            gridTemplateColumns: '22px minmax(0, 1fr) auto',
+            alignItems: 'center', gap: 12,
+            padding: '10px 16px', borderBottom: '1px solid #f8fafc',
+            cursor: 'pointer',
+            background: r.attended ? '#f0fdf4' : '#fff',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={r.attended}
+            onChange={() => { /* handled on the row */ }}
+            onClick={e => e.stopPropagation()}
+            readOnly
+            style={{ margin: 0, width: 16, height: 16, cursor: 'pointer' }}
+          />
+
+          <span style={{
+            fontSize: 13.5, fontWeight: 600, color: '#1e293b',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
             {r.flat_number}{r.block ? ` · ${r.block}` : ''}
+            {r.answered_by && (
+              <span style={{ fontWeight: 400, color: '#94a3b8' }}> · {r.answered_by}</span>
+            )}
           </span>
-          <span style={{ fontSize: 12, color: '#94a3b8', flex: 1 }}>
-            {r.rsvp === 'YES' ? 'Said yes' : r.rsvp === 'NO' ? 'Said no' : r.rsvp === 'MAYBE' ? 'Maybe' : 'No reply'}
-            {r.answered_by && ` · ${r.answered_by}`}
+
+          <span style={{
+            fontSize: 12, whiteSpace: 'nowrap',
+            color: r.rsvp === 'YES' ? '#15803d' : r.rsvp === 'NO' ? '#b91c1c' : '#94a3b8',
+          }}>
+            {rsvpText(r)}
           </span>
-        </label>
+        </div>
       ))}
+
+      {rows.length === 0 && (
+        <div style={{ padding: '16px', fontSize: 13, color: '#94a3b8' }}>
+          No flats on the register.
+        </div>
+      )}
     </div>
   );
 }
