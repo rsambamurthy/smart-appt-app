@@ -6,8 +6,9 @@ import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
 import { requireModule, requireModuleFull } from '../../middleware/entitlement';
 import { AuthRequest } from '../../types';
-import { UnprocessableError } from '../../utils/errors';
+import { UnprocessableError, ForbiddenError } from '../../utils/errors';
 import { governanceService } from './governance.service';
+import { committeeService } from './committee.service';
 
 const router = Router();
 router.use(authenticate);
@@ -25,12 +26,21 @@ const enumOr = <T extends Record<string, string>>(e: T, v: unknown, field: strin
   throw new UnprocessableError(`${field} must be one of: ${Object.values(e).join(', ')}.`);
 };
 
-/** The flat a resident answers for. Committee members without a flat cannot vote. */
-const unitOf = (req: AuthRequest): string => {
+/**
+ * The flat a resident answers for, if they have one.
+ *
+ * Nullable on purpose: a committee member votes as a person and may hold no
+ * flat at all. The service decides whether the absence matters, because only
+ * it knows whether the meeting is general body or committee.
+ */
+const unitOf = (req: AuthRequest): string | null => req.user!.unit_id ?? null;
+
+/** RSVP is by flat for a general body meeting, so this one does insist. */
+const requireUnit = (req: AuthRequest): string => {
   const unitId = req.user!.unit_id;
   if (!unitId) {
     throw new UnprocessableError(
-      'Voting and RSVP are by flat, and your account is not linked to one. ' +
+      'RSVP is by flat, and your account is not linked to one. ' +
       'Ask your manager to link it.',
     );
   }
@@ -55,7 +65,7 @@ router.patch('/config', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), asy
 router.get('/meetings/my', async (req: AuthRequest, res, next) => {
   try {
     res.json(await governanceService.listForResident(
-      req.user!.association_id, req.user!.unit_id ?? null,
+      req.user!.association_id, req.user!.unit_id ?? null, req.user!.id,
     ));
   } catch (err) { next(err); }
 });
@@ -76,20 +86,34 @@ router.get('/meetings', requireRoles(...organiserRoles), async (req: AuthRequest
 router.get('/meetings/:id', async (req: AuthRequest, res, next) => {
   try {
     res.json(await governanceService.getMeeting(
-      req.user!.association_id, req.params['id'] as string, req.user!.unit_id ?? null,
+      req.user!.association_id, req.params['id'] as string,
+      req.user!.unit_id ?? null, req.user!.id,
     ));
   } catch (err) { next(err); }
 });
 
 router.post('/meetings', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
   try {
-    const { title, meeting_type, scheduled_at } = req.body ?? {};
+    const { title, meeting_type, scheduled_at, committee_id } = req.body ?? {};
     if (!title?.trim())  throw new UnprocessableError('Give the meeting a title.');
     if (!scheduled_at)   throw new UnprocessableError('Set the date and time.');
 
+    const type = enumOr(MeetingType, meeting_type, 'meeting_type');
+
+    if (type === MeetingType.COMMITTEE) {
+      // A committee's own convenor may call its meetings; a manager may call
+      // anyone's.
+      await committeeService.assertCanConvene(
+        req.user!.association_id, String(committee_id), req.user!,
+      );
+    } else if (req.user!.role !== UserRole.MANAGER && req.user!.role !== UserRole.SUPER_USER) {
+      // A general body meeting binds the whole association, so calling one is
+      // reserved to the manager.
+      throw new ForbiddenError('Only a manager can call a general body meeting.');
+    }
+
     res.status(201).json(await governanceService.createMeeting(
-      req.user!.association_id, req.user!.id,
-      { ...req.body, meeting_type: enumOr(MeetingType, meeting_type, 'meeting_type') },
+      req.user!.association_id, req.user!.id, { ...req.body, meeting_type: type },
     ));
   } catch (err) { next(err); }
 });
@@ -153,7 +177,7 @@ router.post('/meetings/:id/rsvp', async (req: AuthRequest, res, next) => {
   try {
     res.json(await governanceService.rsvp(
       req.user!.association_id, req.params['id'] as string,
-      unitOf(req), req.user!.id, enumOr(RsvpStatus, req.body?.status, 'status'),
+      requireUnit(req), req.user!.id, enumOr(RsvpStatus, req.body?.status, 'status'),
     ));
   } catch (err) { next(err); }
 });
@@ -168,10 +192,10 @@ router.get('/meetings/:id/register', requireRoles(...organiserRoles), async (req
 
 router.post('/meetings/:id/attendance', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
   try {
-    const { unit_id, attended } = req.body ?? {};
-    if (!unit_id) throw new UnprocessableError('Which flat?');
+    const { unit_id, user_id, attended } = req.body ?? {};
     res.json(await governanceService.markAttendance(
-      req.user!.association_id, req.params['id'] as string, unit_id, attended !== false,
+      req.user!.association_id, req.params['id'] as string,
+      { unit_id, user_id }, attended !== false,
     ));
   } catch (err) { next(err); }
 });
@@ -214,6 +238,54 @@ router.get('/agenda/:itemId/votes',
       ));
     } catch (err) { next(err); }
   });
+
+// ── Committees ────────────────────────────────────────────────────────────────
+// Readable by any signed-in user: a resident should be able to see which
+// committees exist and who sits on them. Editing is restricted.
+
+router.get('/committees', async (req: AuthRequest, res, next) => {
+  try { res.json(await committeeService.list(req.user!.association_id)); }
+  catch (err) { next(err); }
+});
+
+router.get('/committees/:id/members', async (req: AuthRequest, res, next) => {
+  try {
+    res.json({ data: await committeeService.members(
+      req.user!.association_id, req.params['id'] as string,
+    ) });
+  } catch (err) { next(err); }
+});
+
+router.post('/committees', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), async (req: AuthRequest, res, next) => {
+  try { res.status(201).json(await committeeService.create(req.user!.association_id, req.body ?? {})); }
+  catch (err) { next(err); }
+});
+
+router.patch('/committees/:id', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await committeeService.update(
+      req.user!.association_id, req.params['id'] as string, req.body ?? {},
+    ));
+  } catch (err) { next(err); }
+});
+
+router.post('/committees/:id/members', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), async (req: AuthRequest, res, next) => {
+  try {
+    const { user_id, is_convenor } = req.body ?? {};
+    if (!user_id) throw new UnprocessableError('Choose who to appoint.');
+    res.status(201).json(await committeeService.addMember(
+      req.user!.association_id, req.params['id'] as string, user_id, is_convenor === true,
+    ));
+  } catch (err) { next(err); }
+});
+
+router.delete('/committees/:id/members/:userId', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await committeeService.endMembership(
+      req.user!.association_id, req.params['id'] as string, req.params['userId'] as string,
+    ));
+  } catch (err) { next(err); }
+});
 
 // ── Minutes ───────────────────────────────────────────────────────────────────
 

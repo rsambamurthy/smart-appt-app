@@ -158,7 +158,7 @@ function GrantRow({ associationId, associationName, module, current, onDone }: {
             </div>
           </div>
 
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 11, fontSize: 12.5, color: '#475569' }}>
+          <label className="inline-check" style={{ marginTop: 12, fontSize: 12.5, color: '#475569' }}>
             <input type="checkbox" checked={perpetual} onChange={e => setPerpetual(e.target.checked)} />
             Perpetual — never expires, never asked to renew
           </label>

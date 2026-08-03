@@ -1,12 +1,13 @@
 import prisma from '../../config/database';
 import {
   MeetingStatus, MeetingType, ResolutionStatus, ResolutionOutcome,
-  VoteChoice, RsvpStatus, AuditAction, Prisma,
+  VoteChoice, RsvpStatus, AuditAction, UserRole, Prisma,
 } from '@prisma/client';
 import {
   NotFoundError, UnprocessableError, ForbiddenError,
 } from '../../utils/errors';
 import { notificationService } from '../../services/notification.service';
+import { committeeService } from './committee.service';
 import { auditService } from '../../services/audit.service';
 import logger from '../../utils/logger';
 
@@ -26,6 +27,8 @@ import logger from '../../utils/logger';
 
 const meetingSelect = {
   id: true, title: true, meeting_type: true, status: true,
+  committee_id: true,
+  committee: { select: { id: true, name: true, is_managing: true } },
   scheduled_at: true, venue: true, online_link: true,
   notice_body: true, notice_issued_at: true,
   quorum_percent: true, eligible_units: true,
@@ -45,6 +48,18 @@ async function configFor(associationId: string) {
 /** Flats that exist and count toward quorum. Deleted units never do. */
 function eligibleUnitsWhere(associationId: string) {
   return { association_id: associationId, deleted_at: null };
+}
+
+/**
+ * How many votes exist for this meeting.
+ *
+ * The fork that runs through the whole module: a general body meeting counts
+ * FLATS, a committee meeting counts MEMBERS. Everything downstream — quorum,
+ * the register, who may vote — follows from this one answer.
+ */
+async function eligibleCount(associationId: string, committeeId: string | null): Promise<number> {
+  if (!committeeId) return prisma.unit.count({ where: eligibleUnitsWhere(associationId) });
+  return (await committeeService.members(associationId, committeeId)).length;
 }
 
 // Typed as the full union rather than inferred from the literals: an array of
@@ -116,7 +131,10 @@ export class GovernanceService {
    * `viewerUnitId` scopes the response to one flat: their RSVP, and how they
    * voted. Committee callers pass undefined and get the aggregate view.
    */
-  async getMeeting(associationId: string, meetingId: string, viewerUnitId?: string | null) {
+  async getMeeting(
+    associationId: string, meetingId: string,
+    viewerUnitId?: string | null, viewerUserId?: string | null,
+  ) {
     const meeting = await prisma.meeting.findFirst({
       where:  { id: meetingId, association_id: associationId },
       select: {
@@ -134,18 +152,31 @@ export class GovernanceService {
     });
     if (!meeting) throw new NotFoundError('Meeting');
 
+    // A committee meeting attributes the viewer's vote to the PERSON; a
+    // general body meeting attributes it to their FLAT. Looking it up by the
+    // wrong key would show a member someone else's vote as their own.
+    const byMember = !!meeting.committee_id;
+    const voteWhere = byMember
+      ? (viewerUserId ? { user_id: viewerUserId } : null)
+      : (viewerUnitId ? { unit_id: viewerUnitId } : null);
+
     const [attendance, tallies, myVotes, myRsvp] = await Promise.all([
-      this.attendanceSummary(associationId, meetingId, meeting.eligible_units, meeting.quorum_percent),
+      this.attendanceSummary(
+        associationId, meetingId, meeting.eligible_units,
+        meeting.quorum_percent, meeting.committee_id,
+      ),
       this.talliesFor(meeting.agenda_items.map(a => a.id)),
-      viewerUnitId
+      voteWhere
         ? prisma.resolutionVote.findMany({
-            where:  { unit_id: viewerUnitId, agenda_item: { meeting_id: meetingId } },
+            where:  { ...voteWhere, agenda_item: { meeting_id: meetingId } },
             select: { agenda_item_id: true, choice: true },
           })
         : Promise.resolve([]),
-      viewerUnitId
-        ? prisma.meetingAttendee.findUnique({
-            where:  { meeting_id_unit_id: { meeting_id: meetingId, unit_id: viewerUnitId } },
+      (byMember ? viewerUserId : viewerUnitId)
+        ? prisma.meetingAttendee.findFirst({
+            where: byMember
+              ? { meeting_id: meetingId, user_id: viewerUserId! }
+              : { meeting_id: meetingId, unit_id: viewerUnitId! },
             select: { rsvp: true, attended: true },
           })
         : Promise.resolve(null),
@@ -170,16 +201,29 @@ export class GovernanceService {
 
   async createMeeting(associationId: string, userId: string, body: {
     title: string; meeting_type: MeetingType; scheduled_at: string;
+    committee_id?: string | null;
     venue?: string; online_link?: string; notice_body?: string;
   }) {
     const when = new Date(body.scheduled_at);
     if (Number.isNaN(when.getTime())) throw new UnprocessableError('Invalid meeting date and time.');
+
+    // A general body meeting has no committee; a committee meeting must have
+    // one. Allowing an AGM to be filed under Finance would quietly change who
+    // is entitled to vote in it.
+    const committeeId = body.committee_id || null;
+    if (body.meeting_type === MeetingType.COMMITTEE && !committeeId) {
+      throw new UnprocessableError('Choose which committee is meeting.');
+    }
+    if (body.meeting_type !== MeetingType.COMMITTEE && committeeId) {
+      throw new UnprocessableError('An AGM or EGM is a meeting of the whole association, not of a committee.');
+    }
 
     const meeting = await prisma.meeting.create({
       data: {
         association_id: associationId,
         title:          body.title.trim(),
         meeting_type:   body.meeting_type,
+        committee_id:   committeeId,
         scheduled_at:   when,
         venue:          body.venue?.trim() || null,
         online_link:    body.online_link?.trim() || null,
@@ -244,14 +288,16 @@ export class GovernanceService {
     const [config, agendaCount, eligibleUnits] = await Promise.all([
       configFor(associationId),
       prisma.agendaItem.count({ where: { meeting_id: meetingId } }),
-      prisma.unit.count({ where: eligibleUnitsWhere(associationId) }),
+      eligibleCount(associationId, meeting.committee_id),
     ]);
 
     if (agendaCount === 0) {
       throw new UnprocessableError('Add at least one agenda item before issuing the notice.');
     }
     if (eligibleUnits === 0) {
-      throw new UnprocessableError('This association has no units, so there is nobody to call to a meeting.');
+      throw new UnprocessableError(meeting.committee_id
+        ? 'This committee has no members, so there is nobody to call to a meeting.'
+        : 'This association has no units, so there is nobody to call to a meeting.');
     }
 
     // Short notice is a validity risk, so it is surfaced rather than silently
@@ -285,14 +331,20 @@ export class GovernanceService {
     // Everyone with a flat needs to know. Failure here must not undo the
     // notice — it is issued, and can be re-sent from the meeting screen.
     try {
-      const residents = await prisma.user.findMany({
-        where:  { association_id: associationId, unit_id: { not: null }, is_active: true, deleted_at: null },
-        select: { id: true },
-      });
+      // A committee meeting concerns its members. Telling all 200 residents
+      // about the water sub-committee's Tuesday call is how people learn to
+      // ignore notifications.
+      const recipients = meeting.committee_id
+        ? (await committeeService.members(associationId, meeting.committee_id)).map(m => m.user_id)
+        : (await prisma.user.findMany({
+            where:  { association_id: associationId, unit_id: { not: null }, is_active: true, deleted_at: null },
+            select: { id: true },
+          })).map(r => r.id);
+
       await notificationService.dispatch({
         type: 'MEETING_NOTICE',
         channels: ['PUSH', 'EMAIL'],
-        recipients: residents.map(r => r.id),
+        recipients,
         data: {
           meeting_id: meetingId,
           title: meeting.title,
@@ -451,29 +503,78 @@ export class GovernanceService {
     return { data: record };
   }
 
-  /** Committee marking a flat present or absent during the meeting. */
-  async markAttendance(associationId: string, meetingId: string, unitId: string, attended: boolean) {
+  /**
+   * Marking someone present.
+   *
+   * Takes whichever identifier the meeting uses: a flat for the general body,
+   * a member for a committee. Passing the wrong one is rejected rather than
+   * silently creating a row nobody counts.
+   */
+  async markAttendance(
+    associationId: string, meetingId: string,
+    who: { unit_id?: string; user_id?: string }, attended: boolean,
+  ) {
     const meeting = await this.mustFind(associationId, meetingId);
     if (!ABOUT_TO_RUN.includes(meeting.status)) {
       throw new UnprocessableError('Attendance can only be marked for a meeting that is about to start or under way.');
     }
 
-    await prisma.meetingAttendee.upsert({
-      where:  { meeting_id_unit_id: { meeting_id: meetingId, unit_id: unitId } },
-      create: { meeting_id: meetingId, unit_id: unitId, attended, marked_at: new Date() },
-      update: { attended, marked_at: new Date() },
-    });
+    if (meeting.committee_id) {
+      if (!who.user_id) throw new UnprocessableError('A committee meeting marks members present, not flats.');
+      await prisma.meetingAttendee.upsert({
+        where:  { meeting_id_user_id: { meeting_id: meetingId, user_id: who.user_id } },
+        create: { meeting_id: meetingId, user_id: who.user_id, attended, marked_at: new Date() },
+        update: { attended, marked_at: new Date() },
+      });
+    } else {
+      if (!who.unit_id) throw new UnprocessableError('Which flat?');
+      await prisma.meetingAttendee.upsert({
+        where:  { meeting_id_unit_id: { meeting_id: meetingId, unit_id: who.unit_id } },
+        create: { meeting_id: meetingId, unit_id: who.unit_id, attended, marked_at: new Date() },
+        update: { attended, marked_at: new Date() },
+      });
+    }
 
     return {
       data: await this.attendanceSummary(
-        associationId, meetingId, meeting.eligible_units, meeting.quorum_percent,
+        associationId, meetingId, meeting.eligible_units,
+        meeting.quorum_percent, meeting.committee_id,
       ),
     };
   }
 
-  /** The register: every flat, whether it replied, and whether it turned up. */
+  /**
+   * The register.
+   *
+   * A general body meeting lists every FLAT; a committee meeting lists every
+   * MEMBER. Same shape either way so the screen does not need two renderers —
+   * `unit_id` is null and `user_id` carries the identity for a committee.
+   */
   async attendanceRegister(associationId: string, meetingId: string) {
-    await this.mustFind(associationId, meetingId);
+    const meeting = await this.mustFind(associationId, meetingId);
+
+    if (meeting.committee_id) {
+      const [members, rows] = await Promise.all([
+        committeeService.members(associationId, meeting.committee_id),
+        prisma.meetingAttendee.findMany({
+          where:  { meeting_id: meetingId },
+          select: { user_id: true, rsvp: true, attended: true },
+        }),
+      ]);
+      const byUser = new Map(rows.map(r => [r.user_id, r]));
+
+      return {
+        data: members.map(m => ({
+          unit_id:     null,
+          user_id:     m.user_id,
+          flat_number: m.name,
+          block:       m.is_convenor ? 'Convenor' : m.flat_number,
+          rsvp:        byUser.get(m.user_id)?.rsvp ?? null,
+          attended:    byUser.get(m.user_id)?.attended ?? false,
+          answered_by: null,
+        })),
+      };
+    }
 
     const [units, rows] = await Promise.all([
       prisma.unit.findMany({
@@ -492,6 +593,7 @@ export class GovernanceService {
     return {
       data: units.map(u => ({
         unit_id:     u.id,
+        user_id:     null,
         flat_number: u.flat_number,
         block:       u.block,
         rsvp:        byUnit.get(u.id)?.rsvp ?? null,
@@ -513,12 +615,13 @@ export class GovernanceService {
     meetingId: string,
     eligibleUnits: number | null,
     quorumPercent: Prisma.Decimal | null,
+    committeeId: string | null = null,
   ) {
     const [present, rsvpYes, liveUnits] = await Promise.all([
       prisma.meetingAttendee.count({ where: { meeting_id: meetingId, attended: true } }),
       prisma.meetingAttendee.count({ where: { meeting_id: meetingId, rsvp: RsvpStatus.YES } }),
       eligibleUnits === null
-        ? prisma.unit.count({ where: eligibleUnitsWhere(associationId) })
+        ? eligibleCount(associationId, committeeId)
         : Promise.resolve(eligibleUnits),
     ]);
 
@@ -529,6 +632,8 @@ export class GovernanceService {
       : null;
 
     return {
+      // Named units for continuity, but it is members for a committee meeting.
+      counts_members: !!committeeId,
       eligible_units: eligible,
       present,
       rsvp_yes:       rsvpYes,
@@ -641,7 +746,7 @@ export class GovernanceService {
    */
   async castVote(
     associationId: string, itemId: string,
-    unitId: string, userId: string, choice: VoteChoice,
+    unitId: string | null, userId: string, choice: VoteChoice,
   ) {
     const item = await this.mustFindItem(associationId, itemId);
 
@@ -654,8 +759,35 @@ export class GovernanceService {
       );
     }
 
-    // Upsert on (agenda_item_id, unit_id): one vote per flat, and a second
-    // occupant of the same flat changes it rather than adding to it.
+    const committeeId = item.meeting.committee_id;
+
+    if (committeeId) {
+      // Committee resolution: the vote belongs to the PERSON. Only members may
+      // cast one, and unit_id stays null so the per-flat constraint does not
+      // apply — Postgres treats those NULLs as distinct.
+      const members = await committeeService.members(associationId, committeeId);
+      if (!members.some(m => m.user_id === userId)) {
+        throw new ForbiddenError('Only members of this committee can vote on its resolutions.');
+      }
+
+      const vote = await prisma.resolutionVote.upsert({
+        where:  { agenda_item_id_user_id: { agenda_item_id: itemId, user_id: userId } },
+        create: { agenda_item_id: itemId, user_id: userId, unit_id: null, choice },
+        update: { choice, cast_at: new Date() },
+        select: { choice: true, cast_at: true },
+      });
+      return { data: vote };
+    }
+
+    // General body: the vote belongs to the FLAT. A second occupant of the
+    // same flat changes it rather than adding to it.
+    if (!unitId) {
+      throw new UnprocessableError(
+        'Voting in a general body meeting is by flat, and your account is not ' +
+        'linked to one. Ask your manager to link it.',
+      );
+    }
+
     const vote = await prisma.resolutionVote.upsert({
       where:  { agenda_item_id_unit_id: { agenda_item_id: itemId, unit_id: unitId } },
       create: { agenda_item_id: itemId, unit_id: unitId, user_id: userId, choice },
@@ -750,12 +882,44 @@ export class GovernanceService {
 
   // ── Resident view ───────────────────────────────────────────────────────────
 
-  /** Meetings a resident can see: anything past draft. */
-  async listForResident(associationId: string, unitId: string | null) {
+  /**
+   * Meetings a resident can see.
+   *
+   * General body meetings are open to everyone once notice is issued.
+   * Sub-committee business stays within the sub-committee until its minutes
+   * are published — at which point it becomes part of the association's
+   * record and everyone may read it.
+   */
+  async listForResident(associationId: string, unitId: string | null, userId?: string | null) {
+    const mySeats = userId
+      ? await prisma.committeeMember.findMany({
+          where:  { user_id: userId, ended_on: null },
+          select: { committee_id: true },
+        })
+      : [];
+
+    // The managing committee's roster comes from the role, not from seats.
+    const me = userId
+      ? await prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
+      : null;
+
+    const managingIds = me?.role === UserRole.COMMITTEE
+      ? (await prisma.committee.findMany({
+          where: { association_id: associationId, is_managing: true }, select: { id: true },
+        })).map(c => c.id)
+      : [];
+
+    const visibleCommitteeIds = [...mySeats.map(s => s.committee_id), ...managingIds];
+
     const meetings = await prisma.meeting.findMany({
       where: {
         association_id: associationId,
         status: { not: MeetingStatus.DRAFT },
+        OR: [
+          { committee_id: null },
+          { committee_id: { in: visibleCommitteeIds } },
+          { minutes_published_at: { not: null } },
+        ],
       },
       select: {
         ...meetingSelect,
@@ -794,7 +958,7 @@ export class GovernanceService {
   private async mustFindItem(associationId: string, itemId: string) {
     const item = await prisma.agendaItem.findFirst({
       where:   { id: itemId, meeting: { association_id: associationId } },
-      include: { meeting: { select: { id: true, status: true, title: true } } },
+      include: { meeting: { select: { id: true, status: true, title: true, committee_id: true } } },
     });
     if (!item) throw new NotFoundError('Agenda item');
     return item;

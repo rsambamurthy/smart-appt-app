@@ -40,22 +40,26 @@ function AgendaBuilder({ meetingId }: { meetingId: string }) {
       <input style={{ ...field, marginBottom: 10 }} value={desc}
              onChange={e => setDesc(e.target.value)} placeholder="Detail (optional)" />
 
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#475569' }}>
+      <label className="inline-check" style={{ fontSize: 13.5, color: '#475569' }}>
         <input type="checkbox" checked={isRes} onChange={e => setIsRes(e.target.checked)} />
         Put this to a vote
       </label>
 
       {isRes && (
-        <div style={{ marginTop: 10, paddingLeft: 24, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{
+          marginTop: 12, marginLeft: 24, paddingLeft: 14,
+          borderLeft: '2px solid #e2e8f0',
+          display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-end',
+        }}>
           <div>
             <label style={label}>Majority needed</label>
-            <select style={{ ...field, width: 150 }} value={threshold} onChange={e => setThreshold(e.target.value)}>
+            <select style={{ ...field, width: 170 }} value={threshold} onChange={e => setThreshold(e.target.value)}>
               <option value="50">Simple majority</option>
               <option value="66.67">Two thirds</option>
               <option value="75">Three quarters</option>
             </select>
           </div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#475569', marginTop: 18 }}>
+          <label className="inline-check" style={{ fontSize: 13.5, color: '#475569', paddingBottom: 9 }}>
             <input type="checkbox" checked={isSecret} onChange={e => setIsSecret(e.target.checked)} />
             Secret ballot
           </label>

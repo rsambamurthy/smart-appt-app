@@ -54,7 +54,33 @@ input, select, textarea {
 }
 input:focus, select:focus, textarea:focus { border-color: var(--color-primary-light); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
 
+/* The rule above targets every input, which stretched checkboxes and radios to
+   full width with a border and padding — a wide empty box with the tick
+   floating in the middle and its label pushed to the far end. They are the one
+   input type that must keep its intrinsic size. */
+input[type="checkbox"], input[type="radio"] {
+  width: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  flex-shrink: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
 label { font-size: 0.875rem; font-weight: 500; display: block; margin-bottom: 0.25rem; }
+
+/* A checkbox and its text on one line. Bare `label` is display:block, which
+   puts the text on the line below. */
+label.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 0;
+  cursor: pointer;
+  font-weight: 400;
+}
 .form-group { margin-bottom: 1rem; }
 .card { background: var(--color-surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.25rem; }
 .page-header { margin-bottom: 1.5rem; }

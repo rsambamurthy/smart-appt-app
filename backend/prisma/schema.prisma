@@ -233,6 +233,7 @@ model Association {
   modules             AssociationModule[]
   governance_config   GovernanceConfig?
   meetings            Meeting[]
+  committees          Committee[]
 
   @@map("associations")
 }
@@ -340,6 +341,7 @@ model User {
   meetings_created    Meeting[]            @relation("MeetingCreatedBy")
   meeting_attendance  MeetingAttendee[]    @relation("MeetingAttendeeUser")
   resolution_votes    ResolutionVote[]     @relation("ResolutionVoteUser")
+  committee_seats     CommitteeMember[]    @relation("CommitteeMemberUser")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
   invite_received     UserInvite?         @relation("InvitedUser")
@@ -1390,6 +1392,12 @@ model Meeting {
   meeting_type   MeetingType
   status         MeetingStatus @default(DRAFT)
 
+  /// NULL means a general body meeting of the whole association — an AGM or
+  /// EGM, where every flat has a vote. Set means a sub-committee meeting,
+  /// where the committee's members vote as individuals instead.
+  committee_id   String?       @db.Uuid
+  committee      Committee?    @relation(fields: [committee_id], references: [id], onDelete: SetNull)
+
   scheduled_at   DateTime      @db.Timestamptz
   venue          String?       @db.VarChar(300)
   online_link    String?       @db.VarChar(500)
@@ -1459,10 +1467,12 @@ model MeetingAttendee {
   meeting_id String  @db.Uuid
   meeting    Meeting @relation(fields: [meeting_id], references: [id], onDelete: Cascade)
 
-  unit_id String @db.Uuid
-  unit    Unit   @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+  /// Set for a general body meeting, where attendance is counted in flats.
+  /// NULL for a committee meeting, where it is counted in members.
+  unit_id String? @db.Uuid
+  unit    Unit?   @relation(fields: [unit_id], references: [id], onDelete: Cascade)
 
-  /// Who answered or turned up on behalf of the flat.
+  /// Who answered or turned up. For a committee meeting this IS the attendee.
   user_id String? @db.Uuid
   user    User?   @relation("MeetingAttendeeUser", fields: [user_id], references: [id])
 
@@ -1473,8 +1483,12 @@ model MeetingAttendee {
   created_at DateTime @default(now()) @db.Timestamptz
   updated_at DateTime @updatedAt @db.Timestamptz
 
-  /// One record per flat: quorum counts flats, not heads.
+  /// One record per flat for a general body meeting. Postgres treats NULLs as
+  /// distinct in a unique index, so committee rows (unit_id NULL) fall through
+  /// to the constraint below instead of colliding with each other.
   @@unique([meeting_id, unit_id])
+  /// One record per member for a committee meeting.
+  @@unique([meeting_id, user_id])
   @@map("meeting_attendees")
 }
 
@@ -1483,18 +1497,82 @@ model ResolutionVote {
   agenda_item_id  String     @db.Uuid
   agenda_item     AgendaItem @relation(fields: [agenda_item_id], references: [id], onDelete: Cascade)
 
-  unit_id String @db.Uuid
-  unit    Unit   @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+  /// Set when the vote belongs to a flat (general body). NULL when it belongs
+  /// to a committee member voting as an individual.
+  unit_id String? @db.Uuid
+  unit    Unit?   @relation(fields: [unit_id], references: [id], onDelete: Cascade)
 
-  /// Which occupant actually cast it, for the audit trail.
+  /// Who cast it. For a committee vote this is the voter of record.
   user_id String @db.Uuid
   user    User   @relation("ResolutionVoteUser", fields: [user_id], references: [id])
 
   choice  VoteChoice
   cast_at DateTime   @default(now()) @db.Timestamptz
 
-  /// One vote per flat, enforced by the database. Two owners of the same unit
-  /// cannot vote twice, and a second attempt updates rather than duplicates.
+  /// One vote per flat for a general body resolution. Two owners of the same
+  /// unit cannot vote twice; the second attempt updates the row. Committee
+  /// rows have unit_id NULL, and Postgres treats NULLs as distinct, so this
+  /// constraint simply does not apply to them.
   @@unique([agenda_item_id, unit_id])
+  /// One vote per person for a committee resolution. Harmlessly true of
+  /// general body votes too, since each flat's vote has a single caster.
+  @@unique([agenda_item_id, user_id])
   @@map("resolution_votes")
+}
+
+/// A sub-committee: finance, water and sewerage, maintenance, and so on.
+///
+/// Meetings of a sub-committee follow a different rule from general body
+/// meetings. Quorum counts MEMBERS, and each member votes as an individual —
+/// not one vote per flat. Two members who happen to live in the same flat get
+/// a vote each, which is the whole point of appointing people rather than
+/// households.
+model Committee {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id], onDelete: Cascade)
+
+  name        String  @db.VarChar(120)
+  description String? @db.Text
+  is_active   Boolean @default(true)
+
+  /// The built-in managing committee. Its roster is NOT stored as
+  /// CommitteeMember rows — it is every active user with role = COMMITTEE,
+  /// resolved at read time. One source of truth beats two that drift.
+  is_managing Boolean @default(false)
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  members  CommitteeMember[]
+  meetings Meeting[]
+
+  @@unique([association_id, name])
+  @@map("committees")
+}
+
+model CommitteeMember {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  committee_id String    @db.Uuid
+  committee    Committee @relation(fields: [committee_id], references: [id], onDelete: Cascade)
+
+  user_id String @db.Uuid
+  user    User   @relation("CommitteeMemberUser", fields: [user_id], references: [id], onDelete: Cascade)
+
+  /// The convenor chairs and is the point of contact. Not enforced as unique —
+  /// some committees genuinely have joint convenors.
+  is_convenor Boolean @default(false)
+
+  appointed_on DateTime  @default(now()) @db.Date
+  /// Set when someone steps down. Past members are kept so historic quorum and
+  /// vote records still make sense — a meeting held last year was quorate
+  /// against the committee as it stood then.
+  ended_on     DateTime? @db.Date
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  @@unique([committee_id, user_id])
+  @@index([committee_id, ended_on])
+  @@map("committee_members")
 }
