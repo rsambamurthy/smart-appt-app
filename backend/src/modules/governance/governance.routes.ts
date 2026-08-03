@@ -304,8 +304,16 @@ router.get('/compliance', requireRoles(...organiserRoles), async (req: AuthReque
 });
 
 router.get('/compliance/items', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
-  try { res.json(await complianceService.listItems(req.user!.association_id)); }
+  try { res.json(await complianceService.listItemsWithStatus(req.user!.association_id)); }
   catch (err) { next(err); }
+});
+
+router.get('/compliance/items/:itemId', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await complianceService.getItem(
+      req.user!.association_id, req.params['itemId'] as string,
+    ));
+  } catch (err) { next(err); }
 });
 
 router.post('/compliance/items', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), async (req: AuthRequest, res, next) => {

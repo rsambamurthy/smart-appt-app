@@ -226,10 +226,38 @@ export interface ComplianceOccurrence {
   days_until: number;
 }
 
+export interface ComplianceItemRow extends ComplianceItem {
+  next_due_on: string | null;
+  next_id: string | null;
+  days_until: number | null;
+  overdue: boolean;
+  completed_count: number;
+}
+
+export interface ComplianceItemDetail extends ComplianceItem {
+  occurrences: {
+    id: string; due_on: string; status: 'PENDING' | 'DONE' | 'WAIVED';
+    completed_on: string | null; reference: string | null; notes: string | null;
+    completed_by: { name: string } | null;
+    overdue: boolean; days_until: number;
+  }[];
+}
+
 export const governanceApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
 
     // ── Compliance ────────────────────────────────────────────────────────────
+    listComplianceItems: builder.query<{
+      data: ComplianceItemRow[];
+      summary: { overdue: number; due_soon: number; total: number };
+    }, void>({
+      query: () => '/governance/compliance/items',
+      providesTags: ['Compliance'],
+    }),
+    getComplianceItem: builder.query<{ data: ComplianceItemDetail }, string>({
+      query: (itemId) => `/governance/compliance/items/${itemId}`,
+      providesTags: ['Compliance'],
+    }),
     listCompliance: builder.query<{
       data: ComplianceOccurrence[];
       summary: { overdue: number; due_soon: number; open: number };
@@ -502,7 +530,7 @@ export const governanceApi = baseApi.injectEndpoints({
 });
 
 export const {
-  useListComplianceQuery, useCreateComplianceItemMutation,
+  useListComplianceItemsQuery, useGetComplianceItemQuery, useListComplianceQuery, useCreateComplianceItemMutation,
   useUpdateComplianceItemMutation, useCompleteComplianceMutation,
   useReopenComplianceMutation,
   useListElectionsQuery, useGetElectionQuery, useCreateElectionMutation,

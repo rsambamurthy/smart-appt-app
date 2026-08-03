@@ -133,6 +133,95 @@ export class ComplianceService {
     };
   }
 
+  /**
+   * The obligations, each with its next due date and whether it is late.
+   *
+   * This is the list people actually work from: an obligation is the thing you
+   * own and reschedule; a due date is just when it next falls.
+   */
+  async listItemsWithStatus(associationId: string) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    // Fill the schedule if nothing is ahead — the starter list arrives from a
+    // migration, which cannot call this code.
+    const upcoming = await prisma.complianceOccurrence.count({
+      where: { association_id: associationId, status: ComplianceStatus.PENDING, due_on: { gte: today } },
+    });
+    if (upcoming === 0) await this.generateAll(associationId);
+
+    const items = await prisma.complianceItem.findMany({
+      where:  { association_id: associationId },
+      select: {
+        ...itemSelect,
+        occurrences: {
+          where:   { status: ComplianceStatus.PENDING },
+          select:  { id: true, due_on: true },
+          orderBy: { due_on: 'asc' },
+          take:    1,
+        },
+        _count: { select: { occurrences: { where: { status: ComplianceStatus.DONE } } } },
+      },
+      orderBy: [{ is_active: 'desc' }, { title: 'asc' }],
+    });
+
+    const rows = items.map(i => {
+      const next = i.occurrences[0] ?? null;
+      const days = next
+        ? Math.ceil((next.due_on.getTime() - today.getTime()) / 86_400_000)
+        : null;
+      return {
+        ...i,
+        occurrences: undefined,
+        next_due_on:   next?.due_on ?? null,
+        next_id:       next?.id ?? null,
+        days_until:    days,
+        overdue:       days !== null && days < 0,
+        completed_count: i._count.occurrences,
+      };
+    });
+
+    return {
+      data: rows,
+      summary: {
+        overdue:  rows.filter(r => r.overdue && r.is_active).length,
+        due_soon: rows.filter(r => !r.overdue && r.is_active && r.days_until !== null && r.days_until <= 30).length,
+        total:    rows.filter(r => r.is_active).length,
+      },
+    };
+  }
+
+  /** One obligation, with every due date it has had. */
+  async getItem(associationId: string, itemId: string) {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    const item = await prisma.complianceItem.findFirst({
+      where:  { id: itemId, association_id: associationId },
+      select: {
+        ...itemSelect,
+        occurrences: {
+          select: {
+            id: true, due_on: true, status: true, completed_on: true,
+            reference: true, notes: true,
+            completed_by: { select: { name: true } },
+          },
+          orderBy: { due_on: 'asc' },
+        },
+      },
+    });
+    if (!item) throw new NotFoundError('Compliance item');
+
+    return {
+      data: {
+        ...item,
+        occurrences: item.occurrences.map(o => ({
+          ...o,
+          overdue: o.status === ComplianceStatus.PENDING && o.due_on < today,
+          days_until: Math.ceil((o.due_on.getTime() - today.getTime()) / 86_400_000),
+        })),
+      },
+    };
+  }
+
   async listItems(associationId: string) {
     return { data: await prisma.complianceItem.findMany({
       where:   { association_id: associationId },
