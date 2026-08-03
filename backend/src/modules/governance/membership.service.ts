@@ -60,6 +60,9 @@ export class MembershipService {
         member_no:   m?.member_no ?? null,
         admitted_on: m?.admitted_on ?? null,
         member_name: primary?.name ?? null,
+        // The member's account, when they have one. Needed wherever the
+        // register decides who may act — standing for election, for instance.
+        member_user_id: primary?.user_id ?? null,
         joint_count: m ? Math.max(m.holders.length - 1, 0) : 0,
         // A flat with nobody recorded cannot vote. It still counts toward
         // quorum, so a gap makes quorum harder to reach rather than easier —

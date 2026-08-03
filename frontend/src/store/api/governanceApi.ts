@@ -109,6 +109,8 @@ export interface RegisterUnitRow {
   member_no: number | null;
   admitted_on: string | null;
   member_name: string | null;
+  /** The member's account, when they have one. Null means they cannot act in-app. */
+  member_user_id: string | null;
   joint_count: number;
   has_member: boolean;
 }

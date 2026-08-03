@@ -9,7 +9,7 @@ import {
   useSetElectionStatusMutation, useDeclareElectionMutation,
   useSecondNominationMutation, useAcceptNominationMutation,
   useWithdrawNominationMutation, useCastBallotMutation,
-  useListCommitteesQuery,
+  useListCommitteesQuery, useListRegisterQuery, useProposeCandidateMutation,
   ElectionStatus, Candidate,
 } from '../../store/api/governanceApi';
 import { card, btn, field, label } from './meetingUi';
@@ -134,6 +134,83 @@ function Ballot({ electionId, seats, candidates }: {
           it, so there is no way to find yours again.
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Nominate someone.
+ *
+ * The candidate list comes from the REGISTER, not the user list: only a member
+ * of record may stand. Own flat is excluded — the point of a proposer is that
+ * somebody else thinks you should stand — as is anyone already nominated.
+ */
+function NominateBox({ electionId, myUnitId, alreadyNominated }: {
+  electionId: string; myUnitId: string | null; alreadyNominated: Set<string>;
+}) {
+  const { data } = useListRegisterQuery({});
+  const [propose, { isLoading }] = useProposeCandidateMutation();
+  const [pick, setPick]   = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const eligible = (data?.data ?? []).filter(r =>
+    r.has_member
+    && r.member_user_id
+    && r.unit_id !== myUnitId
+    && !alreadyNominated.has(r.member_user_id),
+  );
+
+  const submit = async () => {
+    setError(null);
+    try {
+      await propose({ id: electionId, user_id: pick }).unwrap();
+      setPick('');
+    } catch (e: unknown) {
+      const err = e as { data?: { detail?: string } };
+      setError(err?.data?.detail ?? 'Could not record the nomination.');
+    }
+  };
+
+  if (!myUnitId) {
+    return (
+      <div style={{ padding: '10px 16px', fontSize: 12.5, color: '#94a3b8' }}>
+        Your account is not linked to a flat, so you cannot propose a candidate.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: '12px 16px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
+      {error && (
+        <div style={{ marginBottom: 8, fontSize: 12.5, color: '#b91c1c' }}>{error}</div>
+      )}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select style={{ ...field, flex: '1 1 220px', maxWidth: 320 }}
+                value={pick} onChange={e => setPick(e.target.value)}>
+          <option value="">Propose a candidate…</option>
+          {eligible.map(r => (
+            <option key={r.unit_id} value={r.member_user_id!}>
+              {r.member_name} · {r.flat_number}
+            </option>
+          ))}
+        </select>
+        <button onClick={submit} disabled={!pick || isLoading}
+          style={{ ...btn, background: '#2563eb', color: '#fff', border: 'none',
+                   opacity: pick ? 1 : 0.5 }}>
+          Propose
+        </button>
+      </div>
+      <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 8, lineHeight: 1.6 }}>
+        Only members on the register may stand, and not your own flat. Someone
+        from a third flat must then second the nomination before the candidate
+        can accept.
+      </div>
+      {eligible.length === 0 && (
+        <div style={{ fontSize: 12, color: '#b45309', marginTop: 6 }}>
+          Nobody is available to nominate. Members need to be on the register
+          with a linked app account.
+        </div>
+      )}
     </div>
   );
 }
@@ -291,8 +368,16 @@ function ElectionDetailPane({ id, isOrganiser, isManager }: {
             Candidates · {standing.length} standing for {e.seats}
           </div>
 
+          {e.status === 'NOMINATIONS_OPEN' && (
+            <NominateBox
+              electionId={id}
+              myUnitId={me?.unit_id ?? null}
+              alreadyNominated={new Set(e.candidates.map(c => c.user.id))}
+            />
+          )}
+
           {e.candidates.length === 0 && (
-            <div style={{ padding: '4px 16px 12px', fontSize: 13, color: '#94a3b8' }}>
+            <div style={{ padding: '10px 16px 12px', fontSize: 13, color: '#94a3b8' }}>
               Nobody has been nominated yet.
             </div>
           )}
