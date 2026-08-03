@@ -82,6 +82,23 @@ export class ComplianceService {
   async list(associationId: string, opts: { openOnly?: boolean } = {}) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
 
+    // Top up the schedule if there is nothing ahead.
+    //
+    // Items can exist with no due dates: the starter list is inserted by a
+    // migration, which cannot call this code. The same happens once a year of
+    // generated dates has been worked through. Rather than leave an empty
+    // calendar under a note about starter items — which is exactly what it did
+    // the first time — fill it in on read. generate() is idempotent, so this
+    // costs one count in the normal case.
+    const upcoming = await prisma.complianceOccurrence.count({
+      where: {
+        association_id: associationId,
+        status: ComplianceStatus.PENDING,
+        due_on: { gte: today },
+      },
+    });
+    if (upcoming === 0) await this.generateAll(associationId);
+
     const occurrences = await prisma.complianceOccurrence.findMany({
       where: {
         association_id: associationId,
@@ -217,13 +234,17 @@ export class ComplianceService {
     });
   }
 
-  /** Regenerate everything. Safe to run on a schedule. */
+  /** Fill in missing due dates for every active item. Safe to run repeatedly. */
   async generateAll(associationId: string) {
     const items = await prisma.complianceItem.findMany({
       where: { association_id: associationId, is_active: true }, select: { id: true },
     });
+
+    const before = await prisma.complianceOccurrence.count({ where: { association_id: associationId } });
     for (const i of items) await this.generate(associationId, i.id);
-    return { data: { items: items.length } };
+    const after = await prisma.complianceOccurrence.count({ where: { association_id: associationId } });
+
+    return { data: { items: items.length, created: after - before } };
   }
 
   async complete(associationId: string, occurrenceId: string, userId: string, body: {
