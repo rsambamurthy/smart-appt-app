@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Layout from '../../components/organisms/Layout';
+import InboxLayout, { InboxRow } from './InboxLayout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
   useListCommitteesQuery, useListCommitteeMembersQuery, useCreateCommitteeMutation,
@@ -12,7 +13,9 @@ interface UserRow { id: string; name: string; role: string; unit?: { flat_number
 
 // ── Members of one committee ──────────────────────────────────────────────────
 
-function Members({ committeeId, isManaging }: { committeeId: string; isManaging: boolean }) {
+function Members({ committeeId, isManaging, name }: {
+  committeeId: string; isManaging: boolean; name: string;
+}) {
   const { data, isLoading } = useListCommitteeMembersQuery(committeeId);
   const { data: usersData } = useListUsersQuery({ limit: 500 }, { skip: isManaging });
   const [addMember, { isLoading: adding }] = useAddCommitteeMemberMutation();
@@ -40,7 +43,17 @@ function Members({ committeeId, isManaging }: { committeeId: string; isManaging:
   };
 
   return (
-    <div style={{ borderTop: '1px solid #f1f5f9', background: '#f8fafc' }}>
+    <div>
+      <div style={{
+        padding: '13px 16px', borderBottom: '1px solid #f1f5f9',
+      }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{name}</div>
+        <div style={{ fontSize: 12.5, color: '#94a3b8', marginTop: 2 }}>
+          {members.length} {members.length === 1 ? 'member' : 'members'}
+          {' · quorum counts members, and each votes individually'}
+        </div>
+      </div>
+
       {isLoading ? (
         <div style={{ padding: '12px 16px', fontSize: 13, color: '#94a3b8' }}>Loading…</div>
       ) : members.length === 0 ? (
@@ -133,6 +146,7 @@ export default function CommitteesPage() {
   const [error, setError] = useState<string | null>(null);
 
   const committees = data?.data ?? [];
+  const selectedCommittee = committees.find(c => c.id === open) ?? null;
 
   const submit = async () => {
     setError(null);
@@ -149,12 +163,10 @@ export default function CommitteesPage() {
     <Layout>
       <PageSubHeader crumbs={[{ label: 'Governance' }, { label: 'Committees' }]} />
 
-      <div style={{ padding: '1rem 1.25rem 3rem', maxWidth: 760 }}>
-        <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16, maxWidth: 620 }}>
-          A committee meeting counts its <strong>members</strong> for quorum, and each
-          member votes individually — unlike an AGM, where each flat has one vote.
-        </p>
-
+      {/* No maxWidth: the reading pane needs the room. The explanatory line
+          moved into the pane header, where it is read at the moment it
+          matters rather than above a list. */}
+      <div style={{ padding: '1rem 1.25rem 3rem' }}>
         {!adding ? (
           <button onClick={() => setAdding(true)}
             style={{ ...btn, background: '#2563eb', color: '#fff', border: 'none', marginBottom: 16 }}>
@@ -189,42 +201,35 @@ export default function CommitteesPage() {
           </div>
         )}
 
-        {isLoading ? (
-          <div style={{ color: '#94a3b8', padding: '2rem 0' }}>Loading…</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {committees.map(c => (
-              <div key={c.id} style={{ ...card, overflow: 'hidden' }}>
-                <button onClick={() => setOpen(open === c.id ? null : c.id)}
-                  style={{ width: '100%', textAlign: 'left', padding: '14px 16px',
-                           background: 'none', border: 'none', cursor: 'pointer',
-                           display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>
-                      {c.name}
-                      {c.is_managing && (
-                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 7px',
-                                       borderRadius: 99, background: '#f1f5f9', color: '#64748b',
-                                       marginLeft: 8 }}>
-                          BUILT IN
-                        </span>
-                      )}
-                    </div>
-                    {c.description && (
-                      <div style={{ fontSize: 12.5, color: '#94a3b8', marginTop: 2 }}>{c.description}</div>
-                    )}
-                  </div>
-                  <span style={{ fontSize: 12.5, color: '#64748b', whiteSpace: 'nowrap' }}>
-                    {c.member_count} {c.member_count === 1 ? 'member' : 'members'}
-                  </span>
-                  <span style={{ color: '#cbd5e1', fontSize: 16 }}>{open === c.id ? '▴' : '▾'}</span>
-                </button>
-
-                {open === c.id && <Members committeeId={c.id} isManaging={c.is_managing} />}
-              </div>
-            ))}
-          </div>
-        )}
+        <InboxLayout
+          list={isLoading ? (
+            <div style={{ padding: '1.5rem 1rem', color: '#94a3b8', fontSize: 13 }}>Loading…</div>
+          ) : (
+            <>
+              {committees.map(c => (
+                <InboxRow
+                  key={c.id}
+                  selected={open === c.id}
+                  // The managing committee is the one that always exists and
+                  // always matters, so it keeps an accent even when unselected.
+                  accent={c.is_managing ? '#7c3aed' : undefined}
+                  title={c.name}
+                  trailing={String(c.member_count)}
+                  meta={c.is_managing ? 'Worked out from roles' : (c.description || 'Sub-committee')}
+                  onClick={() => setOpen(open === c.id ? null : c.id)}
+                />
+              ))}
+            </>
+          )}
+          detail={selectedCommittee
+            ? <Members
+                committeeId={selectedCommittee.id}
+                isManaging={selectedCommittee.is_managing}
+                name={selectedCommittee.name}
+              />
+            : null}
+          placeholder="Select a committee to see and change who sits on it."
+        />
       </div>
     </Layout>
   );

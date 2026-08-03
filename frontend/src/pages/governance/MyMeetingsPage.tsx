@@ -5,7 +5,8 @@ import {
   useListMyMeetingsQuery, useGetMeetingQuery, useRsvpMeetingMutation,
   useCastVoteMutation, RsvpStatus, VoteChoice, AgendaItem,
 } from '../../store/api/governanceApi';
-import { card, StatusPill, OutcomePill, TallyBar, MEETING_LABEL, fmtWhen } from './meetingUi';
+import { OutcomePill, TallyBar, MEETING_LABEL, fmtWhen } from './meetingUi';
+import InboxLayout, { InboxRow } from './InboxLayout';
 
 // ── One resolution, from the resident's side ──────────────────────────────────
 
@@ -124,7 +125,14 @@ function MeetingPanel({ meetingId }: { meetingId: string }) {
   };
 
   return (
-    <div style={{ borderTop: '1px solid #f1f5f9' }}>
+    <div>
+      <div style={{ padding: '13px 16px', borderBottom: '1px solid #f1f5f9' }}>
+        <div style={{ fontSize: 15.5, fontWeight: 700, color: '#1e293b' }}>{m.title}</div>
+        <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 2 }}>
+          {fmtWhen(m.scheduled_at)}{m.venue && ` · ${m.venue}`}
+        </div>
+      </div>
+
       {canRsvp && (
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9' }}>
           <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 8 }}>
@@ -161,6 +169,9 @@ function MeetingPanel({ meetingId }: { meetingId: string }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+const shortDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+
 export default function MyMeetingsPage() {
   const { data, isLoading } = useListMyMeetingsQuery(undefined, { pollingInterval: 60000 });
   const [openId, setOpenId] = useState<string | null>(null);
@@ -171,44 +182,41 @@ export default function MyMeetingsPage() {
     <Layout>
       <PageSubHeader crumbs={[{ label: 'Meetings' }]} />
 
-      <div style={{ padding: '1rem 1.25rem 3rem', maxWidth: 640, margin: '0 auto' }}>
-        {isLoading ? (
-          <div style={{ color: '#94a3b8', padding: '2rem 0', textAlign: 'center' }}>Loading…</div>
-        ) : meetings.length === 0 ? (
-          <div style={{ ...card, padding: '24px 20px', textAlign: 'center', color: '#64748b', fontSize: 14 }}>
-            No meetings have been called.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {meetings.map(m => {
-              const isOpen = openId === m.id;
-              return (
-                <div key={m.id} style={{ ...card, overflow: 'hidden' }}>
-                  <button onClick={() => setOpenId(isOpen ? null : m.id)}
-                    style={{ width: '100%', textAlign: 'left', padding: '14px 16px',
-                             background: 'none', border: 'none', cursor: 'pointer' }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
-                      <StatusPill status={m.status} />
-                      <span style={{ fontSize: 11.5, color: '#94a3b8' }}>{MEETING_LABEL[m.meeting_type]}</span>
-                      {!!m.open_votes && (
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 99,
-                                       background: '#eff6ff', color: '#1d4ed8' }}>
-                          {m.open_votes} to vote on
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 15.5, fontWeight: 700, color: '#1e293b' }}>{m.title}</div>
-                    <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 3 }}>
-                      {fmtWhen(m.scheduled_at)}{m.venue && ` · ${m.venue}`}
-                    </div>
-                  </button>
-
-                  {isOpen && <MeetingPanel meetingId={m.id} />}
-                </div>
-              );
-            })}
-          </div>
-        )}
+      <div style={{ padding: '1rem 1.25rem 3rem' }}>
+        <InboxLayout
+          list={isLoading ? (
+            <div style={{ padding: '1.5rem 1rem', color: '#94a3b8', fontSize: 13 }}>Loading…</div>
+          ) : meetings.length === 0 ? (
+            <div style={{ padding: '1.5rem 1rem', color: '#94a3b8', fontSize: 13 }}>
+              No meetings have been called.
+            </div>
+          ) : (
+            <>
+              {meetings.map(m => {
+                const done = m.status === 'CONCLUDED' || m.status === 'CANCELLED';
+                return (
+                  <InboxRow
+                    key={m.id}
+                    selected={openId === m.id}
+                    // Only a meeting wanting something from you gets a colour.
+                    accent={m.open_votes ? '#2563eb' : undefined}
+                    muted={done}
+                    title={m.title}
+                    trailing={shortDate(m.scheduled_at)}
+                    meta={<>
+                      {m.committee ? m.committee.name : MEETING_LABEL[m.meeting_type]}
+                      {!!m.open_votes && ` · ${m.open_votes} to vote on`}
+                      {!m.open_votes && m.my_rsvp === null && !done && ' · not answered'}
+                    </>}
+                    onClick={() => setOpenId(openId === m.id ? null : m.id)}
+                  />
+                );
+              })}
+            </>
+          )}
+          detail={openId ? <MeetingPanel meetingId={openId} /> : null}
+          placeholder="Select a meeting to read the agenda and vote."
+        />
       </div>
     </Layout>
   );

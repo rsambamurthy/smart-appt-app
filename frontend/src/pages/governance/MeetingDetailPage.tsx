@@ -246,8 +246,13 @@ function Register({ meetingId, countsMembers }: { meetingId: string; countsMembe
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function MeetingDetailPage() {
-  const { id = '' } = useParams();
+/**
+ * The meeting itself, without the page chrome.
+ *
+ * Split out so it can render inside the inbox reading pane on a wide screen
+ * and as a full page on a narrow one, from a single implementation.
+ */
+export function MeetingDetail({ id }: { id: string }) {
   const { data, isLoading } = useGetMeetingQuery(id, { pollingInterval: 15000, skip: !id });
   const [issueNotice, { isLoading: issuing }] = useIssueNoticeMutation();
   const [setStatus] = useSetMeetingStatusMutation();
@@ -260,7 +265,7 @@ export default function MeetingDetailPage() {
   const m = data?.data;
 
   if (isLoading || !m) {
-    return <Layout><div style={{ padding: '2rem', color: '#94a3b8' }}>Loading…</div></Layout>;
+    return <div style={{ padding: '2rem', color: '#94a3b8' }}>Loading…</div>;
   }
 
   const isDraft = m.status === 'DRAFT';
@@ -292,12 +297,7 @@ export default function MeetingDetailPage() {
   };
 
   return (
-    <Layout>
-      <PageSubHeader crumbs={[
-        { label: 'Governance' }, { label: 'Meetings', path: '/governance/meetings' }, { label: m.title },
-      ]} />
-
-      <div style={{ padding: '1rem 1.25rem 3rem', maxWidth: 860 }}>
+    <div style={{ padding: '16px 18px 24px' }}>
 
         {msg && (
           <div style={{
@@ -414,6 +414,20 @@ export default function MeetingDetailPage() {
             </div>
           </div>
         )}
+    </div>
+  );
+}
+
+/** Full-page form, used on narrow screens and by direct links. */
+export default function MeetingDetailPage() {
+  const { id = '' } = useParams();
+  return (
+    <Layout>
+      <PageSubHeader crumbs={[
+        { label: 'Governance' }, { label: 'Meetings', path: '/governance/meetings' },
+      ]} />
+      <div style={{ maxWidth: 860 }}>
+        <MeetingDetail id={id} />
       </div>
     </Layout>
   );

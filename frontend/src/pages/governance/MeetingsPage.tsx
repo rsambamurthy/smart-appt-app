@@ -1,17 +1,40 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
-  useListMeetingsQuery, useCreateMeetingMutation, useListCommitteesQuery, MeetingType,
+  useListMeetingsQuery, useCreateMeetingMutation, useListCommitteesQuery,
+  MeetingType, MeetingStatus,
 } from '../../store/api/governanceApi';
-import { card, btn, field, label, StatusPill, MEETING_LABEL, fmtWhen } from './meetingUi';
+import { useIsWide } from '../../hooks/useIsWide';
+import InboxLayout, { InboxRow } from './InboxLayout';
+import { MeetingDetail } from './MeetingDetailPage';
+import { card, btn, field, label, MEETING_LABEL } from './meetingUi';
+
+// A row's left accent, by state. Only things needing attention get a colour;
+// everything finished stays neutral and dimmed, like read mail.
+const ACCENT: Partial<Record<MeetingStatus, string>> = {
+  DRAFT:         '#cbd5e1',
+  NOTICE_ISSUED: '#2563eb',
+  IN_PROGRESS:   '#15803d',
+  CANCELLED:     '#fecaca',
+};
+
+const shortDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+
+type Filter = 'ALL' | 'ACTIVE' | 'DRAFT' | 'DONE';
 
 export default function MeetingsPage() {
   const navigate = useNavigate();
+  const wide = useIsWide();
   const { data, isLoading } = useListMeetingsQuery();
   const { data: committeeData } = useListCommitteesQuery();
   const [create, { isLoading: creating }] = useCreateMeetingMutation();
+
+  const [selected, setSelected] = useState<string | null>(null);
+  const [search, setSearch]     = useState('');
+  const [filter, setFilter]     = useState<Filter>('ALL');
 
   const [open, setOpen]   = useState(false);
   const [title, setTitle] = useState('');
@@ -21,13 +44,32 @@ export default function MeetingsPage() {
   const [committee, setCommittee] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const meetings   = data?.data ?? [];
+  const meetings   = useMemo(() => data?.data ?? [], [data]);
   const committees = committeeData?.data ?? [];
+
+  const counts = useMemo(() => ({
+    ALL:    meetings.length,
+    ACTIVE: meetings.filter(m => m.status === 'NOTICE_ISSUED' || m.status === 'IN_PROGRESS').length,
+    DRAFT:  meetings.filter(m => m.status === 'DRAFT').length,
+    DONE:   meetings.filter(m => m.status === 'CONCLUDED' || m.status === 'CANCELLED').length,
+  }), [meetings]);
+
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return meetings.filter(m => {
+      if (q && !m.title.toLowerCase().includes(q)
+            && !(m.committee?.name ?? '').toLowerCase().includes(q)) return false;
+      if (filter === 'ACTIVE') return m.status === 'NOTICE_ISSUED' || m.status === 'IN_PROGRESS';
+      if (filter === 'DRAFT')  return m.status === 'DRAFT';
+      if (filter === 'DONE')   return m.status === 'CONCLUDED' || m.status === 'CANCELLED';
+      return true;
+    });
+  }, [meetings, search, filter]);
 
   const submit = async () => {
     setError(null);
     const at = new Date(when);
-    if (!title.trim())            return setError('Give the meeting a title.');
+    if (!title.trim())              return setError('Give the meeting a title.');
     if (Number.isNaN(at.getTime())) return setError('Set the date and time.');
     if (type === 'COMMITTEE' && !committee) return setError('Choose which committee is meeting.');
 
@@ -37,26 +79,87 @@ export default function MeetingsPage() {
         scheduled_at: at.toISOString(), venue: venue.trim() || undefined,
         committee_id: type === 'COMMITTEE' ? committee : null,
       }).unwrap();
-      navigate(`/governance/meetings/${res.data.id}`);
+      setOpen(false); setTitle(''); setWhen(''); setVenue(''); setCommittee('');
+      // On a wide screen the new meeting opens in the pane; on a narrow one it
+      // navigates, because there is no pane to open it in.
+      if (wide) setSelected(res.data.id);
+      else navigate(`/governance/meetings/${res.data.id}`);
     } catch (e: unknown) {
       const err = e as { data?: { detail?: string; message?: string } };
       setError(err?.data?.detail ?? err?.data?.message ?? 'Could not create the meeting.');
     }
   };
 
+  const toolbar = (
+    <div style={{ padding: '9px 10px' }}>
+      <input
+        style={{ ...field, fontSize: 13, padding: '7px 9px', marginBottom: 8 }}
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        placeholder="Search meetings"
+        autoComplete="off"
+      />
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        {([['ALL', 'All'], ['ACTIVE', 'Open'], ['DRAFT', 'Drafts'], ['DONE', 'Done']] as const)
+          .map(([id, text]) => (
+            <button key={id} onClick={() => setFilter(id)}
+              style={{
+                padding: '3px 9px', borderRadius: 99, cursor: 'pointer', fontSize: 11.5,
+                border: 'none',
+                fontWeight: filter === id ? 700 : 500,
+                background: filter === id ? '#eff6ff' : 'transparent',
+                color:      filter === id ? '#1d4ed8' : '#64748b',
+              }}>
+              {text} {counts[id]}
+            </button>
+          ))}
+      </div>
+    </div>
+  );
+
+  const list = isLoading ? (
+    <div style={{ padding: '1.5rem 1rem', color: '#94a3b8', fontSize: 13 }}>Loading…</div>
+  ) : shown.length === 0 ? (
+    <div style={{ padding: '1.5rem 1rem', color: '#94a3b8', fontSize: 13 }}>
+      {meetings.length === 0 ? 'No meetings yet.' : 'Nothing matches.'}
+    </div>
+  ) : (
+    <>
+      {shown.map(m => {
+        const done = m.status === 'CONCLUDED' || m.status === 'CANCELLED';
+        return (
+          <InboxRow
+            key={m.id}
+            selected={selected === m.id}
+            accent={ACCENT[m.status]}
+            muted={done}
+            title={m.title}
+            trailing={shortDate(m.scheduled_at)}
+            meta={<>
+              {m.committee ? m.committee.name : MEETING_LABEL[m.meeting_type]}
+              {' · '}{m.status.toLowerCase().replace('_', ' ')}
+            </>}
+            onClick={() => wide
+              ? setSelected(m.id)
+              : navigate(`/governance/meetings/${m.id}`)}
+          />
+        );
+      })}
+    </>
+  );
+
   return (
     <Layout>
       <PageSubHeader crumbs={[{ label: 'Governance' }, { label: 'Meetings' }]} />
 
-      <div style={{ padding: '1rem 1.25rem 3rem', maxWidth: 860 }}>
-
+      <div style={{ padding: '1rem 1.25rem 3rem' }}>
         {!open ? (
           <button onClick={() => setOpen(true)}
-            style={{ ...btn, background: '#2563eb', color: '#fff', border: 'none', marginBottom: 16 }}>
+            style={{ ...btn, background: '#2563eb', color: '#fff', border: 'none', marginBottom: 14 }}>
             Call a meeting
           </button>
         ) : (
-          <div style={{ ...card, padding: '16px 18px', marginBottom: 16 }}>
+          <div style={{ ...card, padding: '16px 18px', marginBottom: 14, maxWidth: 700 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 12 }}>
               New meeting
             </div>
@@ -122,41 +225,15 @@ export default function MeetingsPage() {
               </button>
               <button onClick={() => { setOpen(false); setError(null); }} style={btn}>Cancel</button>
             </div>
-
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 10 }}>
-              It stays a draft, invisible to residents, until you add the agenda
-              and issue the notice.
-            </div>
           </div>
         )}
 
-        {isLoading ? (
-          <div style={{ color: '#94a3b8', padding: '2rem 0' }}>Loading…</div>
-        ) : meetings.length === 0 ? (
-          <div style={{ ...card, padding: '26px 22px', textAlign: 'center', color: '#64748b', fontSize: 14 }}>
-            No meetings yet. Call your first one above.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {meetings.map(m => (
-              <button key={m.id} onClick={() => navigate(`/governance/meetings/${m.id}`)}
-                style={{ ...card, padding: '14px 16px', textAlign: 'left', cursor: 'pointer', width: '100%' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-                  <StatusPill status={m.status} />
-                  <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
-                    {m.committee ? m.committee.name : MEETING_LABEL[m.meeting_type]}
-                  </span>
-                </div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>{m.title}</div>
-                <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 3 }}>
-                  {fmtWhen(m.scheduled_at)}
-                  {m.venue && ` · ${m.venue}`}
-                  {m._count && ` · ${m._count.agenda_items} agenda items`}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
+        <InboxLayout
+          toolbar={toolbar}
+          list={list}
+          detail={selected ? <MeetingDetail id={selected} /> : null}
+          placeholder="Select a meeting to see its agenda, quorum and minutes."
+        />
       </div>
     </Layout>
   );
