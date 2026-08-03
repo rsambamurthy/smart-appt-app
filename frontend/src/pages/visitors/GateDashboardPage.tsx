@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, CSSProperties } from 'react';
+import { useState, useMemo, useRef, useEffect, CSSProperties } from 'react';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
@@ -117,6 +117,13 @@ export default function GateDashboardPage() {
   const [photo, setPhoto]       = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const photoInput = useRef<HTMLInputElement>(null);
+  const bannerRef  = useRef<HTMLDivElement>(null);
+
+  // Bring the outcome into view. The banner is at the top of a long page and
+  // the gate is looking at the bottom of the form when they tap Save.
+  useEffect(() => {
+    if (msg) bannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [msg]);
 
   const takePhoto = (f: File | null) => {
     if (photoUrl) URL.revokeObjectURL(photoUrl);
@@ -158,15 +165,17 @@ export default function GateDashboardPage() {
     if (photoInput.current) photoInput.current.value = '';
   };
 
-  // The photo can only be attached once the visitor row exists, so a failure
-  // here must not read as though the whole entry failed.
-  const sendPhoto = async (visitorId: string): Promise<string> => {
-    if (!photo) return '';
+  // The photo is attached after the row exists, so it takes the file as an
+  // argument rather than reading state — by the time it runs the form has
+  // already been cleared. A failed upload must not read as a failed entry.
+  const sendPhoto = async (visitorId: string, file: File | null) => {
+    if (!file) return;
     try {
-      await uploadPhoto({ id: visitorId, photo }).unwrap();
-      return ' Photo saved.';
+      await uploadPhoto({ id: visitorId, photo: file }).unwrap();
     } catch {
-      return ' (photo did not upload — the entry is still logged)';
+      setMsg(m => m
+        ? { ...m, text: `${m.text} (the photo did not upload — the entry is still logged)` }
+        : m);
     }
   };
 
@@ -175,42 +184,55 @@ export default function GateDashboardPage() {
     setMsg(null);
     if (!unitId) { setMsg({ kind: 'err', text: 'Choose the flat.' }); return; }
 
+    // Held before the form is cleared: the confirmation names the visitor and
+    // the flat, and the photo upload needs the file after the reset.
+    const flat          = selected?.flat_number ?? 'the flat';
+    const who           = name.trim();
+    const pendingPhoto  = photo;
+    const thisProvider  = provider;
+    const thisHandling  = handling;
+
     try {
       if (mode === 'DELIVERY') {
-        if (!provider) { setMsg({ kind: 'err', text: 'Choose the delivery company.' }); return; }
+        if (!thisProvider) { setMsg({ kind: 'err', text: 'Choose the delivery company.' }); return; }
         const res = await logDelivery({
           unit_id:       unitId,
-          provider,
-          courier_name:  name.trim() || undefined,
+          provider:      thisProvider,
+          courier_name:  who || undefined,
           courier_phone: phone.trim() || undefined,
-          handling,
+          handling:      thisHandling,
           note:          purpose.trim() || undefined,
         }).unwrap();
-        const photoNote = await sendPhoto(res.data.id);
+
+        // Clear and confirm the moment the parcel is recorded. Everything
+        // after this is a side effect, and the gate is already onto the next
+        // person at the barrier.
+        resetForm();
         setMsg({
           kind: 'ok',
-          text: handling === 'AT_GATE'
-            ? `${provider} parcel held at the gate for flat ${selected?.flat_number}. Resident notified.${photoNote}`
-            : `${provider} sent up to flat ${selected?.flat_number}.${photoNote}`,
+          text: thisHandling === 'AT_GATE'
+            ? `${thisProvider} parcel held at the gate for flat ${flat}. Resident notified.`
+            : `${thisProvider} sent up to flat ${flat}.`,
         });
+        refetch();
+        await sendPhoto(res.data.id, pendingPhoto);
       } else {
-        if (!name.trim()) { setMsg({ kind: 'err', text: "Enter the visitor's name." }); return; }
+        if (!who) { setMsg({ kind: 'err', text: "Enter the visitor's name." }); return; }
         const res = await logWalkIn({
-          visitor_name:   name.trim(),
+          visitor_name:   who,
           visitor_phone:  phone.trim() || undefined,
           unit_id:        unitId,
           purpose:        purpose.trim() || undefined,
           vehicle_number: vehicle.trim() || undefined,
         }).unwrap();
+
+        resetForm();
+        setMsg({ kind: 'ok', text: `${who} logged for flat ${flat}. Waiting for approval.` });
+        refetch();
+
         const created = (res as { data?: { id?: string } }).data;
-        const photoNote = created?.id ? await sendPhoto(created.id) : '';
-        setMsg({
-          kind: 'ok',
-          text: `${name.trim()} logged for flat ${selected?.flat_number}. Waiting for approval.${photoNote}`,
-        });
+        if (created?.id) await sendPhoto(created.id, pendingPhoto);
       }
-      resetForm();
-      refetch();
     } catch (err: unknown) {
       const e2 = err as { data?: { detail?: string; message?: string } };
       setMsg({ kind: 'err', text: e2?.data?.detail ?? e2?.data?.message ?? 'Could not log this.' });
@@ -277,9 +299,13 @@ export default function GateDashboardPage() {
           </div>
         )}
 
-        {/* Result banner */}
+        {/* Result banner.
+            It sits above the counts and the form, which on a phone means it
+            can render a full screen above the submit button the gate just
+            tapped — so it gets scrolled to. Without that it looks like
+            nothing happened at all. */}
         {msg && (
-          <div style={{
+          <div ref={bannerRef} style={{
             marginBottom: 14, padding: '11px 14px', borderRadius: 9, fontSize: 13.5,
             background: msg.kind === 'ok' ? '#f0fdf4' : '#fef2f2',
             border:     `1px solid ${msg.kind === 'ok' ? '#86efac' : '#fecaca'}`,
