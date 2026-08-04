@@ -40,6 +40,10 @@ function UnitStatement({ unitId }: { unitId: string }) {
 
   const s = data.data;
   const owes = s.closing_balance > 0;
+  // A flat holding only this month's not-yet-due bill is not in arrears, and
+  // must not be coloured as though it were.
+  const overdue = Math.round((s.closing_balance - s.not_yet_due) * 100) / 100;
+  const tone = overdue > 0 ? '#b91c1c' : owes ? '#b45309' : '#15803d';
 
   // Printed from a fresh window rather than window.print(): the page around
   // this pane — navigation, filters, the flat list — has no place on a
@@ -122,15 +126,22 @@ function UnitStatement({ unitId }: { unitId: string }) {
             </div>
           </div>
         ))}
-        <div style={{ flex: '1 1 120px', borderRadius: 9, padding: '9px 12px',
-                      background: owes ? '#fef2f2' : '#f0fdf4' }}>
-          <div style={{ fontSize: 11.5, color: owes ? '#b91c1c' : '#15803d' }}>
-            {owes ? 'Outstanding' : s.closing_balance < 0 ? 'In credit' : 'Settled'}
+        <div style={{ flex: '1 1 130px', borderRadius: 9, padding: '9px 12px',
+                      background: overdue > 0 ? '#fef2f2' : owes ? '#fffbeb' : '#f0fdf4' }}>
+          <div style={{ fontSize: 11.5, color: tone }}>
+            {overdue > 0 ? 'Outstanding'
+              : owes ? 'Due shortly'
+              : s.closing_balance < 0 ? 'In credit' : 'Settled'}
           </div>
           <div style={{ fontSize: 16, fontWeight: 700, ...amountCell, textAlign: 'left',
-                        color: owes ? '#b91c1c' : '#15803d' }}>
+                        color: tone }}>
             ₹{money(Math.abs(s.closing_balance))}
           </div>
+          {s.not_yet_due > 0 && (
+            <div style={{ fontSize: 10.5, color: '#92400e', marginTop: 1 }}>
+              incl. ₹{money(s.not_yet_due)} not yet due
+            </div>
+          )}
         </div>
       </div>
 
@@ -181,6 +192,13 @@ function UnitStatement({ unitId }: { unitId: string }) {
                   {l.reference && (
                     <span style={{ color: '#94a3b8' }}> · {l.reference}</span>
                   )}
+                  {l.not_yet_due && (
+                    <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 99,
+                                   background: '#fffbeb', color: '#b45309',
+                                   fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                      not yet due
+                    </span>
+                  )}
                 </td>
                 <td style={{ ...amountCell, padding: '8px 12px', fontSize: 13 }}>
                   {l.kind === 'CHARGE' ? money(l.amount) : ''}
@@ -206,7 +224,7 @@ function UnitStatement({ unitId }: { unitId: string }) {
                 {money(s.paid)}
               </td>
               <td style={{ ...amountCell, padding: '9px 12px', fontSize: 14, fontWeight: 700,
-                           color: owes ? '#b91c1c' : '#15803d' }}>
+                           color: tone }}>
                 {money(s.closing_balance)}
               </td>
             </tr>
@@ -253,6 +271,11 @@ export function MyStatementPage() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+/** What the flat is actually late on, ignoring bills not yet payable. */
+const overdueOf = (r: { balance: number; not_yet_due: number }) =>
+  Math.round((r.balance - r.not_yet_due) * 100) / 100;
+
+
 export default function StatementPage() {
   const [search, setSearch]     = useState('');
   const [owingOnly, setOwing]   = useState(false);
@@ -262,11 +285,14 @@ export default function StatementPage() {
 
   const rows = data?.data ?? [];
   const t    = data?.totals;
+  const overdueCount = rows.filter(r => overdueOf(r) > 0).length;
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter(r => {
-      if (owingOnly && r.balance <= 0) return false;
+      // "Owing" means late, not merely billed. A flat holding only this
+      // month's not-yet-due bill does not belong on a chase list.
+      if (owingOnly && overdueOf(r) <= 0) return false;
       if (!q) return true;
       return r.flat_number.toLowerCase().includes(q)
           || (r.block ?? '').toLowerCase().includes(q);
@@ -293,7 +319,7 @@ export default function StatementPage() {
                    border: 'none', fontWeight: owingOnly ? 700 : 500,
                    background: owingOnly ? '#fef2f2' : 'transparent',
                    color: owingOnly ? '#b91c1c' : '#64748b' }}>
-          Owing {t?.flats_owing ?? 0}
+          Overdue {overdueCount}
         </button>
       </div>
     </div>
@@ -309,11 +335,12 @@ export default function StatementPage() {
         <InboxRow
           key={r.id}
           selected={selected === r.id}
-          accent={r.balance > 0 ? '#dc2626' : undefined}
+          accent={overdueOf(r) > 0 ? '#dc2626' : r.balance > 0 ? '#f59e0b' : undefined}
           muted={r.balance === 0}
           title={r.flat_number + (r.block ? ` · ${r.block}` : '')}
           trailing={r.balance === 0 ? '—' : `₹${money(Math.abs(r.balance))}`}
-          meta={r.balance > 0 ? 'Outstanding'
+          meta={overdueOf(r) > 0 ? 'Overdue'
+              : r.balance > 0 ? 'Due shortly'
               : r.balance < 0 ? 'In credit'
               : 'Settled'}
           onClick={() => setSelected(r.id)}
@@ -331,12 +358,22 @@ export default function StatementPage() {
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
             <div style={{ flex: '1 1 150px', background: '#fef2f2', borderRadius: 10, padding: '11px 14px' }}>
               <div style={{ fontSize: 21, fontWeight: 700, color: '#b91c1c', ...amountCell, textAlign: 'left' }}>
-                ₹{money(t.outstanding)}
+                ₹{money(t.overdue)}
               </div>
               <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>
-                Outstanding · {t.flats_owing} flats
+                Overdue · {overdueCount} flats
               </div>
             </div>
+            {t.not_yet_due > 0 && (
+              <div style={{ flex: '1 1 150px', background: '#fffbeb', borderRadius: 10, padding: '11px 14px' }}>
+                <div style={{ fontSize: 21, fontWeight: 700, color: '#b45309', ...amountCell, textAlign: 'left' }}>
+                  ₹{money(t.not_yet_due)}
+                </div>
+                <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 600 }}>
+                  Billed, not yet due
+                </div>
+              </div>
+            )}
             {t.in_credit > 0 && (
               <div style={{ flex: '1 1 150px', background: '#f0fdf4', borderRadius: 10, padding: '11px 14px' }}>
                 <div style={{ fontSize: 21, fontWeight: 700, color: '#15803d', ...amountCell, textAlign: 'left' }}>
@@ -356,8 +393,11 @@ export default function StatementPage() {
         />
 
         <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 14, maxWidth: 640, lineHeight: 1.6 }}>
-          Credits are shown separately rather than netted against arrears — a flat
-          that has paid ahead should not make the total owed look smaller than it is.
+          The current month's bill appears from the day it is raised, marked
+          &ldquo;not yet due&rdquo; until its due day, and is kept out of the overdue
+          figure. Credits are shown separately rather than netted against arrears —
+          a flat that has paid ahead should not make the total owed look smaller
+          than it is.
         </div>
       </div>
     </Layout>

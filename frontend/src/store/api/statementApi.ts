@@ -8,6 +8,8 @@ export interface StatementLine {
   /** Positive increases what the flat owes; negative reduces it. */
   amount: number;
   balance: number;
+  /** Raised but not yet payable. Part of the balance, but not arrears. */
+  not_yet_due?: boolean;
 }
 
 export interface Statement {
@@ -20,6 +22,7 @@ export interface Statement {
   charged: number;
   paid: number;
   closing_balance: number;
+  not_yet_due: number;
   penalty_charged: number;
   lines: StatementLine[];
 }
@@ -31,6 +34,7 @@ export interface StatementSummaryRow {
   billed: number;
   paid: number;
   balance: number;
+  not_yet_due: number;
 }
 
 export const statementApi = baseApi.injectEndpoints({
@@ -38,7 +42,10 @@ export const statementApi = baseApi.injectEndpoints({
     // Every flat's balance as at a date — the arrears list.
     getStatementSummary: builder.query<{
       data: StatementSummaryRow[];
-      totals: { outstanding: number; in_credit: number; flats_owing: number };
+      totals: {
+        outstanding: number; in_credit: number; flats_owing: number;
+        not_yet_due: number; overdue: number;
+      };
       as_of: string;
     }, { as_of?: string } | void>({
       query: (a) => ({ url: '/dues/statement', params: { as_of: a?.as_of || undefined } }),

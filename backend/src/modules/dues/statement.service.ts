@@ -26,6 +26,8 @@ export interface StatementLine {
   /** Positive increases what the flat owes; negative reduces it. */
   amount: number;
   balance: number;
+  /** Raised but not yet payable. Part of the balance, but not arrears. */
+  not_yet_due?: boolean;
 }
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -80,6 +82,16 @@ export class StatementService {
 
     // Bills are dated by their due date; a bill raised for April is April's
     // charge regardless of when the row happened to be created.
+    //
+    // But a bill is a charge from the moment it is raised, not from the moment
+    // it falls due. Cutting bills off at `to` hid the current month's bill for
+    // everyone looking before the due day — exactly the people about to pay it.
+    // So bills run to the end of the month containing `to` while payments stop
+    // at `to`, and anything not yet due is reported separately so it can be
+    // told apart from arrears.
+    const billCutoff = new Date(to.getFullYear(), to.getMonth() + 1, 0, 23, 59, 59, 999);
+    const today = new Date(); today.setHours(23, 59, 59, 999);
+
     const [billsBefore, paymentsBefore, bills, payments] = await Promise.all([
       prisma.bill.aggregate({
         where:  { unit_id: unitId, association_id: associationId, due_date: { lt: from } },
@@ -90,7 +102,7 @@ export class StatementService {
         _sum:   { amount: true },
       }),
       prisma.bill.findMany({
-        where:  { unit_id: unitId, association_id: associationId, due_date: { gte: from, lte: to } },
+        where:  { unit_id: unitId, association_id: associationId, due_date: { gte: from, lte: billCutoff } },
         select: {
           id: true, due_date: true, period_month: true, period_year: true,
           base_amount: true, penalty: true, levy_amount: true, total_amount: true,
@@ -131,6 +143,7 @@ export class StatementService {
           description: parts.length ? `${label} (incl. ${parts.join(', ')})` : label,
           reference: null,
           amount: num(b.total_amount),
+          not_yet_due: b.due_date > today,
         },
       });
     }
@@ -178,6 +191,10 @@ export class StatementService {
         charged: Math.round(charged * 100) / 100,
         paid:    Math.round(paid * 100) / 100,
         closing_balance: Math.round(balance * 100) / 100,
+        // Of the closing balance, how much is not yet payable. A resident
+        // seeing a figure they are not late on should be told so.
+        not_yet_due: Math.round(bills.filter(b => b.due_date > today)
+                        .reduce((s, b) => s + num(b.total_amount), 0) * 100) / 100,
         // Split out because a treasurer chasing arrears wants to know how much
         // of the balance is penalty rather than principal.
         penalty_charged: Math.round(bills.reduce((s, b) => s + num(b.penalty), 0) * 100) / 100,
@@ -198,12 +215,18 @@ export class StatementService {
       orderBy: [{ block: 'asc' }, { flat_number: 'asc' }],
     });
 
-    // Two grouped queries rather than one per flat: this is the arrears screen
-    // and it is opened often.
-    const [billed, paid] = await Promise.all([
+    // Bills run to the end of the month containing `to`, so the current
+    // month's bill appears from the day it is raised rather than from its due
+    // day. What is not yet payable is counted separately: a flat that owes
+    // only this month's not-yet-due bill is not in arrears.
+    const billCutoff = new Date(to.getFullYear(), to.getMonth() + 1, 0, 23, 59, 59, 999);
+    const today = new Date(); today.setHours(23, 59, 59, 999);
+
+    // Grouped queries rather than one per flat: this screen is opened often.
+    const [billed, paid, upcoming] = await Promise.all([
       prisma.bill.groupBy({
         by: ['unit_id'],
-        where: { association_id: associationId, due_date: { lte: to } },
+        where: { association_id: associationId, due_date: { lte: billCutoff } },
         _sum: { total_amount: true },
       }),
       prisma.payment.groupBy({
@@ -211,14 +234,29 @@ export class StatementService {
         where: { association_id: associationId, payment_date: { lte: to } },
         _sum: { amount: true },
       }),
+      prisma.bill.groupBy({
+        by: ['unit_id'],
+        where: { association_id: associationId, due_date: { gt: today, lte: billCutoff } },
+        _sum: { total_amount: true },
+      }),
     ]);
 
-    const billedBy = new Map(billed.map(b => [b.unit_id, num(b._sum.total_amount)]));
-    const paidBy   = new Map(paid.map(p => [p.unit_id, num(p._sum.amount)]));
+    const billedBy   = new Map(billed.map(b => [b.unit_id, num(b._sum.total_amount)]));
+    const paidBy     = new Map(paid.map(p => [p.unit_id, num(p._sum.amount)]));
+    const upcomingBy = new Map(upcoming.map(b => [b.unit_id, num(b._sum.total_amount)]));
 
     const rows = units.map(u => {
       const owed = Math.round(((billedBy.get(u.id) ?? 0) - (paidBy.get(u.id) ?? 0)) * 100) / 100;
-      return { ...u, billed: billedBy.get(u.id) ?? 0, paid: paidBy.get(u.id) ?? 0, balance: owed };
+      const soon = Math.round((upcomingBy.get(u.id) ?? 0) * 100) / 100;
+      return {
+        ...u,
+        billed: billedBy.get(u.id) ?? 0,
+        paid:   paidBy.get(u.id) ?? 0,
+        balance: owed,
+        // Never negative: a flat in credit is not carrying an upcoming charge
+        // it has already covered.
+        not_yet_due: Math.max(0, Math.min(soon, owed)),
+      };
     });
 
     return {
@@ -231,6 +269,10 @@ export class StatementService {
         in_credit:   Math.round(Math.abs(rows.filter(r => r.balance < 0)
                         .reduce((s, r) => s + r.balance, 0)) * 100) / 100,
         flats_owing: rows.filter(r => r.balance > 0).length,
+        // Split out of `outstanding` so a treasurer can see true arrears.
+        not_yet_due: Math.round(rows.reduce((s, r) => s + r.not_yet_due, 0) * 100) / 100,
+        overdue:     Math.round(rows.filter(r => r.balance > 0)
+                        .reduce((s, r) => s + (r.balance - r.not_yet_due), 0) * 100) / 100,
       },
       as_of: iso(to),
     };

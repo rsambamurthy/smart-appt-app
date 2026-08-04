@@ -9,23 +9,41 @@
 \set assoc '00000000-0000-0000-0000-000000000000'
 
 -- 1. Association-wide position as at today.
---    Must equal the two tiles at the top of the Statement screen.
---    Credits are NOT netted against arrears, so these are two separate sums.
-WITH bal AS (
+--    Must equal the tiles at the top of the Statement screen.
+--
+--    Bills run to the END OF THE CURRENT MONTH, not to today: a bill is a
+--    charge from the day it is raised, so the current month's bill appears
+--    before its due day. What is not yet payable is reported separately, so
+--    `overdue` — not `outstanding` — is the chase figure.
+--
+--    Credits are NOT netted against arrears; they are their own sum.
+WITH bounds AS (
+  SELECT (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month - 1 day')::date AS bill_cutoff
+), bal AS (
   SELECT u.id,
-         COALESCE((SELECT SUM(b.total_amount) FROM bills b
-                    WHERE b.unit_id = u.id AND b.due_date <= CURRENT_DATE), 0)
+         COALESCE((SELECT SUM(b.total_amount) FROM bills b, bounds
+                    WHERE b.unit_id = u.id AND b.due_date <= bounds.bill_cutoff), 0)
        - COALESCE((SELECT SUM(p.amount) FROM payments p
-                    WHERE p.unit_id = u.id AND p.payment_date <= CURRENT_DATE + 1), 0)
-         AS balance
+                    WHERE p.unit_id = u.id AND p.payment_date < CURRENT_DATE + 1), 0)
+         AS balance,
+         COALESCE((SELECT SUM(b.total_amount) FROM bills b, bounds
+                    WHERE b.unit_id = u.id
+                      AND b.due_date >  CURRENT_DATE
+                      AND b.due_date <= bounds.bill_cutoff), 0)
+         AS soon
     FROM units u
    WHERE u.association_id = :'assoc'::uuid AND u.deleted_at IS NULL
+), adj AS (
+  SELECT balance, GREATEST(0, LEAST(soon, balance)) AS not_yet_due FROM bal
 )
-SELECT ROUND(SUM(balance) FILTER (WHERE balance > 0), 2)        AS outstanding,
-       ROUND(ABS(SUM(balance) FILTER (WHERE balance < 0)), 2)   AS in_credit,
-       COUNT(*) FILTER (WHERE balance > 0)                      AS flats_owing,
-       COUNT(*)                                                 AS flats_total
-  FROM bal;
+SELECT ROUND(COALESCE(SUM(balance) FILTER (WHERE balance > 0), 0), 2)      AS outstanding,
+       ROUND(COALESCE(SUM(not_yet_due), 0), 2)                            AS not_yet_due,
+       ROUND(COALESCE(SUM(balance - not_yet_due)
+               FILTER (WHERE balance > 0), 0), 2)                         AS overdue,
+       ROUND(COALESCE(ABS(SUM(balance) FILTER (WHERE balance < 0)), 0), 2) AS in_credit,
+       COUNT(*) FILTER (WHERE balance - not_yet_due > 0)                  AS flats_overdue,
+       COUNT(*)                                                           AS flats_total
+  FROM adj;
 
 -- 2. One flat's closing balance.
 --    Must equal the Closing balance line on that flat's statement.
