@@ -3,6 +3,8 @@ import prisma from '../../config/database';
 import { ConflictError, NotFoundError } from '../../utils/errors';
 import { CreateAccountBody, UpdateAccountBody } from './accounting.schema';
 import { auditService } from '../../services/audit.service';
+import logger from '../../utils/logger';
+import { seedBPTypes, linkDuesReceivable, ensureUnitBP } from './bp-type.seed';
 
 // ── Standard housing-society chart of accounts ───────────────────────────────
 type SeedAccount = {
@@ -71,10 +73,34 @@ class AccountingService {
       .filter(a => !existingCodes.has(a.code))
       .map((a, i) => ({ ...a, association_id: associationId, sort_order: i }));
 
-    if (toCreate.length === 0) return { data: { seeded: 0 } };
+    if (toCreate.length) {
+      await prisma.account.createMany({ data: toCreate });
+    }
 
-    await prisma.account.createMany({ data: toCreate });
-    return { data: { seeded: toCreate.length } };
+    // Always, even when every account already existed. Associations created
+    // before BP types were seeded need this too, and re-seeding is how they
+    // get it — otherwise the sub-ledger stays a manual setup step nobody knows
+    // to perform.
+    await seedBPTypes(associationId);
+    const linkedTo = await linkDuesReceivable(associationId);
+
+    // Backfill any unit that has no partner card yet, or has one with no type.
+    // A control account with no members is indistinguishable from a broken one.
+    let unitsWired = 0;
+    if (linkedTo) {
+      const units = await prisma.unit.findMany({
+        where:  { association_id: associationId, deleted_at: null },
+        select: { id: true, flat_number: true, block: true },
+      });
+      for (const unit of units) {
+        try { await ensureUnitBP(associationId, unit); unitsWired++; }
+        catch (err) {
+          logger.error('Could not create unit business partner', { unit: unit.id, error: err });
+        }
+      }
+    }
+
+    return { data: { seeded: toCreate.length, units_wired: unitsWired } };
   }
 
   // ── Create account ────────────────────────────────────────────────────────────

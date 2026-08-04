@@ -5,6 +5,7 @@ import { RegisterAssociationBody, UpdateAssociationBody } from './associations.s
 import { UserRole } from '@prisma/client';
 import logger from '../../utils/logger';
 import { entitlementService } from '../../services/entitlement.service';
+import { accountingService } from '../accounting/accounting.service';
 
 export class AssociationsService {
   // ── Public: register new association + first admin ───────────────────────────
@@ -57,6 +58,23 @@ export class AssociationsService {
       await entitlementService.startTrial(result.association.id);
     } catch (err) {
       logger.error('Failed to start trial for new association', {
+        association_id: result.association.id,
+        error: (err as Error).message,
+      });
+    }
+
+    // 5. Chart of accounts and business-partner types.
+    //    Same reasoning as the trial above: outside the transaction, logged on
+    //    failure, repairable from Chart of Accounts → Seed default accounts.
+    //
+    //    This used to be entirely manual, and skipping it was invisible until
+    //    someone tried to make Dues Receivable a control account and found it
+    //    listed no flats. Accounting that only works if you remember an
+    //    undocumented setup step is accounting that does not work.
+    try {
+      await accountingService.seedDefaults(result.association.id);
+    } catch (err) {
+      logger.error('Failed to seed the chart of accounts for new association', {
         association_id: result.association.id,
         error: (err as Error).message,
       });

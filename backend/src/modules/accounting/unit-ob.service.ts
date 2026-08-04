@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import { BPCategory, BalanceType } from '@prisma/client';
 import prisma from '../../config/database';
+import { duesReceivableBPTypeId } from './bp-type.seed';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -333,6 +334,11 @@ class UnitOBService {
             code,
             name:            `Unit ${unit.flat_number}${unit.block ? ' ' + unit.block : ''}`,
             bp_category:     BPCategory.UNIT,
+            // Without this the partner is created correctly in every visible
+            // respect and is still invisible to Dues Receivable: the control
+            // account joins on bp_type_id alone. Omitting it here is what made
+            // an uploaded set of flats vanish from the sub-ledger.
+            bp_type_id:      await duesReceivableBPTypeId(associationId),
             unit_id:         unit.id,
             ...data,
           },

@@ -3,6 +3,8 @@ import { ConflictError, NotFoundError } from '../../utils/errors';
 import { normalisePhone, generateToken, paginatedResponse } from '../../utils/helpers';
 import { smsService } from '../../services/sms.service';
 import { auditService } from '../../services/audit.service';
+import logger from '../../utils/logger';
+import { ensureUnitBP } from '../accounting/bp-type.seed';
 import {
   CreateUserBody, UpdateUserBody, CreateUnitBody, InviteUserBody,
 } from './users.schema';
@@ -32,6 +34,21 @@ export class UsersService {
     const unit = await prisma.unit.create({
       data: { association_id: associationId, ...body },
     });
+
+    // Give the flat its sub-ledger card immediately. Doing this only in a
+    // separate setup step is how associations ended up with Dues Receivable
+    // marked as a control account that listed no flats at all.
+    //
+    // Best-effort on purpose: a bookkeeping problem must not stop a manager
+    // adding a flat, and check-unit-subledger.sql repairs whatever is missed.
+    try {
+      await ensureUnitBP(associationId, unit);
+    } catch (err) {
+      logger.error('Could not create the unit business partner', {
+        unit: unit.id, error: err,
+      });
+    }
+
     return { data: unit };
   }
 
