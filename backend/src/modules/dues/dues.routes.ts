@@ -2,6 +2,9 @@ import { Router } from 'express';
 import multer from 'multer';
 import { UserRole } from '@prisma/client';
 import { duesController } from './dues.controller';
+import { statementService } from './statement.service';
+import { AuthRequest } from '../../types';
+import { NotFoundError } from '../../utils/errors';
 import { paymentUploadController } from './payment-upload.controller';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
@@ -103,5 +106,48 @@ router.delete('/one-time-dues/:id/bills', requireRoles(UserRole.TREASURER), (req
 
 router.post('/one-time-dues/:id/close', treasurerOrManager, (req, res, next) =>
   duesController.closeOneTimeDue(req as never, res, next));
+
+
+// ── Statement of account ──────────────────────────────────────────────────────
+//
+// The most-asked resident question: what do I owe, and why. A running balance
+// of every charge and every payment, which a bare arrears figure cannot give.
+
+/** Every flat's balance as at a date — the arrears list. */
+router.get('/statement', requireRoles(...treasurerOrManagerRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await statementService.summary(
+      req.user!.association_id, req.query['as_of'] as string,
+    ));
+  } catch (err) { next(err); }
+});
+
+/**
+ * One flat's statement.
+ *
+ * A resident may fetch their own; a treasurer or manager may fetch any. The
+ * check is here rather than in the service because it is about who is asking,
+ * not about the data.
+ */
+router.get('/statement/:unitId', async (req: AuthRequest, res, next) => {
+  try {
+    const unitId = req.params['unitId'] as string;
+    const privileged = req.user!.role === UserRole.TREASURER
+                    || req.user!.role === UserRole.MANAGER
+                    || req.user!.role === UserRole.COMMITTEE
+                    || req.user!.role === UserRole.SUPER_USER;
+
+    if (!privileged && req.user!.unit_id !== unitId) {
+      // 404 rather than 403: confirming the flat exists tells someone probing
+      // more than they should learn.
+      return next(new NotFoundError('Unit'));
+    }
+
+    res.json(await statementService.forUnit(req.user!.association_id, unitId, {
+      from: req.query['from'] as string,
+      to:   req.query['to'] as string,
+    }));
+  } catch (err) { next(err); }
+});
 
 export default router;

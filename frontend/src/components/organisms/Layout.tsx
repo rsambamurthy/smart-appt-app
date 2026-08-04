@@ -79,6 +79,7 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'dues_bills',    label: 'Bills & Payments', path: '/dues/bills',         roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#0095db', end: true },
       { id: 'dues_one_time', label: 'One-Time Dues',    path: '/dues/one-time-dues', roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#ec4899', end: true },
       { id: 'dues_arrears',  label: 'Arrears',          path: '/dues/arrears',       roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#dc2626', end: true },
+      { id: 'dues_statement', label: 'Statement of Account', path: '/dues/statement',  roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#0ea5e9', end: true },
     ],
   },
   {
@@ -134,6 +135,7 @@ const NAV_GROUPS: NavGroup[] = [
     roles: ALL_ROLES,
     items: [
       { id: 'dues_my_bills',        label: 'My Bills',          path: '/dues/my-bills',         roles: ['SUPER_USER', 'RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER'],                      dot: '#f59e0b', end: true },
+      { id: 'dues_my_statement',    label: 'My Statement',      path: '/dues/my-statement',     roles: ['SUPER_USER', 'RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER'],                      dot: '#0ea5e9', end: true },
       { id: 'maintenance_list',     label: 'Service Requests',  path: '/maintenance',           roles: ALL_ROLES,                                                                            dot: '#ef4444', end: true },
       // 'maintenance_new' (Raise Request) intentionally omitted — raising a
       // request is done from within Service Requests. The /maintenance/new
