@@ -113,9 +113,14 @@ export default function MobileHomePage() {
         {/* Gate console.
             Full width and first, not a tile among tiles: for a guard this is
             not one feature of several, it is the entire reason the handset is
-            in their hand. Anyone else who can reach it gets it here too, which
-            is why this keys off the menu rather than off the role. */}
-        {config.can('gate_console') && (
+            in their hand.
+
+            Role AND menu, not menu alone: can() falls open while the config is
+            in flight, and an over-generous menu that merely hides a tile is
+            harmless, whereas one that SHOWS a button is not. /mobile/gate is
+            GATE_STAFF-only, so anyone else tapping this would be bounced
+            straight back here. */}
+        {isGateStaff && config.can('gate_console') && (
           <button
             onClick={() => navigate('/mobile/gate')}
             style={{
