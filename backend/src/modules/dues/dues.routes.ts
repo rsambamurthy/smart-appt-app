@@ -3,8 +3,9 @@ import multer from 'multer';
 import { UserRole } from '@prisma/client';
 import { duesController } from './dues.controller';
 import { statementService } from './statement.service';
+import { penaltyService } from './penalty.service';
 import { AuthRequest } from '../../types';
-import { NotFoundError } from '../../utils/errors';
+import { NotFoundError, UnprocessableError } from '../../utils/errors';
 import { paymentUploadController } from './payment-upload.controller';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
@@ -147,6 +148,56 @@ router.get('/statement/:unitId', async (req: AuthRequest, res, next) => {
       from: req.query['from'] as string,
       to:   req.query['to'] as string,
     }));
+  } catch (err) { next(err); }
+});
+
+
+// ── Late-payment penalties ────────────────────────────────────────────────────
+//
+// Charging and reversing are both treasurer/manager work. Nothing here is
+// exposed to a resident: a resident sees the result on their statement, which
+// is the honest place for it.
+
+/** What would be charged if the run were applied now. Charges nothing. */
+router.get('/penalties/preview', requireRoles(...treasurerOrManagerRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await penaltyService.preview(
+      req.user!.association_id, req.query['as_of'] as string,
+    ));
+  } catch (err) { next(err); }
+});
+
+/** Charge the listed bills. Omission is how the review screen excludes a flat. */
+router.post('/penalties/apply', requireRoles(...treasurerOrManagerRoles), async (req: AuthRequest, res, next) => {
+  try {
+    const billIds = req.body?.bill_ids;
+    if (!Array.isArray(billIds) || billIds.some((b: unknown) => typeof b !== 'string')) {
+      throw new UnprocessableError('Select at least one bill to charge.');
+    }
+    res.json(await penaltyService.apply(
+      req.user!.association_id, req.user!.id, billIds, req.body?.as_of,
+    ));
+  } catch (err) { next(err); }
+});
+
+/** Every penalty on one flat, charged and waived alike. */
+router.get('/penalties/unit/:unitId', requireRoles(...treasurerOrManagerRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await penaltyService.history(
+      req.user!.association_id, req.params['unitId'] as string,
+    ));
+  } catch (err) { next(err); }
+});
+
+/** Reverse one penalty in full. The reason is not optional. */
+router.post('/penalties/:id/waive', async (req: AuthRequest, res, next) => {
+  try {
+    // The role check lives in the service: it is part of the rule, not part of
+    // the routing, and the service is what the test harness will call.
+    res.json(await penaltyService.waive(
+      req.user!.association_id, req.user!.id, req.user!.role,
+      req.params['id'] as string, req.body?.reason ?? '',
+    ));
   } catch (err) { next(err); }
 });
 

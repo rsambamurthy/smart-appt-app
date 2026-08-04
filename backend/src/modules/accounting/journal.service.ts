@@ -34,8 +34,9 @@ async function nextReferenceCode(
   associationId: string,
   voucherType:   VoucherType,
   financialYear: string,
+  client: Prisma.TransactionClient | typeof prisma = prisma,
 ): Promise<string> {
-  const seq = await prisma.voucherSequence.upsert({
+  const seq = await client.voucherSequence.upsert({
     where: {
       association_id_voucher_type_financial_year: {
         association_id: associationId,
@@ -214,6 +215,10 @@ class JournalService {
     status?:         JournalStatus;
     created_by_id?:  string;
     lines: { account_id: string; business_partner_id?: string | null; debit: number; credit: number; narration?: string | null }[];
+    /// When the caller is inside a transaction, the entry must be written on
+    /// that same client — otherwise a rolled-back charge leaves a live journal
+    /// entry behind, and the books say something happened that did not.
+    client?: Prisma.TransactionClient;
   }) {
     const totalDebit  = opts.lines.reduce((s, l) => s + l.debit,  0);
     const totalCredit = opts.lines.reduce((s, l) => s + l.credit, 0);
@@ -223,10 +228,11 @@ class JournalService {
       );
     }
 
+    const db = opts.client ?? prisma;
     const financial_year  = await getFY(associationId, opts.entry_date);
-    const reference_code  = await nextReferenceCode(associationId, opts.voucher_type, financial_year);
+    const reference_code  = await nextReferenceCode(associationId, opts.voucher_type, financial_year, db);
 
-    return prisma.journalEntry.create({
+    return db.journalEntry.create({
       data: {
         association_id: associationId,
         entry_date:     opts.entry_date,
@@ -355,6 +361,104 @@ class JournalService {
     } catch (err) {
       logger.error('Auto-post failed (payment received)', { paymentId, error: err });
     }
+  }
+
+  // ── AUTO-POST: Late-payment penalty charged ───────────────────────────────
+  // DR 1004 Dues Receivable / CR 3004 Penalty Income, as a Debit Note.
+  //
+  // Unlike the other auto-posts, this one THROWS on failure instead of logging
+  // and moving on. Those post a record of something that already happened —
+  // the money arrived whether or not the entry was written. A penalty is the
+  // opposite: the charge only exists because we said so, and charging a
+  // resident without an entry in the books is not a degraded outcome, it is a
+  // wrong one. The caller runs it inside a transaction so the charge and its
+  // entry stand or fall together.
+  async postPenaltyCharged(
+    associationId: string,
+    penaltyId:     string,
+    unitId:        string,
+    amount:        number,
+    narration:     string,
+    entryDate:     Date,
+    createdById:   string,
+    client:        Prisma.TransactionClient,
+  ) {
+    const [duesReceivable, penaltyIncome] = await Promise.all([
+      this.getAccount(associationId, '1004'),
+      this.getAccount(associationId, '3004'),
+    ]);
+
+    // 1004 is a control account, so its line needs the unit's business partner
+    // or validateControlAccounts will reject it — and the per-flat sub-ledger
+    // would lose the charge either way.
+    const bp = await client.businessPartner.findFirst({
+      where:  { association_id: associationId, unit_id: unitId },
+      select: { id: true },
+    });
+    if (!bp) {
+      throw new UnprocessableError(
+        'This flat has no business partner card, so the penalty cannot be tracked '
+        + 'against it in the ledger. Create unit business partners first.'
+      );
+    }
+
+    return this.post(associationId, {
+      entry_date:     entryDate,
+      narration,
+      reference_type: 'BILL_PENALTY',
+      reference_id:   penaltyId,
+      voucher_type:   VoucherType.DN,
+      source:         JournalEntrySource.AUTO,
+      created_by_id:  createdById,
+      client,
+      lines: [
+        { account_id: duesReceivable.id, business_partner_id: bp.id, debit: amount, credit: 0, narration: 'Late payment penalty' },
+        { account_id: penaltyIncome.id,  debit: 0, credit: amount, narration: 'Penalty income' },
+      ],
+    });
+  }
+
+  // ── AUTO-POST: Penalty waived ─────────────────────────────────────────────
+  // DR 3004 Penalty Income / CR 1004 Dues Receivable, as a Credit Note.
+  //
+  // A reversing entry, never a deletion or an edit of the original. Both the
+  // charge and the waiver stay on the ledger, which is the only version of
+  // events that survives being asked about a year later.
+  async postPenaltyWaived(
+    associationId: string,
+    penaltyId:     string,
+    unitId:        string,
+    amount:        number,
+    narration:     string,
+    entryDate:     Date,
+    createdById:   string,
+    client:        Prisma.TransactionClient,
+  ) {
+    const [duesReceivable, penaltyIncome] = await Promise.all([
+      this.getAccount(associationId, '1004'),
+      this.getAccount(associationId, '3004'),
+    ]);
+
+    const bp = await client.businessPartner.findFirst({
+      where:  { association_id: associationId, unit_id: unitId },
+      select: { id: true },
+    });
+    if (!bp) throw new UnprocessableError('This flat has no business partner card.');
+
+    return this.post(associationId, {
+      entry_date:     entryDate,
+      narration,
+      reference_type: 'BILL_PENALTY_WAIVER',
+      reference_id:   penaltyId,
+      voucher_type:   VoucherType.CN,
+      source:         JournalEntrySource.AUTO,
+      created_by_id:  createdById,
+      client,
+      lines: [
+        { account_id: penaltyIncome.id,  debit: amount, credit: 0, narration: 'Penalty waived' },
+        { account_id: duesReceivable.id, business_partner_id: bp.id, debit: 0, credit: amount, narration: 'Penalty reversed' },
+      ],
+    });
   }
 
   // ── AUTO-POST: Expense ────────────────────────────────────────────────────

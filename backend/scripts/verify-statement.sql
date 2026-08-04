@@ -11,38 +11,39 @@
 -- 1. Association-wide position as at today.
 --    Must equal the tiles at the top of the Statement screen.
 --
---    Bills run to the END OF THE CURRENT MONTH, not to today: a bill is a
---    charge from the day it is raised, so the current month's bill appears
---    before its due day. What is not yet payable is reported separately, so
---    `overdue` — not `outstanding` — is the chase figure.
+--    A bill counts from its POSTING date — the first day of the period it
+--    covers, make_date(period_year, period_month, 1) — not from its due date.
+--    A ledger may not carry a future-dated line, and created_at is unusable
+--    because the Park Avenue import stamped every historical bill with the
+--    import date.
 --
---    Credits are NOT netted against arrears; they are their own sum.
-WITH bounds AS (
-  SELECT (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month - 1 day')::date AS bill_cutoff
-), bal AS (
+--    `overdue`, not `outstanding`, is the chase figure: a bill posted on the
+--    1st but due on the 10th is owed, not late.
+WITH bal AS (
   SELECT u.id,
-         COALESCE((SELECT SUM(b.total_amount) FROM bills b, bounds
-                    WHERE b.unit_id = u.id AND b.due_date <= bounds.bill_cutoff), 0)
+         COALESCE((SELECT SUM(b.total_amount) FROM bills b
+                    WHERE b.unit_id = u.id
+                      AND make_date(b.period_year, b.period_month, 1) <= CURRENT_DATE), 0)
        - COALESCE((SELECT SUM(p.amount) FROM payments p
                     WHERE p.unit_id = u.id AND p.payment_date < CURRENT_DATE + 1), 0)
          AS balance,
-         COALESCE((SELECT SUM(b.total_amount) FROM bills b, bounds
+         COALESCE((SELECT SUM(b.total_amount) FROM bills b
                     WHERE b.unit_id = u.id
-                      AND b.due_date >  CURRENT_DATE
-                      AND b.due_date <= bounds.bill_cutoff), 0)
+                      AND make_date(b.period_year, b.period_month, 1) <= CURRENT_DATE
+                      AND b.due_date > CURRENT_DATE), 0)
          AS soon
     FROM units u
    WHERE u.association_id = :'assoc'::uuid AND u.deleted_at IS NULL
 ), adj AS (
   SELECT balance, GREATEST(0, LEAST(soon, balance)) AS not_yet_due FROM bal
 )
-SELECT ROUND(COALESCE(SUM(balance) FILTER (WHERE balance > 0), 0), 2)      AS outstanding,
-       ROUND(COALESCE(SUM(not_yet_due), 0), 2)                            AS not_yet_due,
+SELECT ROUND(COALESCE(SUM(balance) FILTER (WHERE balance > 0), 0), 2)       AS outstanding,
+       ROUND(COALESCE(SUM(not_yet_due), 0), 2)                             AS not_yet_due,
        ROUND(COALESCE(SUM(balance - not_yet_due)
-               FILTER (WHERE balance > 0), 0), 2)                         AS overdue,
-       ROUND(COALESCE(ABS(SUM(balance) FILTER (WHERE balance < 0)), 0), 2) AS in_credit,
-       COUNT(*) FILTER (WHERE balance - not_yet_due > 0)                  AS flats_overdue,
-       COUNT(*)                                                           AS flats_total
+               FILTER (WHERE balance > 0), 0), 2)                          AS overdue,
+       ROUND(COALESCE(ABS(SUM(balance) FILTER (WHERE balance < 0)), 0), 2)  AS in_credit,
+       COUNT(*) FILTER (WHERE balance - not_yet_due > 0)                   AS flats_overdue,
+       COUNT(*)                                                            AS flats_total
   FROM adj;
 
 -- 2. One flat's closing balance.
@@ -68,8 +69,9 @@ WITH u AS (
   SELECT id FROM units
    WHERE association_id = :'assoc'::uuid AND flat_number = :'flat' AND deleted_at IS NULL
 ), entries AS (
-  SELECT b.due_date::date AS at, 0 AS ord,
-         COALESCE(b.bill_label, 'Maintenance ' || b.period_month || '/' || b.period_year) AS particulars,
+  SELECT make_date(b.period_year, b.period_month, 1) AS at, 0 AS ord,
+         COALESCE(b.bill_label, 'Maintenance ' || b.period_month || '/' || b.period_year)
+           || ' (due ' || b.due_date || ')' AS particulars,
          b.total_amount AS amount
     FROM bills b JOIN u ON u.id = b.unit_id
   UNION ALL
@@ -99,12 +101,24 @@ SELECT id, unit_id, amount, payment_date, payment_mode
    AND (unit_id IS NULL OR payment_date > NOW())
  LIMIT 20;
 
--- 6. Sanity: does the arrears screen agree with the statement screen?
---    Arrears counts only overdue bills; the statement counts everything billed.
---    They will differ if bills exist with a due date in the future — that is
---    expected, and this query shows how much of the gap that explains.
-SELECT ROUND(COALESCE(SUM(b.total_amount), 0), 2) AS billed_not_yet_due,
-       COUNT(*) AS bill_count
-  FROM bills b
+-- 6. Bills posted in the future — next month's bills generated early. These
+--     are correctly excluded from an as-at-today statement; this shows what is
+--     being held back, so a missing charge can be explained rather than chased.
+SELECT make_date(period_year, period_month, 1) AS posted_on,
+       COUNT(*)                                AS bill_count,
+       ROUND(SUM(total_amount), 2)             AS amount
+  FROM bills
+ WHERE association_id = :'assoc'::uuid
+   AND make_date(period_year, period_month, 1) > CURRENT_DATE
+ GROUP BY 1
+ ORDER BY 1;
+
+-- 7. Posted but not yet due — the gap between the Statement screen's
+--    `outstanding` and `overdue` figures.
+SELECT u.flat_number, b.period_month, b.period_year, b.due_date,
+       ROUND(b.total_amount, 2) AS amount
+  FROM bills b JOIN units u ON u.id = b.unit_id
  WHERE b.association_id = :'assoc'::uuid
-   AND b.due_date > CURRENT_DATE;
+   AND make_date(b.period_year, b.period_month, 1) <= CURRENT_DATE
+   AND b.due_date > CURRENT_DATE
+ ORDER BY u.flat_number;

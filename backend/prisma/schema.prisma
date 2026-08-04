@@ -205,6 +205,7 @@ model Association {
   ticket_status_logs TicketStatusLog[]
   dues_config        DuesConfig?
   bills              Bill[]
+  bill_penalties     BillPenalty[]
   payments           Payment[]
   expenses           Expense[]
   expense_budgets    ExpenseBudget[]
@@ -352,6 +353,8 @@ model User {
   elections_declared  Election[]           @relation("ElectionDeclaredBy")
   candidacies         ElectionCandidate[]  @relation("ElectionCandidateUser")
   compliance_owned    ComplianceItem[]     @relation("ComplianceOwner")
+  penalties_charged   BillPenalty[]        @relation("PenaltyCharger")
+  penalties_waived    BillPenalty[]        @relation("PenaltyWaiver")
   compliance_done     ComplianceOccurrence[] @relation("ComplianceCompletedBy")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
@@ -531,7 +534,8 @@ model Bill {
   created_at       DateTime    @default(now()) @db.Timestamptz
   updated_at       DateTime    @updatedAt @db.Timestamptz
 
-  payments Payment[]
+  payments  Payment[]
+  penalties BillPenalty[]
 
   @@unique([unit_id, period_month, period_year, one_time_due_id])
   @@index([unit_id])
@@ -539,6 +543,51 @@ model Bill {
   @@index([due_date])
   @@index([one_time_due_id])
   @@map("bills")
+}
+
+/// A late-payment penalty charged on one bill.
+///
+/// `bills.penalty` is the denormalised live total; this table is the history.
+/// A waiver never deletes the row and never edits the amount — it stamps
+/// `waived_at`, so the charge and its reversal both remain visible. An auditor
+/// asking "was this ever penalised?" gets a truthful answer either way.
+///
+/// A partial unique index keeps at most one un-waived penalty per bill, which
+/// is what makes "once per bill" an invariant rather than a convention.
+model BillPenalty {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  bill_id        String      @db.Uuid
+  bill           Bill        @relation(fields: [bill_id], references: [id])
+
+  amount         Decimal     @db.Decimal(10, 2)
+  /// How the amount was arrived at, kept so a resident can be shown the
+  /// working even after the config has changed.
+  penalty_type   PenaltyType
+  penalty_value  Decimal     @db.Decimal(10, 2)
+  grace_days     Int         @db.SmallInt
+  /// Days past due when the penalty was applied.
+  days_overdue   Int         @db.SmallInt
+
+  /// The date the charge belongs to in the ledger, not when the row was made.
+  charged_on     DateTime    @db.Date
+  charged_by     String      @db.Uuid
+  charger        User        @relation("PenaltyCharger", fields: [charged_by], references: [id])
+
+  waived_at      DateTime?   @db.Timestamptz
+  waived_by      String?     @db.Uuid
+  waiver         User?       @relation("PenaltyWaiver", fields: [waived_by], references: [id])
+  /// Mandatory in the service. A waiver with no reason is the entry an
+  /// incoming committee will ask about first.
+  waive_reason   String?     @db.Text
+
+  created_at     DateTime    @default(now()) @db.Timestamptz
+  updated_at     DateTime    @updatedAt @db.Timestamptz
+
+  @@index([bill_id])
+  @@index([association_id, charged_on])
+  @@map("bill_penalties")
 }
 
 model OneTimeDue {

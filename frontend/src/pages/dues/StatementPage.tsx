@@ -156,7 +156,7 @@ function UnitStatement({ unitId }: { unitId: string }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 520 }}>
           <thead>
             <tr>
-              {['Date', 'Particulars', 'Charge', 'Payment', 'Balance'].map((h, i) => (
+              {['Posted', 'Particulars', 'Charge', 'Payment', 'Balance'].map((h, i) => (
                 <th key={h} style={{
                   fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase',
                   letterSpacing: '0.05em', padding: '8px 12px',
@@ -192,11 +192,11 @@ function UnitStatement({ unitId }: { unitId: string }) {
                   {l.reference && (
                     <span style={{ color: '#94a3b8' }}> · {l.reference}</span>
                   )}
-                  {l.not_yet_due && (
-                    <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 99,
-                                   background: '#fffbeb', color: '#b45309',
-                                   fontSize: 10.5, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                      not yet due
+                  {l.due_date && (
+                    <span style={{ marginLeft: 6, fontSize: 11.5,
+                                   color: l.not_yet_due ? '#b45309' : '#94a3b8',
+                                   whiteSpace: 'nowrap' }}>
+                      due {fmtDate(l.due_date)}
                     </span>
                   )}
                 </td>
@@ -393,11 +393,12 @@ export default function StatementPage() {
         />
 
         <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 14, maxWidth: 640, lineHeight: 1.6 }}>
-          The current month's bill appears from the day it is raised, marked
-          &ldquo;not yet due&rdquo; until its due day, and is kept out of the overdue
-          figure. Credits are shown separately rather than netted against arrears —
-          a flat that has paid ahead should not make the total owed look smaller
-          than it is.
+          Lines are dated by when the charge was posted — the first day of the
+          period it covers — not by when it falls due, so nothing on this
+          statement is ever dated in the future. The due date sits on the line
+          instead, and anything not yet due is kept out of the overdue figure.
+          Credits are shown separately rather than netted against arrears: a flat
+          that has paid ahead should not make the total owed look smaller than it is.
         </div>
       </div>
     </Layout>

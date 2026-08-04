@@ -8,6 +8,8 @@ export interface StatementLine {
   /** Positive increases what the flat owes; negative reduces it. */
   amount: number;
   balance: number;
+  /** Charges only. When the amount becomes payable. */
+  due_date?: string;
   /** Raised but not yet payable. Part of the balance, but not arrears. */
   not_yet_due?: boolean;
 }

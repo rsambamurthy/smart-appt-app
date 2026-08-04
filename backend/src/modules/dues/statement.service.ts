@@ -26,6 +26,8 @@ export interface StatementLine {
   /** Positive increases what the flat owes; negative reduces it. */
   amount: number;
   balance: number;
+  /** Charges only. When the amount becomes payable. */
+  due_date?: string;
   /** Raised but not yet payable. Part of the balance, but not arrears. */
   not_yet_due?: boolean;
 }
@@ -35,6 +37,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
 
 const num = (d: unknown) => Number(d ?? 0);
 const iso = (d: Date) => d.toISOString().slice(0, 10);
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 export class StatementService {
 
@@ -80,35 +83,53 @@ export class StatementService {
     }
     if (from > to) throw new UnprocessableError('The start date is after the end date.');
 
-    // Bills are dated by their due date; a bill raised for April is April's
-    // charge regardless of when the row happened to be created.
+    // A ledger is dated by when a charge was POSTED, never by when it falls
+    // due. Dating lines by due_date put future-dated rows in a running balance
+    // — an August bill due on the 10th appeared as a 10-Aug line on the 4th —
+    // which is not something a statement may do.
     //
-    // But a bill is a charge from the moment it is raised, not from the moment
-    // it falls due. Cutting bills off at `to` hid the current month's bill for
-    // everyone looking before the due day — exactly the people about to pay it.
-    // So bills run to the end of the month containing `to` while payments stop
-    // at `to`, and anything not yet due is reported separately so it can be
-    // told apart from arrears.
-    const billCutoff = new Date(to.getFullYear(), to.getMonth() + 1, 0, 23, 59, 59, 999);
+    // The posting date is the first day of the bill's period. Not created_at:
+    // the Park Avenue import wrote every historical bill with created_at set
+    // to the import date, which would file June's bill in July and bunch years
+    // of history onto one day. period_month/period_year survive the import
+    // intact, so they are the honest source.
+    //
+    // The due date still matters — it is what makes a balance overdue — so it
+    // travels on the line rather than driving it.
     const today = new Date(); today.setHours(23, 59, 59, 999);
+    // Built in UTC, matching `from` and how Prisma hands back a @db.Date.
+    // A local-midnight Date renders as the previous day through toISOString()
+    // once east of Greenwich — 1 Aug in IST would print as 31 Jul.
+    const postedAt = (b: { period_year: number; period_month: number }) =>
+      new Date(Date.UTC(b.period_year, b.period_month - 1, 1));
 
-    const [billsBefore, paymentsBefore, bills, payments] = await Promise.all([
-      prisma.bill.aggregate({
-        where:  { unit_id: unitId, association_id: associationId, due_date: { lt: from } },
-        _sum:   { total_amount: true },
-      }),
-      prisma.payment.aggregate({
-        where:  { unit_id: unitId, association_id: associationId, payment_date: { lt: from } },
-        _sum:   { amount: true },
-      }),
+    // Bills are filtered in JS: the posting date is computed from two columns,
+    // so it cannot be expressed as a Prisma date filter. One flat has tens of
+    // bills, so fetching them all is cheaper than the raw query would be.
+    const [allBills, allPenalties, paymentsBefore, payments] = await Promise.all([
       prisma.bill.findMany({
-        where:  { unit_id: unitId, association_id: associationId, due_date: { gte: from, lte: billCutoff } },
+        where:  { unit_id: unitId, association_id: associationId },
         select: {
           id: true, due_date: true, period_month: true, period_year: true,
           base_amount: true, penalty: true, levy_amount: true, total_amount: true,
           bill_label: true, status: true,
         },
-        orderBy: { due_date: 'asc' },
+      }),
+      // Penalties are charged long after the bill they sit on, so they are
+      // their own dated lines. Folding them into the bill's line would make an
+      // August charge silently grow in October, which is the sort of thing a
+      // resident notices and never trusts again.
+      prisma.billPenalty.findMany({
+        where:  { association_id: associationId, bill: { unit_id: unitId } },
+        select: {
+          id: true, amount: true, charged_on: true, days_overdue: true,
+          waived_at: true, waive_reason: true,
+          bill: { select: { id: true, period_month: true, period_year: true, bill_label: true } },
+        },
+      }),
+      prisma.payment.aggregate({
+        where:  { unit_id: unitId, association_id: associationId, payment_date: { lt: from } },
+        _sum:   { amount: true },
       }),
       prisma.payment.findMany({
         where:  { unit_id: unitId, association_id: associationId, payment_date: { gte: from, lte: to } },
@@ -120,7 +141,55 @@ export class StatementService {
       }),
     ]);
 
-    const opening = num(billsBefore._sum.total_amount) - num(paymentsBefore._sum.amount);
+    // bills.total_amount includes any live penalty. Since penalties get their
+    // own lines below, the bill's line must be net of them or the charge lands
+    // on the statement twice. Subtracting the live rows — rather than using
+    // base + levy — keeps imported bills right too: those carry a penalty
+    // inside total_amount with no row to explain it, and it should stay where
+    // the import put it.
+    const livePenaltyByBill = new Map<string, number>();
+    for (const p of allPenalties) {
+      if (p.waived_at) continue;
+      livePenaltyByBill.set(p.bill.id, (livePenaltyByBill.get(p.bill.id) ?? 0) + num(p.amount));
+    }
+
+    const dated = allBills
+      .map(b => ({
+        ...b,
+        posted: postedAt(b),
+        net_amount: round2(num(b.total_amount) - (livePenaltyByBill.get(b.id) ?? 0)),
+      }))
+      .sort((a, b) => a.posted.getTime() - b.posted.getTime());
+
+    // Anything posted after `to` is not on this statement at all — including
+    // next month's bills if someone generated them early.
+    const billsBeforeSum = dated.filter(b => b.posted < from)
+                                .reduce((s, b) => s + b.net_amount, 0);
+    const bills = dated.filter(b => b.posted >= from && b.posted <= to);
+
+    // Penalty charges land on the day they were charged; waivers on the day
+    // they were forgiven. Both before `from` fold into the opening balance.
+    const penaltyMoves: Array<{ at: Date; amount: number; text: string; ref: string | null }> = [];
+    for (const p of allPenalties) {
+      const label = p.bill.bill_label
+        ?? `${MONTHS[p.bill.period_month - 1] ?? p.bill.period_month} ${p.bill.period_year}`;
+      penaltyMoves.push({
+        at: p.charged_on, amount: num(p.amount),
+        text: `Late payment penalty — ${label} (${p.days_overdue} days overdue)`,
+        ref: null,
+      });
+      if (p.waived_at) {
+        penaltyMoves.push({
+          at: p.waived_at, amount: -num(p.amount),
+          text: `Penalty waived — ${label}`,
+          ref: p.waive_reason,
+        });
+      }
+    }
+    const penaltyBefore = penaltyMoves.filter(m => m.at < from)
+                                      .reduce((s, m) => s + m.amount, 0);
+
+    const opening = billsBeforeSum + penaltyBefore - num(paymentsBefore._sum.amount);
 
     // Merged and sorted by date so the running balance reads chronologically.
     // A charge and a payment on the same day put the charge first: you cannot
@@ -136,21 +205,37 @@ export class StatementService {
       if (num(b.penalty))     parts.push(`penalty ${num(b.penalty).toFixed(2)}`);
 
       entries.push({
-        at: b.due_date, order: 0,
+        at: b.posted, order: 0,
         line: {
-          date: iso(b.due_date),
+          date: iso(b.posted),
           kind: 'CHARGE',
           description: parts.length ? `${label} (incl. ${parts.join(', ')})` : label,
           reference: null,
-          amount: num(b.total_amount),
+          amount: b.net_amount,
+          due_date: iso(b.due_date),
           not_yet_due: b.due_date > today,
+        },
+      });
+    }
+
+    // order 1: after the bill it belongs to, before the payment that clears it.
+    for (const m of penaltyMoves) {
+      if (m.at < from || m.at > to) continue;
+      entries.push({
+        at: m.at, order: 1,
+        line: {
+          date: iso(m.at),
+          kind: 'CHARGE',
+          description: m.text,
+          reference: m.ref,
+          amount: m.amount,
         },
       });
     }
 
     for (const p of payments) {
       entries.push({
-        at: p.payment_date, order: 1,
+        at: p.payment_date, order: 2,
         line: {
           date: iso(p.payment_date),
           kind: 'PAYMENT',
@@ -174,7 +259,9 @@ export class StatementService {
       return { ...e.line, balance };
     });
 
-    const charged = bills.reduce((s, b) => s + num(b.total_amount), 0);
+    const charged = bills.reduce((s, b) => s + b.net_amount, 0)
+                  + penaltyMoves.filter(m => m.at >= from && m.at <= to && m.amount > 0)
+                                .reduce((s, m) => s + m.amount, 0);
     const paid    = payments.reduce((s, p) => s + num(p.amount), 0);
 
     return {
@@ -193,11 +280,15 @@ export class StatementService {
         closing_balance: Math.round(balance * 100) / 100,
         // Of the closing balance, how much is not yet payable. A resident
         // seeing a figure they are not late on should be told so.
-        not_yet_due: Math.round(bills.filter(b => b.due_date > today)
-                        .reduce((s, b) => s + num(b.total_amount), 0) * 100) / 100,
+        // Net of penalty: a penalty is charged only once a bill is already
+        // late, so it can never be part of what is not yet due.
+        not_yet_due: round2(bills.filter(b => b.due_date > today)
+                        .reduce((s, b) => s + b.net_amount, 0)),
         // Split out because a treasurer chasing arrears wants to know how much
         // of the balance is penalty rather than principal.
-        penalty_charged: Math.round(bills.reduce((s, b) => s + num(b.penalty), 0) * 100) / 100,
+        penalty_charged: round2(
+          penaltyMoves.filter(m => m.at >= from && m.at <= to)
+                      .reduce((s, m) => s + m.amount, 0)),
         lines,
       },
     };
@@ -215,35 +306,33 @@ export class StatementService {
       orderBy: [{ block: 'asc' }, { flat_number: 'asc' }],
     });
 
-    // Bills run to the end of the month containing `to`, so the current
-    // month's bill appears from the day it is raised rather than from its due
-    // day. What is not yet payable is counted separately: a flat that owes
-    // only this month's not-yet-due bill is not in arrears.
-    const billCutoff = new Date(to.getFullYear(), to.getMonth() + 1, 0, 23, 59, 59, 999);
+    // Same posting-date rule as forUnit: a bill counts from the first day of
+    // its period, not from its due day. That cannot be expressed as a Prisma
+    // filter across two integer columns, so this one is raw SQL — and being a
+    // single grouped query it is also the cheapest form for a screen that is
+    // opened constantly.
     const today = new Date(); today.setHours(23, 59, 59, 999);
 
-    // Grouped queries rather than one per flat: this screen is opened often.
-    const [billed, paid, upcoming] = await Promise.all([
-      prisma.bill.groupBy({
-        by: ['unit_id'],
-        where: { association_id: associationId, due_date: { lte: billCutoff } },
-        _sum: { total_amount: true },
-      }),
+    const [billed, paid] = await Promise.all([
+      prisma.$queryRaw<Array<{ unit_id: string; billed: unknown; soon: unknown }>>`
+        SELECT unit_id,
+               SUM(total_amount)                                          AS billed,
+               SUM(total_amount) FILTER (WHERE due_date > ${today})        AS soon
+          FROM bills
+         WHERE association_id = ${associationId}::uuid
+           AND make_date(period_year, period_month, 1) <= ${to}
+         GROUP BY unit_id
+      `,
       prisma.payment.groupBy({
         by: ['unit_id'],
         where: { association_id: associationId, payment_date: { lte: to } },
         _sum: { amount: true },
       }),
-      prisma.bill.groupBy({
-        by: ['unit_id'],
-        where: { association_id: associationId, due_date: { gt: today, lte: billCutoff } },
-        _sum: { total_amount: true },
-      }),
     ]);
 
-    const billedBy   = new Map(billed.map(b => [b.unit_id, num(b._sum.total_amount)]));
+    const billedBy   = new Map(billed.map(b => [b.unit_id, num(b.billed)]));
+    const upcomingBy = new Map(billed.map(b => [b.unit_id, num(b.soon)]));
     const paidBy     = new Map(paid.map(p => [p.unit_id, num(p._sum.amount)]));
-    const upcomingBy = new Map(upcoming.map(b => [b.unit_id, num(b._sum.total_amount)]));
 
     const rows = units.map(u => {
       const owed = Math.round(((billedBy.get(u.id) ?? 0) - (paidBy.get(u.id) ?? 0)) * 100) / 100;

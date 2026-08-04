@@ -51,6 +51,7 @@ import MyMeetingsPage from './pages/governance/MyMeetingsPage';
 import OneTimeDuesPage from './pages/dues/OneTimeDuesPage';
 import ArrearsPage from './pages/dues/ArrearsPage';
 import StatementPage, { MyStatementPage } from './pages/dues/StatementPage';
+import PenaltyRunPage from './pages/dues/PenaltyRunPage';
 import OtherReceiptsPage from './pages/receipts/OtherReceiptsPage';
 import MenuConfigPage from './pages/admin/MenuConfigPage';
 import MobileConfigPage from './pages/admin/MobileConfigPage';
@@ -138,6 +139,7 @@ export default function App() {
         {!IS_NATIVE && <Route path="/dues/one-time-dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OneTimeDuesPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/arrears" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ArrearsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/statement" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><StatementPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/penalties" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><PenaltyRunPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/other-receipts" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OtherReceiptsPage /></RoleRoute>} />}
 
         {/* Expenses */}
