@@ -1,6 +1,10 @@
 import prisma from '../../config/database';
-import { AuditAction, MobileConfig, Prisma } from '@prisma/client';
+import { AuditAction, MobileConfig, Prisma, UserRole } from '@prisma/client';
 import { auditService } from '../../services/audit.service';
+import {
+  MOBILE_MENU, resolveMenuForRole, pruneToOverrides,
+  type RoleMenuOverrides, type ResolvedMenuItem,
+} from './mobile-menu';
 
 export type MobileConfigBody = Omit<MobileConfig, 'id' | 'association_id' | 'created_at' | 'updated_at'>;
 
@@ -103,6 +107,96 @@ export class SystemService {
       where: { association_id: associationId },
     });
     return { data: config ?? { ...MOBILE_DEFAULTS, association_id: associationId } };
+  }
+
+  /**
+   * The config for one signed-in user, with their menu already resolved.
+   *
+   * The device is sent only its own role's menu — not the whole matrix. A
+   * resident's phone has no business holding the answer to "what can the
+   * treasurer see", and shipping it would make the config a map of the app's
+   * attack surface. Resolving here also means the phone cannot get the merge
+   * wrong, which matters when the phone is several builds behind.
+   */
+  async getMobileConfigForUser(associationId: string, role: UserRole) {
+    const config = await prisma.mobileConfig.findUnique({
+      where: { association_id: associationId },
+    });
+
+    const overrides = (config?.menu_items ?? null) as RoleMenuOverrides | null;
+    const resolved  = resolveMenuForRole(role, overrides);
+
+    return {
+      data: {
+        ...(config ?? { ...MOBILE_DEFAULTS, association_id: associationId }),
+        // Only what this role may see, and only the ids — the app looks up
+        // labels from its own catalogue.
+        menu_items: null,
+        menu: resolved.filter(i => i.enabled),
+        role,
+      },
+    };
+  }
+
+  /** The full matrix for the admin screen, defaults filled in per role. */
+  async getMobileMenuMatrix(associationId: string) {
+    const config = await prisma.mobileConfig.findUnique({
+      where:  { association_id: associationId },
+      select: { menu_items: true },
+    });
+    const overrides = (config?.menu_items ?? null) as RoleMenuOverrides | null;
+
+    const roles = Object.values(UserRole);
+    const matrix: Record<string, Record<string, ResolvedMenuItem>> = {};
+    for (const role of roles) {
+      matrix[role] = Object.fromEntries(
+        resolveMenuForRole(role, overrides).map(i => [i.id, i]),
+      );
+    }
+
+    return {
+      data: {
+        // The catalogue travels with the matrix so the admin screen never
+        // holds its own copy of the item list. That duplication is how the
+        // old screen came to offer items the app had never heard of.
+        items: MOBILE_MENU.map(i => ({
+          id: i.id, label: i.label, group: i.group, supports_post: i.supportsPost,
+        })),
+        roles,
+        matrix,
+        overrides: overrides ?? {},
+      },
+    };
+  }
+
+  /**
+   * Save the matrix, keeping only genuine departures from the defaults.
+   * See pruneToOverrides for why storing the whole thing would be a trap.
+   */
+  async saveMobileMenu(associationId: string, incoming: RoleMenuOverrides) {
+    const pruned = pruneToOverrides(incoming ?? {});
+    const before = await prisma.mobileConfig.findUnique({
+      where:  { association_id: associationId },
+      select: { id: true, menu_items: true },
+    });
+
+    const config = await prisma.mobileConfig.upsert({
+      where:  { association_id: associationId },
+      create: { association_id: associationId, ...MOBILE_DEFAULTS, menu_items: pruned },
+      update: { menu_items: pruned },
+    });
+
+    await auditService.record({
+      entity_type:    'mobile_config',
+      entity_id:      config.id,
+      action:         before ? AuditAction.UPDATE : AuditAction.CREATE,
+      association_id: associationId,
+      summary:        'Updated mobile menu by role',
+      old_value:      (before?.menu_items ?? undefined) as object | undefined,
+      new_value:      pruned,
+    });
+
+    return this.getMobileMenuMatrix(associationId);
   }
 
   async saveMobileConfig(associationId: string, body: Partial<MobileConfigBody>) {

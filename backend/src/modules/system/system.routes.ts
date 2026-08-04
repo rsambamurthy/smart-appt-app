@@ -27,6 +27,15 @@ router.get('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER), (
 router.put('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER), (req, res, next) =>
   systemController.saveMobileConfig(req as never, res, next));
 
+// Role-by-role mobile menu. Kept on its own path rather than folded into
+// mobile-config: the matrix is large, the rest of the config is small, and the
+// app never needs the matrix at all.
+router.get('/mobile-menu/:associationId', requireRoles(UserRole.SUPER_USER), (req, res, next) =>
+  systemController.getMobileMenuMatrix(req as never, res, next));
+
+router.put('/mobile-menu/:associationId', requireRoles(UserRole.SUPER_USER), (req, res, next) =>
+  systemController.saveMobileMenu(req as never, res, next));
+
 // ── Audit Trail (read-only) ───────────────────────────────────────────────────
 // Managers see their own association; SUPER_USER can query across all.
 // There is deliberately no write/delete endpoint — the trail is append-only.

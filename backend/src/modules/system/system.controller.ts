@@ -19,10 +19,31 @@ export class SystemController {
 
   // ── Mobile Config ─────────────────────────────────────────────────────────────
 
-  /** GET /system/mobile-config — returns config for the caller's own association (mobile app use) */
+  /**
+   * GET /system/mobile-config — the caller's own config, with the menu already
+   * resolved for their role. The device receives only its own role's menu.
+   */
   async getMyMobileConfig(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      res.json(await systemService.getMobileConfig(req.user!.association_id));
+      res.json(await systemService.getMobileConfigForUser(
+        req.user!.association_id, req.user!.role,
+      ));
+    } catch (err) { next(err); }
+  }
+
+  /** GET /system/mobile-menu/:associationId — full role matrix for the admin screen. */
+  async getMobileMenuMatrix(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      res.json(await systemService.getMobileMenuMatrix(req.params['associationId'] as string));
+    } catch (err) { next(err); }
+  }
+
+  /** PUT /system/mobile-menu/:associationId — save the role matrix. */
+  async saveMobileMenu(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      res.json(await systemService.saveMobileMenu(
+        req.params['associationId'] as string, req.body?.overrides ?? req.body ?? {},
+      ));
     } catch (err) { next(err); }
   }
 

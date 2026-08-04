@@ -49,8 +49,8 @@ export default function MobileHomePage() {
   const isManager = user?.role === 'MANAGER';
 
   // Bills and announcements: always own data
-  const { data: billsData } = useListMyBillsQuery({ limit: 10 }, { skip: !config.feature_bills });
-  const { data: announcementsData } = useListAnnouncementsQuery({ limit: 3 }, { skip: !config.feature_announcements });
+  const { data: billsData } = useListMyBillsQuery({ limit: 10 }, { skip: !config.feature_bills || !config.can('dues_my_bills') });
+  const { data: announcementsData } = useListAnnouncementsQuery({ limit: 3 }, { skip: !config.feature_announcements || !config.can('announcements_feed') });
   // Manager sees all pending tickets so they know what needs attention; others see their own
   const { data: allTicketsData } = useListTicketsQuery({ limit: 50 },   { skip: !config.feature_complaints || !isManager });
   const { data: myTicketsData }  = useListMyTicketsQuery({ limit: 10 }, { skip: !config.feature_complaints || isManager });
@@ -110,7 +110,7 @@ export default function MobileHomePage() {
       <div style={{ padding: '16px 16px 0' }}>
 
         {/* Outstanding bills banner */}
-        {config.feature_bills && pendingBills.length > 0 && (
+        {config.feature_bills && config.can('dues_my_bills') && pendingBills.length > 0 && (
           <button
             onClick={() => navigate('/dues/my-bills')}
             style={{
@@ -133,10 +133,10 @@ export default function MobileHomePage() {
 
         {/* Quick actions — all shown to all users based on feature flags only */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
-          {config.feature_bills && (
+          {config.feature_bills && config.can('dues_my_bills') && (
             <ActionCard icon="💳" label="Bills" sublabel={pendingBills.length ? `${pendingBills.length} pending` : 'All clear'} color="#1d4ed8" bg="#eff6ff" onClick={() => navigate('/mobile/bills')} />
           )}
-          {config.feature_complaints && (
+          {config.feature_complaints && config.can('maintenance_list') && (
             <ActionCard
               icon="🔧"
               label="Service"
@@ -146,16 +146,16 @@ export default function MobileHomePage() {
               onClick={() => navigate('/maintenance')}
             />
           )}
-          {config.feature_announcements && (
+          {config.feature_announcements && config.can('announcements_feed') && (
             <ActionCard icon="📢" label="Announcements" sublabel={`${announcements.length} recent`} color="#b45309" bg="#fffbeb" onClick={() => navigate('/announcements')} />
           )}
-          {config.feature_visitors && (
+          {config.feature_visitors && config.can('visitors_preapprove') && (
             <ActionCard icon="🚪" label="Visitors" sublabel="Gate & pre-approvals" color="#15803d" bg="#f0fdf4" onClick={() => navigate('/mobile/visitors')} />
           )}
         </div>
 
         {/* Recent announcements */}
-        {config.feature_announcements && announcements.length > 0 && (
+        {config.feature_announcements && config.can('announcements_feed') && announcements.length > 0 && (
           <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
             <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>Recent Announcements</span>
@@ -171,7 +171,7 @@ export default function MobileHomePage() {
         )}
 
         {/* Pending service requests */}
-        {config.feature_complaints && openTickets > 0 && (
+        {config.feature_complaints && config.can('maintenance_list') && openTickets > 0 && (
           <button
             onClick={() => navigate('/maintenance')}
             style={{

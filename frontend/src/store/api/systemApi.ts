@@ -32,6 +32,37 @@ export interface MobileConfig {
   logo_url: string | null;
   /** Per-menu-item visibility and post permission for the mobile app */
   menu_items: MenuItemsMap | null;
+  /**
+   * The signed-in user's own menu, already resolved server-side. Only enabled
+   * items are sent, and only for this user's role — the device never receives
+   * other roles' configuration.
+   */
+  menu?: ResolvedMenuItem[];
+  role?: string;
+}
+
+export interface ResolvedMenuItem {
+  id: string;
+  enabled: boolean;
+  can_post: boolean;
+}
+
+// ── Mobile menu by role (admin) ───────────────────────────────────────────────
+
+export interface MobileMenuCatalogueItem {
+  id: string;
+  label: string;
+  group: 'community' | 'dues' | 'accounting' | 'governance' | 'gate';
+  supports_post: boolean;
+}
+
+export interface MobileMenuMatrix {
+  items:  MobileMenuCatalogueItem[];
+  roles:  string[];
+  /** role -> itemId -> resolved (defaults already merged in) */
+  matrix: Record<string, Record<string, ResolvedMenuItem>>;
+  /** Only the cells that depart from the defaults. */
+  overrides: Record<string, Record<string, Partial<ResolvedMenuItem>>>;
 }
 
 // ── Audit trail ───────────────────────────────────────────────────────────────
@@ -93,6 +124,23 @@ export const systemApi = baseApi.injectEndpoints({
       invalidatesTags: (_r, _e, { associationId }) => [{ type: 'MobileConfig', id: associationId }, 'MobileConfig'],
     }),
 
+    // ── Mobile menu by role (SUPER_USER admin) ────────────────────────────────
+    getMobileMenuMatrix: builder.query<{ data: MobileMenuMatrix }, string>({
+      query: (associationId) => `/system/mobile-menu/${associationId}`,
+      providesTags: (_r, _e, id) => [{ type: 'MobileConfig', id: `menu-${id}` }],
+    }),
+    saveMobileMenu: builder.mutation<
+      { data: MobileMenuMatrix },
+      { associationId: string; overrides: Record<string, Record<string, Partial<ResolvedMenuItem>>> }
+    >({
+      query: ({ associationId, overrides }) => ({
+        url: `/system/mobile-menu/${associationId}`, method: 'PUT', body: { overrides },
+      }),
+      invalidatesTags: (_r, _e, { associationId }) => [
+        { type: 'MobileConfig', id: `menu-${associationId}` }, 'MobileConfig',
+      ],
+    }),
+
     // ── Audit trail (read-only) ───────────────────────────────────────────────
     listAuditLogs: builder.query<
       { data: AuditLogEntry[]; meta: { next_cursor: string | null; count: number } },
@@ -122,6 +170,8 @@ export const {
   useGetMyMobileConfigQuery,
   useGetMobileConfigQuery,
   useSaveMobileConfigMutation,
+  useGetMobileMenuMatrixQuery,
+  useSaveMobileMenuMutation,
   useListAuditLogsQuery,
   useGetAuditFacetsQuery,
 } = systemApi;

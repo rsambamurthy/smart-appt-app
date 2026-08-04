@@ -10,15 +10,21 @@ interface Tab {
   label: string;
   icon: string;
   featureKey?: 'feature_bills' | 'feature_announcements' | 'feature_complaints' | 'feature_visitors';
+  /**
+   * The menu item this tab represents. A tab whose item the role cannot see is
+   * not drawn — which is how a gate guard stops getting a Bills tab. The
+   * association-wide feature flag still applies on top: it turns a feature off
+   * for everyone, while the menu decides who among them sees it.
+   */
+  itemId?: string;
 }
 
-// All tabs visible to all roles — feature flags from MobileConfig control visibility
 const ALL_TABS: Tab[] = [
   { path: '/mobile/home',         label: 'Home',     icon: '⌂'  },
-  { path: '/mobile/bills',        label: 'Bills',    icon: '₹',  featureKey: 'feature_bills'         },
-  { path: '/announcements',       label: 'Feed',     icon: '📢', featureKey: 'feature_announcements' },
-  { path: '/maintenance',         label: 'Service',  icon: '🔧', featureKey: 'feature_complaints'    },
-  { path: '/mobile/visitors',     label: 'Visitors', icon: '🚪', featureKey: 'feature_visitors'      },
+  { path: '/mobile/bills',        label: 'Bills',    icon: '₹',  featureKey: 'feature_bills',         itemId: 'dues_my_bills'      },
+  { path: '/announcements',       label: 'Feed',     icon: '📢', featureKey: 'feature_announcements', itemId: 'announcements_feed' },
+  { path: '/maintenance',         label: 'Service',  icon: '🔧', featureKey: 'feature_complaints',    itemId: 'maintenance_list'   },
+  { path: '/mobile/visitors',     label: 'Visitors', icon: '🚪', featureKey: 'feature_visitors',      itemId: 'visitors_preapprove'},
   { path: '/mobile/more',         label: 'More',     icon: '☰'  },
 ];
 
@@ -29,6 +35,7 @@ function BottomTabBar() {
 
   const visibleTabs = ALL_TABS.filter((tab) => {
     if (tab.featureKey && !config[tab.featureKey]) return false;
+    if (tab.itemId && !config.can(tab.itemId)) return false;
     return true;
   });
 

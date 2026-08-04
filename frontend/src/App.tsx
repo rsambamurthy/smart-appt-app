@@ -54,7 +54,7 @@ import StatementPage, { MyStatementPage } from './pages/dues/StatementPage';
 import PenaltyRunPage from './pages/dues/PenaltyRunPage';
 import OtherReceiptsPage from './pages/receipts/OtherReceiptsPage';
 import MenuConfigPage from './pages/admin/MenuConfigPage';
-import MobileConfigPage from './pages/admin/MobileConfigPage';
+import MobileMenuPage from './pages/admin/MobileMenuPage';
 import AuditLogPage from './pages/admin/AuditLogPage';
 import InsightsPage from './pages/reports/InsightsPage';
 import ChangeMpinPage from './pages/ChangeMpinPage';
@@ -178,7 +178,11 @@ export default function App() {
         {!IS_NATIVE && <Route path="/governance/compliance" element={<RoleRoute roles={['MANAGER', 'COMMITTEE', 'TREASURER', 'SUPER_USER']}><CompliancePage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/meetings" element={<ProtectedRoute><MyMeetingsPage /></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/admin/menu-config"    element={<RoleRoute roles={['SUPER_USER']}><MenuConfigPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/admin/mobile-config" element={<RoleRoute roles={['SUPER_USER']}><MobileConfigPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/mobile-menu" element={<RoleRoute roles={['SUPER_USER']}><MobileMenuPage /></RoleRoute>} />}
+        {/* The old per-association matrix wrote the same column in a shape that
+            had no role dimension, so leaving it reachable meant one screen could
+            silently undo the other. Same page now. */}
+        {!IS_NATIVE && <Route path="/admin/mobile-config" element={<RoleRoute roles={['SUPER_USER']}><MobileMenuPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/admin/audit-log" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><AuditLogPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/reports/insights" element={<RoleRoute roles={['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE']}><InsightsPage /></RoleRoute>} />}
 

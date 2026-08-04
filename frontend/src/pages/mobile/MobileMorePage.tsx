@@ -102,22 +102,31 @@ export default function MobileMorePage() {
           )}
         </div>
 
-        {/* Features — all shown to all users based on feature flags only */}
-        <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-          <div style={{ padding: '8px 16px', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', background: '#f8fafc' }}>Features</div>
-          {config.feature_bills && (
-            <MenuRow icon="🧾" label="Bills" sublabel="View and pay dues" onClick={() => navigate('/mobile/bills')} />
-          )}
-          {config.feature_announcements && (
-            <MenuRow icon="📢" label="Announcements" sublabel="Community notices and updates" onClick={() => navigate('/announcements')} />
-          )}
-          {config.feature_complaints && (
-            <MenuRow icon="🔧" label="Service Requests" sublabel="Raise and track maintenance requests" onClick={() => navigate('/maintenance')} />
-          )}
-          {config.feature_visitors && (
-            <MenuRow icon="🚪" label="Visitors" sublabel="Gate activity and pre-approvals" onClick={() => navigate('/mobile/visitors')} />
-          )}
-        </div>
+        {/* Features. Two gates, and they mean different things: the feature flag
+            turns something off for the whole association, the menu decides
+            which roles among them see it. */}
+        {(() => {
+          const rows = [
+            { item: 'dues_my_bills',      flag: config.feature_bills,         icon: '🧾', label: 'Bills',            sub: 'View and pay dues',                        to: '/mobile/bills'     },
+            { item: 'dues_my_statement',  flag: config.feature_bills,         icon: '📄', label: 'My Statement',     sub: 'Every charge and payment, with a balance', to: '/dues/my-statement'},
+            { item: 'announcements_feed', flag: config.feature_announcements, icon: '📢', label: 'Announcements',    sub: 'Community notices and updates',            to: '/announcements'    },
+            { item: 'maintenance_list',   flag: config.feature_complaints,    icon: '🔧', label: 'Service Requests', sub: 'Raise and track maintenance requests',     to: '/maintenance'      },
+            { item: 'visitors_preapprove',flag: config.feature_visitors,      icon: '🚪', label: 'Visitors',         sub: 'Gate activity and pre-approvals',          to: '/mobile/visitors'  },
+            { item: 'gate_console',       flag: true,                         icon: '🛡️', label: 'Gate Console',     sub: 'Log entries and exits',                    to: '/gate'             },
+          ].filter(r => r.flag && config.can(r.item));
+
+          if (!rows.length) return null;
+
+          return (
+            <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+              <div style={{ padding: '8px 16px', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', background: '#f8fafc' }}>Features</div>
+              {rows.map(r => (
+                <MenuRow key={r.item} icon={r.icon} label={r.label} sublabel={r.sub}
+                  onClick={() => navigate(r.to)} />
+              ))}
+            </div>
+          );
+        })()}
 
         <div style={{ textAlign: 'center', fontSize: 11, color: '#cbd5e1', paddingBottom: 24 }}>
           SmartAppt v1.0

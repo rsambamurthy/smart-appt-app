@@ -104,7 +104,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
 }
 
 // SectionCard and ToggleRow were only used by the removed Mobile App tab.
-// Their equivalents live in MobileConfigPage.
+// Their equivalents live in MobileMenuPage.
 
 // ── Web Menu tab ──────────────────────────────────────────────────────────────
 
