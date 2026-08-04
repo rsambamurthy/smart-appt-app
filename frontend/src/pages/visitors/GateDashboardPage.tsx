@@ -102,6 +102,8 @@ function VisitorRow({ v, action }: { v: GateVisitor; action?: React.ReactNode })
 export default function GateDashboardPage() {
   const [search, setSearch]   = useState('');
   const [unitId, setUnitId]   = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
   const [name, setName]       = useState('');
   const [phone, setPhone]     = useState('');
   const [purpose, setPurpose] = useState('');
@@ -149,20 +151,64 @@ export default function GateDashboardPage() {
   const units: GateUnit[] = unitsData?.data ?? [];
   const board = boardData?.data;
 
+  /**
+   * Empty search shows the whole directory rather than nothing.
+   *
+   * The field used to require a query before it would show anything, which
+   * assumed the guard already knew the flat number or the resident's name. At
+   * a gate that assumption fails constantly — a visitor says "third floor, the
+   * corner one", or gives a name that is not the registered occupant. Being
+   * able to open the list and look is the ordinary case, not the fallback.
+   *
+   * No cap either. Truncating at eight is invisible: the guard sees a short
+   * list and concludes the flat is not registered.
+   */
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return [];
+    if (!q) return units;
     return units.filter(u =>
       u.flat_number.toLowerCase().includes(q) ||
       (u.block ?? '').toLowerCase().includes(q) ||
       (u.primary_contact ?? '').toLowerCase().includes(q),
-    ).slice(0, 8);
+    );
   }, [search, units]);
+
+  // Grouped under block headings so a long directory can be scanned rather
+  // than read. Units arrive sorted by block then flat, so this preserves order.
+  const grouped = useMemo(() => {
+    const out: Array<{ block: string; units: GateUnit[] }> = [];
+    for (const u of matches) {
+      const key = u.block ?? '';
+      const last = out[out.length - 1];
+      if (last && last.block === key) last.units.push(u);
+      else out.push({ block: key, units: [u] });
+    }
+    return out;
+  }, [matches]);
 
   const selected = units.find(u => u.id === unitId) ?? null;
 
+  // A dropdown left open under a thumb hides the rest of the form, and on a
+  // gate handset the form is the whole job.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if (!pickerRef.current?.contains(e.target as Node)) setPickerOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPickerOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [pickerOpen]);
+
   const resetForm = () => {
-    setUnitId(''); setSearch(''); setName(''); setPhone(''); setPurpose(''); setVehicle('');
+    setUnitId(''); setSearch(''); setPickerOpen(false);
+    setName(''); setPhone(''); setPurpose(''); setVehicle('');
     setProvider(''); setHandling('AT_GATE'); takePhoto(null);
     if (photoInput.current) photoInput.current.value = '';
   };
@@ -355,48 +401,86 @@ export default function GateDashboardPage() {
                         <span style={{ fontWeight: 400, color: '#64748b', fontSize: 13 }}> · {selected.primary_contact}</span>
                       )}
                     </span>
-                    <button type="button" onClick={() => { setUnitId(''); setSearch(''); }}
+                    <button type="button" onClick={() => { setUnitId(''); setSearch(''); setPickerOpen(true); }}
                       style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
                       Change
                     </button>
                   </div>
                 ) : (
-                  <>
-                    <input
-                      style={field}
-                      value={search}
-                      onChange={e => setSearch(e.target.value)}
-                      placeholder="Flat number or resident name"
-                      autoComplete="off"
-                    />
-                    {matches.length > 0 && (
+                  <div ref={pickerRef}>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        style={{ ...field, paddingRight: 38 }}
+                        value={search}
+                        onChange={e => { setSearch(e.target.value); setPickerOpen(true); }}
+                        onFocus={() => setPickerOpen(true)}
+                        placeholder="Tap to choose, or type a flat or name"
+                        autoComplete="off"
+                      />
+                      {/* Reads as a dropdown, because that is what it is. */}
+                      <button type="button"
+                        onClick={() => setPickerOpen(o => !o)}
+                        aria-label={pickerOpen ? 'Close flat list' : 'Show all flats'}
+                        style={{
+                          position: 'absolute', right: 1, top: 1, bottom: 1, width: 36,
+                          border: 'none', background: 'none', cursor: 'pointer',
+                          color: '#64748b', fontSize: 12, lineHeight: 1,
+                        }}>
+                        {pickerOpen ? '▲' : '▼'}
+                      </button>
+                    </div>
+
+                    {pickerOpen && (
                       <div style={{
                         position: 'absolute', zIndex: 20, left: 0, right: 0, marginTop: 4,
                         background: '#fff', border: '1px solid #e2e8f0', borderRadius: 9,
-                        boxShadow: '0 8px 20px rgba(0,0,0,0.10)', maxHeight: 260, overflowY: 'auto',
+                        boxShadow: '0 8px 20px rgba(0,0,0,0.10)', maxHeight: 300, overflowY: 'auto',
                       }}>
-                        {matches.map(u => (
-                          <button key={u.id} type="button"
-                            onClick={() => { setUnitId(u.id); setSearch(''); }}
-                            style={{
-                              display: 'block', width: '100%', textAlign: 'left', padding: '11px 13px',
-                              border: 'none', borderBottom: '1px solid #f8fafc', background: '#fff',
-                              cursor: 'pointer', fontSize: 14.5, minHeight: 44,
-                            }}>
-                            <span style={{ fontWeight: 600, color: '#1e293b' }}>
-                              {u.flat_number}{u.block ? ` · ${u.block}` : ''}
-                            </span>
-                            {u.primary_contact && (
-                              <span style={{ color: '#64748b', fontSize: 13 }}> — {u.primary_contact}</span>
+                        {matches.length === 0 ? (
+                          <div style={{ padding: '13px', fontSize: 13.5, color: '#64748b' }}>
+                            No flat matches “{search.trim()}”.
+                          </div>
+                        ) : grouped.map(g => (
+                          <div key={g.block || '_'}>
+                            {g.block && (
+                              <div style={{
+                                position: 'sticky', top: 0, background: '#f8fafc',
+                                padding: '5px 13px', fontSize: 11, fontWeight: 700,
+                                color: '#94a3b8', textTransform: 'uppercase',
+                                letterSpacing: '0.06em', borderBottom: '1px solid #f1f5f9',
+                              }}>
+                                {g.block}
+                              </div>
                             )}
-                            {u.occupant_count === 0 && (
-                              <span style={{ color: '#dc2626', fontSize: 12 }}> · nobody registered</span>
-                            )}
-                          </button>
+                            {g.units.map(u => (
+                              <button key={u.id} type="button"
+                                onClick={() => { setUnitId(u.id); setSearch(''); setPickerOpen(false); }}
+                                style={{
+                                  display: 'block', width: '100%', textAlign: 'left', padding: '11px 13px',
+                                  border: 'none', borderBottom: '1px solid #f8fafc', background: '#fff',
+                                  cursor: 'pointer', fontSize: 14.5, minHeight: 44,
+                                }}>
+                                <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                                  {u.flat_number}
+                                </span>
+                                {u.primary_contact && (
+                                  <span style={{ color: '#64748b', fontSize: 13 }}> — {u.primary_contact}</span>
+                                )}
+                                {u.occupant_count === 0 && (
+                                  <span style={{ color: '#dc2626', fontSize: 12 }}> · nobody registered</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
                         ))}
                       </div>
                     )}
-                  </>
+
+                    <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 4 }}>
+                      {units.length} flats
+                      {search.trim() && matches.length !== units.length && ` · ${matches.length} matching`}
+                    </div>
+                  </div>
                 )}
               </div>
 
