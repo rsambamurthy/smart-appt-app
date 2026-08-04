@@ -57,6 +57,9 @@ export interface MobileMenuCatalogueItem {
 }
 
 export interface MobileMenuMatrix {
+  association_id?: string;
+  /** Roles this caller may change. A manager may not edit MANAGER. */
+  editable_roles?: string[];
   items:  MobileMenuCatalogueItem[];
   roles:  string[];
   /** role -> itemId -> resolved (defaults already merged in) */
@@ -104,10 +107,26 @@ export const systemApi = baseApi.injectEndpoints({
       query: () => '/system/menu-config',
       providesTags: ['MenuConfig'],
     }),
-    saveMenuConfig: builder.mutation<{ data: MenuConfig }, Array<{ group_id: string; role: string; enabled: boolean }>>({
-      query: (body) => ({ url: '/system/menu-config', method: 'PUT', body }),
-      invalidatesTags: ['MenuConfig'],
+    // Web menu for one association, with the roles this caller may edit.
+    getWebMenuConfig: builder.query<
+      { data: MenuConfig; association_id: string; editable_roles: string[] },
+      string
+    >({
+      query: (associationId) => `/system/menu-config/${associationId}`,
+      providesTags: (_r, _e, id) => [{ type: 'MenuConfig', id }],
     }),
+    saveWebMenuConfig: builder.mutation<
+      { data: MenuConfig },
+      { associationId: string; items: Array<{ group_id: string; role: string; enabled: boolean }> }
+    >({
+      query: ({ associationId, items }) => ({
+        url: `/system/menu-config/${associationId}`, method: 'PUT', body: { items },
+      }),
+      invalidatesTags: (_r, _e, { associationId }) => [
+        { type: 'MenuConfig', id: associationId }, 'MenuConfig',
+      ],
+    }),
+
     // Mobile app: get own association's config
     getMyMobileConfig: builder.query<{ data: MobileConfig }, void>({
       query: () => '/system/mobile-config',
@@ -166,7 +185,8 @@ export const systemApi = baseApi.injectEndpoints({
 
 export const {
   useGetMenuConfigQuery,
-  useSaveMenuConfigMutation,
+  useGetWebMenuConfigQuery,
+  useSaveWebMenuConfigMutation,
   useGetMyMobileConfigQuery,
   useGetMobileConfigQuery,
   useSaveMobileConfigMutation,

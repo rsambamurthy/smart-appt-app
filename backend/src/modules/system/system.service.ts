@@ -1,6 +1,7 @@
 import prisma from '../../config/database';
 import { AuditAction, MobileConfig, Prisma, UserRole } from '@prisma/client';
 import { auditService } from '../../services/audit.service';
+import { ForbiddenError } from '../../utils/errors';
 import {
   MOBILE_MENU, resolveMenuForRole, pruneToOverrides,
   type RoleMenuOverrides, type ResolvedMenuItem,
@@ -56,11 +57,18 @@ function toJsonInput(
 }
 
 export class SystemService {
-  async getMenuConfig() {
-    const records = await prisma.menuGroupConfig.findMany();
+  /**
+   * Web menu overrides for one association, as role -> itemId -> enabled.
+   *
+   * Sparse. A missing entry means "use the default role list declared on the
+   * item", which is what lets a menu item added in a later release show up for
+   * the right roles without anyone touching this screen.
+   */
+  async getMenuConfig(associationId: string) {
+    const records = await prisma.menuGroupConfig.findMany({
+      where: { association_id: associationId },
+    });
 
-    // Build map: role → item_id → enabled
-    // group_id column stores item IDs (e.g. 'dues_bills', 'admin_users')
     const config: Record<string, Record<string, boolean>> = {};
     for (const r of records) {
       if (!config[r.role]) config[r.role] = {};
@@ -69,38 +77,69 @@ export class SystemService {
     return { data: config };
   }
 
-  async saveMenuConfig(items: Array<{ group_id: string; role: string; enabled: boolean }>) {
-    const before = await prisma.menuGroupConfig.findMany();
+  /**
+   * Replace one association's overrides.
+   *
+   * The caller sends only the cells that depart from a default — the frontend
+   * owns the catalogue, so it is the only side that can tell. Anything absent
+   * is deleted rather than left behind, which is how "reset this role" works
+   * without needing an endpoint of its own.
+   *
+   * `editableRoles` is the guard for managers: they may configure every role
+   * except their own. A manager who hid Web Menu by Role from MANAGER would
+   * lock themselves out of the screen that could undo it, and the only way
+   * back would be a super user or a hand-written SQL statement.
+   */
+  async saveMenuConfig(
+    associationId: string,
+    items: Array<{ group_id: string; role: string; enabled: boolean }>,
+    editableRoles: string[],
+  ) {
+    const rejected = items.find(i => !editableRoles.includes(i.role));
+    if (rejected) {
+      throw new ForbiddenError(
+        `You cannot change what the ${rejected.role} role sees.`,
+      );
+    }
 
-    await prisma.$transaction(
-      items.map((item) =>
-        prisma.menuGroupConfig.upsert({
-          where: { group_id_role: { group_id: item.group_id, role: item.role } },
-          create: { group_id: item.group_id, role: item.role, enabled: item.enabled },
-          update: { enabled: item.enabled },
-        }),
-      ),
-    );
-
-    // Record only what actually changed — the full matrix is large and noisy.
-    const beforeMap = new Map(before.map(b => [`${b.group_id}|${b.role}`, b.enabled]));
-    const changed = items.filter(i => {
-      const prev = beforeMap.get(`${i.group_id}|${i.role}`);
-      return prev !== undefined && prev !== i.enabled;
+    const before = await prisma.menuGroupConfig.findMany({
+      where: { association_id: associationId },
     });
+
+    await prisma.$transaction([
+      // Only the roles this caller is allowed to touch are cleared, so a
+      // manager's save cannot wipe the overrides a super user set on MANAGER.
+      prisma.menuGroupConfig.deleteMany({
+        where: { association_id: associationId, role: { in: editableRoles } },
+      }),
+      ...(items.length
+        ? [prisma.menuGroupConfig.createMany({
+            data: items.map(i => ({
+              association_id: associationId,
+              group_id:       i.group_id,
+              role:           i.role,
+              enabled:        i.enabled,
+            })),
+          })]
+        : []),
+    ]);
+
+    const beforeMap = new Map(before.map(b => [`${b.group_id}|${b.role}`, b.enabled]));
+    const afterMap  = new Map(items.map(i => [`${i.group_id}|${i.role}`, i.enabled]));
+    const keys = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+    const changed = [...keys].filter(k => beforeMap.get(k) !== afterMap.get(k));
 
     await auditService.record({
-      entity_type: 'menu_config',
-      action:      AuditAction.UPDATE,
-      summary:     `Updated web menu permissions (${changed.length} change${changed.length === 1 ? '' : 's'})`,
-      old_value:   changed.map(c => ({ group_id: c.group_id, role: c.role, enabled: beforeMap.get(`${c.group_id}|${c.role}`) })),
-      new_value:   changed,
+      entity_type:    'menu_config',
+      association_id: associationId,
+      action:         AuditAction.UPDATE,
+      summary:        `Updated web menu permissions (${changed.length} change${changed.length === 1 ? '' : 's'})`,
+      old_value:      changed.map(k => ({ key: k, enabled: beforeMap.get(k) ?? null })),
+      new_value:      changed.map(k => ({ key: k, enabled: afterMap.get(k) ?? null })),
     });
 
-    return this.getMenuConfig();
+    return this.getMenuConfig(associationId);
   }
-
-  // ── Mobile Config ─────────────────────────────────────────────────────────────
 
   async getMobileConfig(associationId: string) {
     const config = await prisma.mobileConfig.findUnique({
@@ -173,13 +212,30 @@ export class SystemService {
    * Save the matrix, keeping only genuine departures from the defaults.
    * See pruneToOverrides for why storing the whole thing would be a trap.
    */
-  async saveMobileMenu(associationId: string, incoming: RoleMenuOverrides) {
+  async saveMobileMenu(
+    associationId: string,
+    incoming:      RoleMenuOverrides,
+    editableRoles: string[],
+  ) {
     const pruned = pruneToOverrides(incoming ?? {});
-    const before = await prisma.mobileConfig.findUnique({
-      where:  { association_id: associationId },
-      select: { id: true, menu_items: true },
-    });
 
+    // A manager may not change what MANAGER sees; see menu-scope.ts. Their
+    // save must also leave any existing MANAGER overrides alone rather than
+    // dropping them, so the roles they cannot edit are carried over untouched.
+    const existing = await prisma.mobileConfig.findUnique({
+      where:  { association_id: associationId },
+      select: { menu_items: true },
+    });
+    const prior = (existing?.menu_items ?? {}) as RoleMenuOverrides;
+
+    for (const role of Object.keys(pruned)) {
+      if (!editableRoles.includes(role)) {
+        throw new ForbiddenError(`You cannot change what the ${role} role sees.`);
+      }
+    }
+    for (const [role, cells] of Object.entries(prior)) {
+      if (!editableRoles.includes(role)) pruned[role] = cells;
+    }
     const config = await prisma.mobileConfig.upsert({
       where:  { association_id: associationId },
       create: { association_id: associationId, ...MOBILE_DEFAULTS, menu_items: pruned },
@@ -189,10 +245,10 @@ export class SystemService {
     await auditService.record({
       entity_type:    'mobile_config',
       entity_id:      config.id,
-      action:         before ? AuditAction.UPDATE : AuditAction.CREATE,
+      action:         existing ? AuditAction.UPDATE : AuditAction.CREATE,
       association_id: associationId,
       summary:        'Updated mobile menu by role',
-      old_value:      (before?.menu_items ?? undefined) as object | undefined,
+      old_value:      (existing?.menu_items ?? undefined) as object | undefined,
       new_value:      pruned,
     });
 

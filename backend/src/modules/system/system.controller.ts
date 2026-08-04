@@ -3,17 +3,37 @@ import { AuthRequest } from '../../types';
 import { systemService } from './system.service';
 import { auditReadService } from './audit.service';
 import { parsePagination } from '../../utils/helpers';
+import { scopeAssociation, editableRolesFor } from './menu-scope';
 
 export class SystemController {
-  async getMenuConfig(_req: AuthRequest, res: Response, next: NextFunction) {
-    try { res.json(await systemService.getMenuConfig()); }
+  /**
+   * GET /system/menu-config — the caller's own association's web menu.
+   * Every authenticated user reads this: Layout needs it to draw the menu.
+   */
+  async getMenuConfig(req: AuthRequest, res: Response, next: NextFunction) {
+    try { res.json(await systemService.getMenuConfig(req.user!.association_id)); }
     catch (err) { next(err); }
+  }
+
+  /** GET /system/menu-config/:associationId — super user, any association. */
+  async getMenuConfigById(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const associationId = scopeAssociation(req.user!, req.params['associationId']);
+      res.json({
+        ...(await systemService.getMenuConfig(associationId)),
+        association_id:  associationId,
+        editable_roles:  editableRolesFor(req.user!),
+      });
+    } catch (err) { next(err); }
   }
 
   async saveMenuConfig(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const items = req.body as Array<{ group_id: string; role: string; enabled: boolean }>;
-      res.json(await systemService.saveMenuConfig(items));
+      const associationId = scopeAssociation(req.user!, req.params['associationId']);
+      const items = (req.body?.items ?? req.body) as Array<{ group_id: string; role: string; enabled: boolean }>;
+      res.json(await systemService.saveMenuConfig(
+        associationId, Array.isArray(items) ? items : [], editableRolesFor(req.user!),
+      ));
     } catch (err) { next(err); }
   }
 
@@ -34,15 +54,21 @@ export class SystemController {
   /** GET /system/mobile-menu/:associationId — full role matrix for the admin screen. */
   async getMobileMenuMatrix(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      res.json(await systemService.getMobileMenuMatrix(req.params['associationId'] as string));
+      const associationId = scopeAssociation(req.user!, req.params['associationId']);
+      const result = await systemService.getMobileMenuMatrix(associationId);
+      res.json({
+        data: { ...result.data, association_id: associationId,
+                editable_roles: editableRolesFor(req.user!) },
+      });
     } catch (err) { next(err); }
   }
 
   /** PUT /system/mobile-menu/:associationId — save the role matrix. */
   async saveMobileMenu(req: AuthRequest, res: Response, next: NextFunction) {
     try {
+      const associationId = scopeAssociation(req.user!, req.params['associationId']);
       res.json(await systemService.saveMobileMenu(
-        req.params['associationId'] as string, req.body?.overrides ?? req.body ?? {},
+        associationId, req.body?.overrides ?? req.body ?? {}, editableRolesFor(req.user!),
       ));
     } catch (err) { next(err); }
   }

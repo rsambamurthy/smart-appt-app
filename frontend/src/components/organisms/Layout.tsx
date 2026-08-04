@@ -12,7 +12,7 @@ import { useEntitlements } from '../../hooks/useEntitlements';
 import type { ModuleKey } from '../../store/api/subscriptionsApi';
 import SubscriptionBanner from '../molecules/SubscriptionBanner';
 
-interface NavItem {
+export interface NavItem {
   id: string;
   label: string;
   path: string;
@@ -21,7 +21,7 @@ interface NavItem {
   end?: boolean;
 }
 
-interface NavGroup {
+export interface NavGroup {
   id: string;
   label: string;
   icon: string;
@@ -33,7 +33,16 @@ interface NavGroup {
 // All roles including SUPER_USER (which sees everything)
 const ALL_ROLES = ['SUPER_USER', 'MANAGER', 'RESIDENT', 'COMMITTEE', 'TREASURER', 'GATE_STAFF'];
 
-const NAV_GROUPS: NavGroup[] = [
+/**
+ * The web menu, and the roles each item defaults to.
+ *
+ * Exported because the Web Menu by Role screen configures exactly this list.
+ * That screen used to keep its own copy, which had drifted badly: twenty-four
+ * live menu items could not be configured at all — the whole of Governance,
+ * Arrears, Statement, Late Payment Penalty, Trial Balance, FY Closure — while
+ * five items it did offer no longer existed. One array now, read by both.
+ */
+export const NAV_GROUPS: NavGroup[] = [
   {
     id: 'config',
     label: 'Configuration',
@@ -62,10 +71,10 @@ const NAV_GROUPS: NavGroup[] = [
     id: 'system',
     label: 'System Settings',
     icon: '🔧',
-    roles: ['SUPER_USER'],
+    roles: ['SUPER_USER', 'MANAGER'],
     items: [
-      { id: 'system_menu_config',   label: 'Menu Configuration',    path: '/admin/menu-config',    roles: ['SUPER_USER'], dot: '#0095db', end: true },
-      { id: 'system_mobile_menu',   label: 'Mobile Menu by Role',   path: '/admin/mobile-menu',    roles: ['SUPER_USER'], dot: '#7c3aed', end: true },
+      { id: 'system_web_menu',      label: 'Web Menu by Role',      path: '/admin/web-menu',       roles: ['SUPER_USER', 'MANAGER'], dot: '#0095db', end: true },
+      { id: 'system_mobile_menu',   label: 'Mobile Menu by Role',   path: '/admin/mobile-menu',    roles: ['SUPER_USER', 'MANAGER'], dot: '#7c3aed', end: true },
       { id: 'system_audit_log',     label: 'Audit Trail',           path: '/admin/audit-log',      roles: ['SUPER_USER', 'MANAGER'], dot: '#dc2626', end: true },
     ],
   },

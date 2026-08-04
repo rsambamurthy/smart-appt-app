@@ -206,6 +206,7 @@ model Association {
   dues_config        DuesConfig?
   bills              Bill[]
   bill_penalties     BillPenalty[]
+  menu_config        MenuGroupConfig[]
   payments           Payment[]
   expenses           Expense[]
   expense_budgets    ExpenseBudget[]
@@ -1242,14 +1243,24 @@ model JournalLine {
   @@map("journal_lines")
 }
 
+/// Web menu visibility, per association.
+///
+/// Sparse: a row exists only where an association departs from the default
+/// role list declared on the item in NAV_GROUPS. Storing the full matrix would
+/// freeze every association on today's defaults, so a menu item added in a
+/// later release would stay invisible until someone enabled it by hand — for
+/// each association separately.
 model MenuGroupConfig {
-  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  group_id   String   @db.VarChar(50)
-  role       String   @db.VarChar(50)
-  enabled    Boolean  @default(true)
-  updated_at DateTime @updatedAt @db.Timestamptz
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+  group_id       String      @db.VarChar(50)
+  role           String      @db.VarChar(50)
+  enabled        Boolean     @default(true)
+  updated_at     DateTime    @updatedAt @db.Timestamptz
 
-  @@unique([group_id, role])
+  @@unique([association_id, group_id, role])
+  @@index([association_id])
   @@map("menu_group_config")
 }
 

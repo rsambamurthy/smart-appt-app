@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, CSSProperties } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
@@ -6,6 +6,11 @@ import {
   type ResolvedMenuItem,
 } from '../../store/api/systemApi';
 import { useListAssociationsQuery } from '../../store/api/associationsApi';
+import { useSelector } from 'react-redux';
+import type { RootState } from '../../store';
+import {
+  ROLE_LABEL, orderRoles, roleTab, pageBtn, AssociationPicker,
+} from './menuConfigUi';
 
 /**
  * Which menu items each role sees in the mobile app.
@@ -16,18 +21,6 @@ import { useListAssociationsQuery } from '../../store/api/associationsApi';
  * had. There is one catalogue now, in the backend, and both sides read it.
  */
 
-const ROLE_LABEL: Record<string, string> = {
-  SUPER_USER: 'Super User',
-  MANAGER:    'Manager',
-  TREASURER:  'Treasurer',
-  COMMITTEE:  'Committee',
-  RESIDENT:   'Resident',
-  GATE_STAFF: 'Gate Staff',
-};
-
-// Ordered by how often they are configured, not alphabetically.
-const ROLE_ORDER = ['RESIDENT', 'COMMITTEE', 'TREASURER', 'MANAGER', 'GATE_STAFF', 'SUPER_USER'];
-
 const GROUP_LABEL: Record<string, string> = {
   community:  'Community',
   dues:       'Dues',
@@ -36,16 +29,13 @@ const GROUP_LABEL: Record<string, string> = {
   gate:       'Visitors & Gate',
 };
 
-const btn: CSSProperties = {
-  padding: '6px 12px', borderRadius: 8, border: '1px solid #cbd5e1',
-  background: '#fff', color: '#334155', fontSize: 13, cursor: 'pointer',
-  fontWeight: 600,
-};
-
 type Overrides = Record<string, Record<string, Partial<ResolvedMenuItem>>>;
 
 export default function MobileMenuPage() {
-  const { data: assocData } = useListAssociationsQuery();
+  const user = useSelector((st: RootState) => st.auth.user);
+  const isSuper = user?.role === 'SUPER_USER';
+
+  const { data: assocData } = useListAssociationsQuery(undefined, { skip: !isSuper });
   // listAssociations is typed as unknown[]; narrow to just what this screen
   // needs rather than widening the shared endpoint's type from here.
   const associations = useMemo(
@@ -53,14 +43,15 @@ export default function MobileMenuPage() {
     [assocData],
   );
 
-  const [assocId, setAssocId] = useState('');
+  // A manager configures their own association and is not offered a choice.
+  const [assocId, setAssocId] = useState(isSuper ? '' : (user?.association_id ?? ''));
   const [role, setRole]       = useState('RESIDENT');
   const [draft, setDraft]     = useState<Overrides>({});
   const [dirty, setDirty]     = useState(false);
 
   useEffect(() => {
-    if (!assocId && associations.length) setAssocId(associations[0].id);
-  }, [associations, assocId]);
+    if (isSuper && !assocId && associations.length) setAssocId(associations[0].id);
+  }, [isSuper, associations, assocId]);
 
   const { data, isLoading } = useGetMobileMenuMatrixQuery(assocId, { skip: !assocId });
   const [save, { isLoading: saving }] = useSaveMobileMenuMutation();
@@ -83,12 +74,15 @@ export default function MobileMenuPage() {
 
   const items      = data?.data.items ?? [];
   const overrides  = data?.data.overrides ?? {};
-  const roles      = data?.data.roles ?? [];
+  // Only the roles this caller may edit — the server decides, so a manager
+  // never sees a MANAGER tab they would be refused on saving.
+  const roles = data?.data.editable_roles ?? data?.data.roles ?? [];
 
-  const orderedRoles = useMemo(
-    () => [...roles].sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b)),
-    [roles],
-  );
+  const orderedRoles = useMemo(() => orderRoles(roles), [roles]);
+
+  useEffect(() => {
+    if (roles.length && !roles.includes(role)) setRole(orderRoles(roles)[0]);
+  }, [roles, role]);
 
   const cell = (id: string): Partial<ResolvedMenuItem> => draft[role]?.[id] ?? {};
   const isOverridden = (id: string) => overrides[role]?.[id] !== undefined;
@@ -142,21 +136,14 @@ export default function MobileMenuPage() {
 
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap',
                       alignItems: 'flex-end', marginBottom: 16 }}>
-          <div style={{ flex: '1 1 240px' }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b',
-                            display: 'block', marginBottom: 4 }}>
-              Association
-            </label>
-            <select value={assocId} onChange={e => setAssocId(e.target.value)}
-              style={{ width: '100%', padding: '7px 10px', borderRadius: 8,
-                       border: '1px solid #cbd5e1', fontSize: 13.5 }}>
-              {associations.map(a => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </select>
-          </div>
+          <AssociationPicker
+            isSuper={isSuper}
+            associations={associations}
+            value={assocId}
+            onChange={setAssocId}
+          />
           <button onClick={onSave} disabled={!dirty || saving}
-            style={{ ...btn, background: dirty ? '#1d4ed8' : '#e2e8f0',
+            style={{ ...pageBtn, background: dirty ? '#1d4ed8' : '#e2e8f0',
                      color: dirty ? '#fff' : '#94a3b8',
                      borderColor: dirty ? '#1d4ed8' : '#e2e8f0' }}>
             {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
@@ -169,12 +156,7 @@ export default function MobileMenuPage() {
             const active = r === role;
             const n = Object.keys(overrides[r] ?? {}).length;
             return (
-              <button key={r} onClick={() => setRole(r)}
-                style={{ padding: '6px 13px', borderRadius: 99, border: 'none',
-                         cursor: 'pointer', fontSize: 13,
-                         fontWeight: active ? 700 : 500,
-                         background: active ? '#1e293b' : '#f1f5f9',
-                         color: active ? '#fff' : '#64748b' }}>
+              <button key={r} onClick={() => setRole(r)} style={roleTab(active)}>
                 {ROLE_LABEL[r] ?? r}
                 {n > 0 && (
                   <span style={{ marginLeft: 6, fontSize: 11,
@@ -187,6 +169,15 @@ export default function MobileMenuPage() {
           })}
         </div>
 
+        {!isSuper && (
+          <div style={{ fontSize: 12, color: '#64748b', background: '#f8fafc',
+                        borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+            The Manager role is not listed. Hiding this screen from managers would
+            lock you out of the only place that could undo it — ask a super user if
+            the manager menu needs changing.
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'space-between',
                       alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ fontSize: 12.5, color: '#64748b' }}>
@@ -198,7 +189,7 @@ export default function MobileMenuPage() {
             )}
           </div>
           {overrideCount > 0 && (
-            <button onClick={resetRole} style={{ ...btn, fontSize: 12, padding: '4px 10px' }}>
+            <button onClick={resetRole} style={{ ...pageBtn, fontSize: 12, padding: '4px 10px' }}>
               Reset this role to defaults
             </button>
           )}
