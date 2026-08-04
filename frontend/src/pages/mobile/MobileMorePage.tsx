@@ -112,7 +112,7 @@ export default function MobileMorePage() {
             { item: 'announcements_feed', flag: config.feature_announcements, icon: '📢', label: 'Announcements',    sub: 'Community notices and updates',            to: '/announcements'    },
             { item: 'maintenance_list',   flag: config.feature_complaints,    icon: '🔧', label: 'Service Requests', sub: 'Raise and track maintenance requests',     to: '/maintenance'      },
             { item: 'visitors_preapprove',flag: config.feature_visitors,      icon: '🚪', label: 'Visitors',         sub: 'Gate activity and pre-approvals',          to: '/mobile/visitors'  },
-            { item: 'gate_console',       flag: true,                         icon: '🛡️', label: 'Gate Console',     sub: 'Log entries and exits',                    to: '/gate'             },
+            { item: 'gate_console',       flag: user?.role === 'GATE_STAFF',                         icon: '🛡️', label: 'Gate Console',     sub: 'Log entries and exits',                    to: '/mobile/gate'      },
           ].filter(r => r.flag && config.can(r.item));
 
           if (!rows.length) return null;

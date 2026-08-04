@@ -46,7 +46,8 @@ export default function MobileHomePage() {
   const config = useMobileConfig();
   const user = useSelector((s: RootState) => s.auth.user);
 
-  const isManager = user?.role === 'MANAGER';
+  const isManager   = user?.role === 'MANAGER';
+  const isGateStaff = user?.role === 'GATE_STAFF';
 
   // Bills and announcements: always own data
   const { data: billsData } = useListMyBillsQuery({ limit: 10 }, { skip: !config.feature_bills || !config.can('dues_my_bills') });
@@ -108,6 +109,36 @@ export default function MobileHomePage() {
       </div>
 
       <div style={{ padding: '16px 16px 0' }}>
+
+        {/* Gate console.
+            Full width and first, not a tile among tiles: for a guard this is
+            not one feature of several, it is the entire reason the handset is
+            in their hand. Anyone else who can reach it gets it here too, which
+            is why this keys off the menu rather than off the role. */}
+        {config.can('gate_console') && (
+          <button
+            onClick={() => navigate('/mobile/gate')}
+            style={{
+              width: '100%', padding: '16px', background: '#1e293b',
+              border: 'none', borderRadius: 12, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 13, marginBottom: 14,
+              boxShadow: '0 2px 10px rgba(15,23,42,0.25)', minHeight: 64,
+            }}
+          >
+            <div style={{ width: 42, height: 42, background: 'rgba(255,255,255,0.12)',
+                          borderRadius: 11, display: 'flex', alignItems: 'center',
+                          justifyContent: 'center', flexShrink: 0 }}>
+              <span style={{ fontSize: 22 }}>🛡️</span>
+            </div>
+            <div style={{ flex: 1, textAlign: 'left' }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: '#fff' }}>Gate Console</div>
+              <div style={{ fontSize: 12.5, color: '#94a3b8' }}>
+                Log a visitor, scan a pass, record a delivery
+              </div>
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: 20 }}>›</div>
+          </button>
+        )}
 
         {/* Outstanding bills banner */}
         {config.feature_bills && config.can('dues_my_bills') && pendingBills.length > 0 && (
