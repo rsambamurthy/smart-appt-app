@@ -40,7 +40,7 @@ export default function WebMenuPage() {
     if (isSuper && !assocId && associations.length) setAssocId(associations[0].id);
   }, [isSuper, associations, assocId]);
 
-  const { data, isLoading } = useGetWebMenuConfigQuery(assocId, { skip: !assocId });
+  const { data, isLoading, error } = useGetWebMenuConfigQuery(assocId, { skip: !assocId });
   const [save, { isLoading: saving }] = useSaveWebMenuConfigMutation();
 
   const editable = useMemo(
@@ -161,7 +161,9 @@ export default function WebMenuPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between',
                       alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ fontSize: 12.5, color: '#64748b' }}>
-            {visibleCount} of {items.length} items visible to {ROLE_LABEL[role] ?? role}
+            {role
+              ? `${visibleCount} of ${items.length} items visible to ${ROLE_LABEL[role] ?? role}`
+              : `${items.length} menu items`}
             {overrideCount > 0 && (
               <span style={{ color: '#b45309', fontWeight: 600 }}>
                 {' '}· {overrideCount} changed from default
@@ -175,7 +177,24 @@ export default function WebMenuPage() {
           )}
         </div>
 
-        {isLoading || !role ? (
+        {error ? (
+          // Without this the screen sat on "Loading…" for ever whenever the
+          // request failed — which is exactly what a not-yet-deployed backend
+          // looks like, and it reads as a hung page rather than a failed call.
+          <div style={{ border: '1px solid #fca5a5', background: '#fef2f2',
+                        borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: '#b91c1c' }}>
+              Could not load the menu configuration.
+            </div>
+            <div style={{ fontSize: 12.5, color: '#7f1d1d', marginTop: 4 }}>
+              {'status' in error && error.status === 404
+                ? 'The server does not have this endpoint yet — the backend deploy may still be building, or it failed to start.'
+                : 'status' in error && error.status === 403
+                ? 'You are not permitted to configure this association.'
+                : `Request failed${'status' in error ? ` (${String(error.status)})` : ''}.`}
+            </div>
+          </div>
+        ) : isLoading || !role ? (
           <div style={{ padding: '2rem', color: '#94a3b8', fontSize: 13 }}>Loading…</div>
         ) : (
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 12,

@@ -53,7 +53,7 @@ export default function MobileMenuPage() {
     if (isSuper && !assocId && associations.length) setAssocId(associations[0].id);
   }, [isSuper, associations, assocId]);
 
-  const { data, isLoading } = useGetMobileMenuMatrixQuery(assocId, { skip: !assocId });
+  const { data, isLoading, error } = useGetMobileMenuMatrixQuery(assocId, { skip: !assocId });
   const [save, { isLoading: saving }] = useSaveMobileMenuMutation();
 
   // The draft starts as what the server resolved — defaults included — so a
@@ -195,7 +195,21 @@ export default function MobileMenuPage() {
           )}
         </div>
 
-        {isLoading ? (
+        {error ? (
+          <div style={{ border: '1px solid #fca5a5', background: '#fef2f2',
+                        borderRadius: 10, padding: '14px 16px' }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: '#b91c1c' }}>
+              Could not load the menu configuration.
+            </div>
+            <div style={{ fontSize: 12.5, color: '#7f1d1d', marginTop: 4 }}>
+              {'status' in error && error.status === 404
+                ? 'The server does not have this endpoint yet — the backend deploy may still be building, or it failed to start.'
+                : 'status' in error && error.status === 403
+                ? 'You are not permitted to configure this association.'
+                : `Request failed${'status' in error ? ` (${String(error.status)})` : ''}.`}
+            </div>
+          </div>
+        ) : isLoading ? (
           <div style={{ padding: '2rem', color: '#94a3b8', fontSize: 13 }}>Loading…</div>
         ) : (
           <div style={{ border: '1px solid #e2e8f0', borderRadius: 12,

@@ -19,27 +19,31 @@
 -- 1. New column, nullable while we backfill.
 ALTER TABLE "menu_group_config" ADD COLUMN "association_id" UUID;
 
--- 2. Fan the global rows out to every association.
---    Done before the constraints so a half-migrated table is never visible.
+-- 2. Drop the old key FIRST.
+--    It was UNIQUE (group_id, role) — one setting for the whole platform. The
+--    fan-out below writes the same (group_id, role) once per association, so
+--    with more than one association the second copy violates it. Dropping it
+--    after the insert, which is the tidier-looking order, fails on any real
+--    deployment.
+DROP INDEX IF EXISTS "menu_group_config_group_id_role_key";
+
+-- 3. Fan the global rows out to every association.
 INSERT INTO "menu_group_config" ("id", "association_id", "group_id", "role", "enabled", "updated_at")
 SELECT gen_random_uuid(), a."id", m."group_id", m."role", m."enabled", now()
   FROM "menu_group_config" m
  CROSS JOIN "associations" a
  WHERE m."association_id" IS NULL;
 
--- 3. Drop the originals, now that each has an association-scoped copy.
+-- 4. Drop the originals, now that each has an association-scoped copy.
 DELETE FROM "menu_group_config" WHERE "association_id" IS NULL;
 
--- 4. Lock it down.
+-- 5. Lock it down.
 ALTER TABLE "menu_group_config" ALTER COLUMN "association_id" SET NOT NULL;
 
 ALTER TABLE "menu_group_config"
   ADD CONSTRAINT "menu_group_config_association_id_fkey"
   FOREIGN KEY ("association_id") REFERENCES "associations"("id")
   ON DELETE CASCADE ON UPDATE CASCADE;
-
--- The old key was (group_id, role) — one setting for the whole platform.
-DROP INDEX IF EXISTS "menu_group_config_group_id_role_key";
 
 CREATE UNIQUE INDEX "menu_group_config_association_id_group_id_role_key"
   ON "menu_group_config"("association_id", "group_id", "role");
