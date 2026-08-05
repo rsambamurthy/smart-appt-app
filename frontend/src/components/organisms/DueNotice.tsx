@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, CSSProperties } from 'react';
 import QRCode from 'qrcode';
 import { useGetDueNoticeQuery } from '../../store/api/upiApi';
+import ClaimPaymentForm from './ClaimPaymentForm';
 
 /**
  * A due notice for one bill, with a UPI QR to pay it.
@@ -39,6 +40,10 @@ const btn: CSSProperties = {
 export default function DueNotice({ billId, onClose }: { billId: string; onClose?: () => void }) {
   const { data, isLoading, error } = useGetDueNoticeQuery(billId);
   const [qr, setQr] = useState<string>('');
+  // Scanning the QR is the route that actually works, so the notice must also
+  // be where a resident says they have paid. Without this the working path had
+  // no way to close the loop, and the treasurer's queue stayed empty.
+  const [claiming, setClaiming] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   const d = data?.data;
@@ -59,6 +64,7 @@ export default function DueNotice({ billId, onClose }: { billId: string; onClose
     win.document.write(`
       <html><head><title>Due Notice — ${d?.bill.flat_number ?? ''}</title><style>
         body { font-family: Arial, sans-serif; font-size: 11pt; color: #000; margin: 24pt; }
+        .no-print { display: none; }
         img  { max-width: 200px; }
         hr   { border: none; border-top: 1px solid #999; margin: 10pt 0; }
       </style></head><body>${html}</body></html>
@@ -210,6 +216,32 @@ export default function DueNotice({ billId, onClose }: { billId: string; onClose
               UPI ID above manually. Afterwards, enter the reference number your
               payment app shows you in SmartAppt so the treasurer can confirm it.
             </div>
+          </div>
+        )}
+
+        {/* Having paid, the resident needs to say so — nothing else tells us. */}
+        {!settled && !d.pending_claim && (
+          <div className="no-print" style={{ marginTop: 16 }}>
+            {claiming ? (
+              <ClaimPaymentForm
+                billId={d.bill.id}
+                amount={d.amounts.due}
+                intentRef={d.bill.reference}
+                onDone={() => setClaiming(false)}
+                onCancel={() => setClaiming(false)}
+              />
+            ) : (
+              <button
+                onClick={() => setClaiming(true)}
+                style={{
+                  width: '100%', padding: '12px', borderRadius: 10,
+                  border: '1px solid #15803d', background: '#fff',
+                  color: '#15803d', fontSize: 14.5, fontWeight: 700,
+                  cursor: 'pointer', minHeight: 46,
+                }}>
+                I have paid — enter reference
+              </button>
+            )}
           </div>
         )}
 

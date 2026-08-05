@@ -1,9 +1,8 @@
 import { useState, CSSProperties } from 'react';
 import { AppLauncher } from '@capacitor/app-launcher';
 import { Capacitor } from '@capacitor/core';
-import {
-  useLazyGetUpiIntentQuery, useSubmitUpiClaimMutation,
-} from '../../store/api/upiApi';
+import { useLazyGetUpiIntentQuery } from '../../store/api/upiApi';
+import ClaimPaymentForm from './ClaimPaymentForm';
 
 /**
  * Pay a bill by opening the resident's own UPI app.
@@ -26,11 +25,6 @@ import {
 const money = (n: number) =>
   n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const field: CSSProperties = {
-  width: '100%', padding: '11px 12px', borderRadius: 9,
-  border: '1px solid #cbd5e1', fontSize: 15, boxSizing: 'border-box',
-};
-
 const primary: CSSProperties = {
   width: '100%', padding: '13px', borderRadius: 10, border: 'none',
   background: '#15803d', color: '#fff', fontSize: 15.5, fontWeight: 700,
@@ -47,16 +41,11 @@ export default function PayByUpi({
   onClaimed?: () => void;
 }) {
   const [fetchIntent, { isFetching }] = useLazyGetUpiIntentQuery();
-  const [submitClaim, { isLoading: submitting }] = useSubmitUpiClaimMutation();
 
   const [step, setStep]       = useState<Step>('idle');
   const [error, setError]     = useState('');
   const [amount, setAmount]   = useState(0);
   const [intentRef, setRef]   = useState('');
-  const [payee, setPayee]     = useState('');
-  const [vpa, setVpa]         = useState('');
-  const [utr, setUtr]         = useState('');
-  const [paidOn, setPaidOn]   = useState(() => new Date().toISOString().slice(0, 10));
 
   const openUpiApp = async () => {
     setError('');
@@ -74,8 +63,6 @@ export default function PayByUpi({
 
       setAmount(d.amount);
       setRef(d.intent_ref);
-      setPayee(d.payee_name);
-      setVpa(d.upi_vpa);
 
       if (Capacitor.isNativePlatform()) {
         // Deliberately NOT gated behind AppLauncher.canOpenUrl. On Android that
@@ -107,23 +94,6 @@ export default function PayByUpi({
     }
   };
 
-  const lodgeClaim = async () => {
-    setError('');
-    try {
-      await submitClaim({
-        bill_id:       billId,
-        amount,
-        upi_reference: utr.trim(),
-        paid_on:       paidOn,
-        intent_ref:    intentRef,
-      }).unwrap();
-      setStep('done');
-      onClaimed?.();
-    } catch (e) {
-      const msg = (e as { data?: { message?: string } })?.data?.message;
-      setError(msg ?? 'Could not record the payment.');
-    }
-  };
 
   if (step === 'done') {
     return (
@@ -158,68 +128,16 @@ export default function PayByUpi({
       )}
 
       {step === 'confirming' && (
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0',
-                      borderRadius: 10, padding: 14 }}>
-          <div style={{ fontSize: 14.5, fontWeight: 700, color: '#1e293b' }}>
-            Did the payment go through?
-          </div>
-          <div style={{ fontSize: 12.5, color: '#64748b', marginTop: 3, marginBottom: 12, lineHeight: 1.5 }}>
-            Your UPI app shows a reference or UTR number on the receipt. Enter it
-            here so the treasurer can match it to the association's bank account.
-          </div>
-
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>
-            UPI reference / UTR
-          </label>
-          <input
-            style={{ ...field, marginTop: 4, marginBottom: 10, letterSpacing: '0.04em' }}
-            value={utr}
-            onChange={e => setUtr(e.target.value.replace(/\s/g, ''))}
-            placeholder="e.g. 418523104567"
-            inputMode="numeric"
-            autoComplete="off"
-          />
-
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>
-            Date paid
-          </label>
-          <input
-            type="date"
-            style={{ ...field, marginTop: 4, marginBottom: 12 }}
-            value={paidOn}
-            max={new Date().toISOString().slice(0, 10)}
-            onChange={e => setPaidOn(e.target.value)}
-          />
-
-          <div style={{ fontSize: 13, color: '#1e293b', marginBottom: 12,
-                        background: '#f8fafc', borderRadius: 7, padding: '8px 10px' }}>
-            <div>Amount: <strong>₹{money(amount)}</strong></div>
-            {/* The payee is often an individual — a treasurer's own account —
-                so naming it here stops the "who is this person?" moment in the
-                UPI app that makes residents abandon the payment. */}
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 3 }}>
-              Paid to <strong>{payee}</strong>{vpa ? ` · ${vpa}` : ''}
-            </div>
-          </div>
-
-          <button
-            onClick={lodgeClaim}
-            disabled={submitting || utr.trim().length < 6}
-            style={{ ...primary, opacity: utr.trim().length < 6 ? 0.5 : 1 }}
-          >
-            {submitting ? 'Recording…' : 'I have paid'}
-          </button>
-
-          <button
-            onClick={() => { setStep('idle'); setUtr(''); setError(''); }}
-            style={{ width: '100%', padding: '11px', marginTop: 8, borderRadius: 10,
-                     border: '1px solid #cbd5e1', background: '#fff',
-                     color: '#64748b', fontSize: 14, cursor: 'pointer' }}
-          >
-            Payment did not go through
-          </button>
-        </div>
+        <ClaimPaymentForm
+          billId={billId}
+          amount={amount}
+          intentRef={intentRef}
+          onDone={() => { setStep('done'); onClaimed?.(); }}
+          onCancel={() => { setStep('idle'); setError(''); }}
+          cancelLabel="Payment did not go through"
+        />
       )}
+
     </div>
   );
 }
