@@ -249,6 +249,16 @@ router.get('/upi/intent/:billId', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
+/** Everything a printable due notice needs, QR string included. */
+router.get('/upi/notice/:billId', async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await upiService.notice(
+      req.user!.association_id, req.params['billId'] as string,
+      req.user!.id, req.user!.role,
+    ));
+  } catch (err) { next(err); }
+});
+
 /** "I have paid." Settles nothing on its own. */
 router.post('/upi/claims', async (req: AuthRequest, res, next) => {
   try {

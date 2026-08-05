@@ -4,6 +4,7 @@ import Layout from '../../components/organisms/Layout';
 import { useListMyBillsQuery } from '../../store/api/duesApi';
 import { useRazorpay } from '../../hooks/useRazorpay';
 import PayByUpi from '../../components/organisms/PayByUpi';
+import DueNotice from '../../components/organisms/DueNotice';
 import { useGetUpiConfigQuery, useMyUpiClaimsQuery } from '../../store/api/upiApi';
 import type { RootState } from '../../store';
 
@@ -36,6 +37,9 @@ export default function MyBillsPage() {
   const bills = (data?.data ?? []) as Bill[];
 
   const [payingId, setPayingId] = useState<string | null>(null);
+  // Which bill's notice is open. The notice carries the QR, which is the
+  // route UPI apps actually sanction — intents to a personal VPA get declined.
+  const [noticeFor, setNoticeFor] = useState<string | null>(null);
 
   // UPI is optional per association, so every UPI control below is behind this.
   const { data: upiCfg } = useGetUpiConfigQuery();
@@ -194,6 +198,18 @@ export default function MyBillsPage() {
                           replaced by a plain statement once a payment is
                           awaiting confirmation — offering "Pay" again there is
                           how duplicate transfers happen. */}
+                      {/* The notice is offered whether or not UPI is set up:
+                          it is also the printable bill a resident can keep. */}
+                      <button
+                        onClick={() => setNoticeFor(bill.id)}
+                        style={{
+                          width: '100%', marginTop: 10, padding: '9px', borderRadius: 9,
+                          border: '1px solid #cbd5e1', background: '#fff',
+                          color: '#334155', fontSize: 13.5, fontWeight: 600, cursor: 'pointer',
+                        }}>
+                        View notice &amp; QR
+                      </button>
+
                       {upiEnabled && (
                         claimFor(bill.id) ? (
                           <div style={{
@@ -234,6 +250,21 @@ export default function MyBillsPage() {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {noticeFor && (
+              <div
+                onClick={() => setNoticeFor(null)}
+                style={{
+                  position: 'fixed', inset: 0, zIndex: 200,
+                  background: 'rgba(15,23,42,0.55)', overflowY: 'auto',
+                  padding: '20px 12px',
+                }}>
+                {/* Stop the backdrop's dismiss firing when the sheet is used. */}
+                <div onClick={e => e.stopPropagation()}>
+                  <DueNotice billId={noticeFor} onClose={() => setNoticeFor(null)} />
                 </div>
               </div>
             )}

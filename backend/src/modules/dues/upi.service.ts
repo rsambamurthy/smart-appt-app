@@ -25,6 +25,9 @@ import { auditService } from '../../services/audit.service';
  * never received. Neither is recoverable by a committee six months later.
  */
 
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December'];
+
 const num = (d: unknown) => Number(d ?? 0);
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -312,6 +315,125 @@ export class UpiService {
               amount:        num(bill.claims[0].amount),
               upi_reference: bill.claims[0].upi_reference,
               claimed_at:    bill.claims[0].claimed_at.toISOString(),
+            }
+          : null,
+      },
+    };
+  }
+
+  /**
+   * Everything a due notice needs, in one call.
+   *
+   * The document is the fallback for a real limitation: UPI apps refuse
+   * intents that deep-link money into personal VPAs, so tapping through from
+   * the app can be declined outright. A QR is not restricted the same way —
+   * the resident scans it with their own app, which is exactly the flow the
+   * UPI apps tell them to use.
+   *
+   * It also happens to be what a small association actually wants: something
+   * to print, WhatsApp, or paste into an email, with the amount and the payee
+   * on the same piece of paper.
+   */
+  async notice(associationId: string, billId: string, userId: string, role: UserRole) {
+    const bill = await prisma.bill.findFirst({
+      where:  { id: billId, association_id: associationId },
+      select: {
+        id: true, unit_id: true, period_month: true, period_year: true,
+        base_amount: true, levy_amount: true, penalty: true, total_amount: true,
+        due_date: true, status: true, bill_label: true, created_at: true,
+        unit: {
+          select: {
+            flat_number: true, block: true,
+            users: {
+              where:  { is_active: true, deleted_at: null },
+              select: { name: true, phone: true },
+              orderBy: [{ is_owner: 'desc' }, { created_at: 'asc' }],
+              take: 1,
+            },
+          },
+        },
+        payments: { select: { amount: true, payment_date: true } },
+        claims: {
+          where:  { status: PaymentClaimStatus.PENDING },
+          select: { amount: true, upi_reference: true },
+        },
+      },
+    });
+    if (!bill) throw new NotFoundError('Bill');
+
+    const privileged = REVIEWER_ROLES.includes(role) || role === UserRole.COMMITTEE;
+    if (!privileged) {
+      const me = await prisma.user.findUnique({ where: { id: userId }, select: { unit_id: true } });
+      if (me?.unit_id !== bill.unit_id) throw new NotFoundError('Bill');
+    }
+
+    const [assoc, cfg] = await Promise.all([
+      prisma.association.findUnique({
+        where:  { id: associationId },
+        select: { name: true, address: true, city: true, state: true, pincode: true },
+      }),
+      this.config(associationId),
+    ]);
+
+    const paid = bill.payments.reduce((s, p) => s + num(p.amount), 0);
+    const due  = Math.round((num(bill.total_amount) - paid) * 100) / 100;
+    const flat = bill.unit.flat_number;
+    const label = bill.bill_label
+      ?? `Maintenance — ${MONTHS[bill.period_month - 1] ?? bill.period_month} ${bill.period_year}`;
+    const ref = `SA${bill.id.replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+
+    // Only build a payable QR when there is something to pay and somewhere to
+    // pay it. A QR for a settled bill invites a duplicate payment.
+    const payable = due > 0 && cfg.data.enabled && !!cfg.data.upi_vpa;
+
+    return {
+      data: {
+        association: {
+          name: assoc?.name ?? '',
+          address: [assoc?.address, assoc?.city, assoc?.state, assoc?.pincode]
+            .filter(Boolean).join(', '),
+        },
+        bill: {
+          id:          bill.id,
+          reference:   ref,
+          label,
+          flat_number: flat,
+          block:       bill.unit.block,
+          resident:    bill.unit.users[0]?.name ?? null,
+          phone:       bill.unit.users[0]?.phone ?? null,
+          issued_on:   iso(bill.created_at),
+          due_date:    iso(bill.due_date),
+          status:      bill.status,
+          overdue:     due > 0 && bill.due_date < new Date(),
+        },
+        amounts: {
+          base:    num(bill.base_amount),
+          levy:    num(bill.levy_amount),
+          penalty: num(bill.penalty),
+          total:   num(bill.total_amount),
+          paid:    Math.round(paid * 100) / 100,
+          due,
+        },
+        payments: bill.payments.map(p => ({
+          amount: num(p.amount), date: iso(p.payment_date),
+        })),
+        pending_claim: bill.claims[0]
+          ? { amount: num(bill.claims[0].amount), upi_reference: bill.claims[0].upi_reference }
+          : null,
+        payment: payable
+          ? {
+              // The same string the intent would use, so a QR scan and a tap
+              // cannot end up paying different amounts to different places.
+              upi_uri: buildUpiUri({
+                vpa:       cfg.data.upi_vpa!,
+                payeeName: cfg.data.payee_name,
+                amount:    due,
+                note:      `${flat} ${label}`.slice(0, 50),
+                ref,
+              }),
+              upi_vpa:    cfg.data.upi_vpa,
+              payee_name: cfg.data.payee_name,
+              bank_name:  cfg.data.bank_name,
             }
           : null,
       },

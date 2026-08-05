@@ -36,6 +36,28 @@ export interface UpiIntent {
 
 export type ClaimStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED';
 
+/** Everything a printable due notice needs, in one payload. */
+export interface DueNotice {
+  association: { name: string; address: string };
+  bill: {
+    id: string; reference: string; label: string;
+    flat_number: string; block: string | null;
+    resident: string | null; phone: string | null;
+    issued_on: string; due_date: string; status: string; overdue: boolean;
+  };
+  amounts: {
+    base: number; levy: number; penalty: number;
+    total: number; paid: number; due: number;
+  };
+  payments: Array<{ amount: number; date: string }>;
+  pending_claim: { amount: number; upi_reference: string } | null;
+  /** Null when the bill is settled, or no UPI ID is configured. */
+  payment: {
+    upi_uri: string; upi_vpa: string;
+    payee_name: string; bank_name: string | null;
+  } | null;
+}
+
 export interface MyClaim {
   id:            string;
   bill_id:       string;
@@ -98,6 +120,12 @@ export const upiApi = baseApi.injectEndpoints({
       providesTags: ['PaymentClaim'],
     }),
 
+    getDueNotice: builder.query<{ data: DueNotice }, string>({
+      query: (billId) => `/dues/upi/notice/${billId}`,
+      // Depends on payments and claims as well as the bill itself.
+      providesTags: ['PaymentClaim', 'Bill'],
+    }),
+
     submitUpiClaim: builder.mutation<
       { data: { id: string; status: ClaimStatus } },
       { bill_id: string; amount: number; upi_reference: string; paid_on?: string; intent_ref?: string }
@@ -143,6 +171,7 @@ export const {
   useSaveBankUpiMutation,
   useSelectUpiAccountMutation,
   useLazyGetUpiIntentQuery,
+  useGetDueNoticeQuery,
   useSubmitUpiClaimMutation,
   useMyUpiClaimsQuery,
   useListUpiClaimsQuery,
