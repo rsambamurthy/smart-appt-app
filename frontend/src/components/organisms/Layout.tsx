@@ -90,6 +90,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'dues_arrears',  label: 'Arrears',          path: '/dues/arrears',       roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#dc2626', end: true },
       { id: 'dues_statement', label: 'Statement of Account', path: '/dues/statement',  roles: ['SUPER_USER', 'TREASURER', 'COMMITTEE', 'MANAGER'], dot: '#0ea5e9', end: true },
       { id: 'dues_penalties', label: 'Late Payment Penalty', path: '/dues/penalties',  roles: ['SUPER_USER', 'TREASURER', 'MANAGER'], dot: '#b45309', end: true },
+      { id: 'dues_upi_claims', label: 'UPI Payments',        path: '/dues/upi-claims', roles: ['SUPER_USER', 'TREASURER', 'MANAGER'], dot: '#15803d', end: true },
     ],
   },
   {

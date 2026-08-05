@@ -206,6 +206,7 @@ model Association {
   dues_config        DuesConfig?
   bills              Bill[]
   bill_penalties     BillPenalty[]
+  payment_claims     PaymentClaim[]
   menu_config        MenuGroupConfig[]
   payments           Payment[]
   expenses           Expense[]
@@ -286,6 +287,7 @@ model Unit {
   maintenance_tickets MaintenanceTicket[]
   bills               Bill[]
   payments            Payment[]
+  payment_claims      PaymentClaim[]
   visitors            Visitor[]
   frequent_visitors   FrequentVisitor[]
   business_partners   BusinessPartner[]
@@ -356,6 +358,8 @@ model User {
   compliance_owned    ComplianceItem[]     @relation("ComplianceOwner")
   penalties_charged   BillPenalty[]        @relation("PenaltyCharger")
   penalties_waived    BillPenalty[]        @relation("PenaltyWaiver")
+  claims_made         PaymentClaim[]       @relation("ClaimedBy")
+  claims_reviewed     PaymentClaim[]       @relation("ClaimReviewedBy")
   compliance_done     ComplianceOccurrence[] @relation("ComplianceCompletedBy")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
@@ -504,6 +508,11 @@ model DuesConfig {
   cash_balance_as_on  DateTime?   @db.Date
   razorpay_key_id     String?
   razorpay_key_secret String?
+  /// Which bank account collects UPI. The VPA and the payee name live on that
+  /// bank record, not here — a UPI address belongs to one bank account, and
+  /// the name residents see must match whoever actually holds it.
+  upi_bank_bp_id      String?         @db.Uuid
+  upi_bank            BusinessPartner? @relation("UpiCollectionAccount", fields: [upi_bank_bp_id], references: [id])
   auto_generate_bills Boolean     @default(false)
   auto_generate_day   Int         @default(1) @db.SmallInt
   updated_by          String      @db.Uuid
@@ -537,6 +546,7 @@ model Bill {
 
   payments  Payment[]
   penalties BillPenalty[]
+  claims    PaymentClaim[]
 
   @@unique([unit_id, period_month, period_year, one_time_due_id])
   @@index([unit_id])
@@ -632,6 +642,8 @@ model Payment {
   recorder         User?       @relation(fields: [recorded_by], references: [id])
   receipt_s3_key   String?     @db.Text
   created_at       DateTime    @default(now()) @db.Timestamptz
+
+  claim            PaymentClaim?
 
   @@index([bill_id])
   @@index([unit_id])
@@ -1001,6 +1013,64 @@ enum BPSide {
   BOTH
 }
 
+enum PaymentClaimStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+/// What a resident says they have paid, before anyone has checked.
+///
+/// Deliberately NOT a row in `payments`. A UPI deep link tells the app nothing
+/// about whether the money moved — there is no callback, and the UPI app's own
+/// response is not trustworthy. So a claim is a statement of intent, and only a
+/// treasurer confirming against the bank turns it into a Payment with a journal
+/// entry behind it.
+///
+/// Keeping the two tables apart is what stops a resident clearing their own
+/// arrears, and stops the accounts showing money the bank never received.
+model PaymentClaim {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String             @db.Uuid
+  association    Association        @relation(fields: [association_id], references: [id])
+  bill_id        String             @db.Uuid
+  bill           Bill               @relation(fields: [bill_id], references: [id])
+  unit_id        String             @db.Uuid
+  unit           Unit               @relation(fields: [unit_id], references: [id])
+
+  amount         Decimal            @db.Decimal(10, 2)
+  /// The UTR / reference the UPI app showed the resident. Their evidence.
+  upi_reference  String             @db.VarChar(50)
+  /// The `tr` we put in the deep link, so a claim can be tied back to the
+  /// exact link that was opened.
+  intent_ref     String?            @db.VarChar(50)
+  paid_on        DateTime           @db.Date
+
+  status         PaymentClaimStatus @default(PENDING)
+  claimed_by     String             @db.Uuid
+  claimant       User               @relation("ClaimedBy", fields: [claimed_by], references: [id])
+  claimed_at     DateTime           @default(now()) @db.Timestamptz
+
+  reviewed_by    String?            @db.Uuid
+  reviewer       User?              @relation("ClaimReviewedBy", fields: [reviewed_by], references: [id])
+  reviewed_at    DateTime?          @db.Timestamptz
+  /// Required when rejecting. A refusal with no reason is one the resident
+  /// cannot act on, so they simply claim again.
+  review_note    String?            @db.Text
+
+  /// Set when confirmed. The claim keeps pointing at what it became.
+  payment_id     String?            @unique @db.Uuid
+  payment        Payment?           @relation(fields: [payment_id], references: [id])
+
+  created_at     DateTime           @default(now()) @db.Timestamptz
+  updated_at     DateTime           @updatedAt @db.Timestamptz
+
+  @@index([association_id, status])
+  @@index([bill_id])
+  @@index([unit_id])
+  @@map("payment_claims")
+}
+
 enum BPCategory {
   BANK
   VENDOR
@@ -1082,6 +1152,13 @@ model BusinessPartner {
   // Bank-specific
   account_number String?     @db.VarChar(30)
   ifsc           String?     @db.VarChar(15)
+  /// UPI address that credits THIS account, e.g. parkavenue@okhdfcbank.
+  upi_vpa        String?     @db.VarChar(100)
+  /// The name a resident sees in PhonePe/GPay when paying here. Often not the
+  /// association's name: many small societies bank in a treasurer's individual
+  /// name, and a payee name that does not match makes residents abandon the
+  /// payment.
+  upi_payee_name String?     @db.VarChar(100)
 
   // Vendor-specific
   gstin            String?      @db.VarChar(15)
@@ -1107,6 +1184,7 @@ model BusinessPartner {
   updated_at     DateTime    @updatedAt @db.Timestamptz
 
   journal_lines  JournalLine[]
+  upi_for_dues   DuesConfig[]  @relation("UpiCollectionAccount")
 
   @@unique([association_id, code])
   @@index([association_id])

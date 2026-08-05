@@ -10,6 +10,10 @@ export interface CreateBPMasterBody {
   // bank
   account_number?:       string | null;
   ifsc?:                 string | null;
+  /// Bank only. A UPI address credits exactly one account, so it lives here
+  /// rather than on the association.
+  upi_vpa?:              string | null;
+  upi_payee_name?:       string | null;
   // vendor
   gstin?:                string | null;
   pan?:                  string | null;

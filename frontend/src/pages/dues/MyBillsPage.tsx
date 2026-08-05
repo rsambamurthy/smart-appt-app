@@ -3,6 +3,8 @@ import { useSelector } from 'react-redux';
 import Layout from '../../components/organisms/Layout';
 import { useListMyBillsQuery } from '../../store/api/duesApi';
 import { useRazorpay } from '../../hooks/useRazorpay';
+import PayByUpi from '../../components/organisms/PayByUpi';
+import { useGetUpiConfigQuery, useMyUpiClaimsQuery } from '../../store/api/upiApi';
 import type { RootState } from '../../store';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -34,6 +36,20 @@ export default function MyBillsPage() {
   const bills = (data?.data ?? []) as Bill[];
 
   const [payingId, setPayingId] = useState<string | null>(null);
+
+  // UPI is optional per association, so every UPI control below is behind this.
+  const { data: upiCfg } = useGetUpiConfigQuery();
+  const { data: claimData, refetch: refetchClaims } = useMyUpiClaimsQuery();
+  const upiEnabled = upiCfg?.data.enabled ?? false;
+  const claims = claimData?.data ?? [];
+
+  /** A payment already lodged against this bill and not yet reviewed. */
+  const claimFor = (billId: string) =>
+    claims.find(c => c.bill_id === billId && c.status === 'PENDING') ?? null;
+
+  /** The most recent refusal, so the resident is told why before retrying. */
+  const rejectedFor = (billId: string) =>
+    claims.find(c => c.bill_id === billId && c.status === 'REJECTED') ?? null;
   const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   const showToast = (type: 'success' | 'error', msg: string) => {
@@ -131,7 +147,10 @@ export default function MyBillsPage() {
                         background: '#fff', borderRadius: 10, padding: '0.875rem 1rem',
                         border: `1px solid ${overdue ? '#fca5a5' : '#e5e7eb'}`,
                         borderLeft: `4px solid ${overdue ? '#dc2626' : '#C4572B'}`,
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem',
+                      }}>
+                      <div style={{
+                        display: 'flex', justifyContent: 'space-between',
+                        alignItems: 'center', gap: '0.75rem',
                       }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#111827' }}>
@@ -168,6 +187,50 @@ export default function MyBillsPage() {
                             ) : '💳 Pay Now'}
                           </button>
                         </div>
+                      </div>
+
+                      {/* Pay by UPI.
+                          Shown only when the association has a UPI ID set, and
+                          replaced by a plain statement once a payment is
+                          awaiting confirmation — offering "Pay" again there is
+                          how duplicate transfers happen. */}
+                      {upiEnabled && (
+                        claimFor(bill.id) ? (
+                          <div style={{
+                            marginTop: 10, padding: '9px 11px', borderRadius: 8,
+                            background: '#f0fdf4', border: '1px solid #bbf7d0',
+                          }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#15803d' }}>
+                              Paid — to be confirmed
+                            </div>
+                            <div style={{ fontSize: 11.5, color: '#166534', marginTop: 2 }}>
+                              Reference {claimFor(bill.id)!.upi_reference} · sent{' '}
+                              {new Date(claimFor(bill.id)!.paid_on).toLocaleDateString('en-IN',
+                                { day: '2-digit', month: 'short' })}.
+                              The treasurer will confirm it against the bank.
+                            </div>
+                          </div>
+                        ) : rejectedFor(bill.id) ? (
+                          <div style={{ marginTop: 10 }}>
+                            <div style={{
+                              padding: '9px 11px', borderRadius: 8, marginBottom: 8,
+                              background: '#fef2f2', border: '1px solid #fca5a5',
+                            }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: '#b91c1c' }}>
+                                Previous payment could not be confirmed
+                              </div>
+                              <div style={{ fontSize: 11.5, color: '#7f1d1d', marginTop: 2 }}>
+                                {rejectedFor(bill.id)!.review_note}
+                              </div>
+                            </div>
+                            <PayByUpi billId={bill.id} onClaimed={refetchClaims} />
+                          </div>
+                        ) : (
+                          <div style={{ marginTop: 10 }}>
+                            <PayByUpi billId={bill.id} onClaimed={refetchClaims} />
+                          </div>
+                        )
+                      )}
                       </div>
                     );
                   })}

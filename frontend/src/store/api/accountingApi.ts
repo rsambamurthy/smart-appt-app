@@ -431,6 +431,8 @@ export interface BusinessPartner {
   // bank
   account_number:        string | null;
   ifsc:                  string | null;
+  upi_vpa:               string | null;
+  upi_payee_name:        string | null;
   // vendor
   gstin:                 string | null;
   pan:                   string | null;

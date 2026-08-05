@@ -318,6 +318,10 @@ class JournalService {
     paymentMode:   string,
     narration:     string,
     entryDate?:    Date,   // use actual payment date; defaults to now
+    /// Which bank account received it, when that is known. Tags the cash/bank
+    /// line so an association with more than one account can tell them apart —
+    /// without it every receipt lands in one undifferentiated "Bank Account".
+    bankBpId?:     string,
   ) {
     try {
       // Idempotency: skip if a JE already exists for this payment
@@ -354,7 +358,7 @@ class JournalService {
         voucher_type:   VoucherType.RV,
         source:         JournalEntrySource.AUTO,
         lines: [
-          { account_id: cashOrBank.id,     debit: amount, credit: 0,      narration: 'Payment received' },
+          { account_id: cashOrBank.id, business_partner_id: bankBpId ?? null, debit: amount, credit: 0, narration: 'Payment received' },
           { account_id: duesReceivable.id, business_partner_id: unitBPId, debit: 0, credit: amount, narration: 'Dues cleared' },
         ],
       });

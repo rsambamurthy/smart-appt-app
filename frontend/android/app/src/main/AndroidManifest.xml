@@ -56,6 +56,15 @@
       opened Browse instead of the camera.
     -->
     <queries>
+        <!--
+          Android 11+ hides installed apps unless you declare what you need to
+          see. Without this the UPI link resolves to nothing and the button
+          appears broken - the same silent failure as an unhandled share intent.
+        -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="upi" />
+        </intent>
         <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>

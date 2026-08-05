@@ -56,6 +56,7 @@ export const MOBILE_MENU: MobileMenuItem[] = [
   // ── Community ──────────────────────────────────────────────────────────────
   { id: 'dues_my_bills',         label: 'My Bills',            group: 'community', supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
   { id: 'dues_my_statement',     label: 'My Statement',        group: 'community', supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
+  { id: 'dues_pay_upi',          label: 'Pay by UPI',          group: 'community', supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },
   { id: 'announcements_feed',    label: 'Announcements',       group: 'community', supportsPost: false, defaultRoles: [...RESIDENTS_AND_UP, UserRole.GATE_STAFF] },
   { id: 'announcements_docs',    label: 'Documents',           group: 'community', supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
   { id: 'maintenance_list',      label: 'Service Requests',    group: 'community', supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: OFFICERS },
@@ -72,6 +73,7 @@ export const MOBILE_MENU: MobileMenuItem[] = [
   { id: 'dues_arrears',          label: 'Arrears',             group: 'dues',      supportsPost: false, defaultRoles: COMMITTEE_AND_UP },
   { id: 'dues_statement',        label: 'Statement of Account',group: 'dues',      supportsPost: false, defaultRoles: COMMITTEE_AND_UP },
   { id: 'dues_payment_record',   label: 'Record Payment',      group: 'dues',      supportsPost: true,  defaultRoles: OFFICERS, defaultPostRoles: OFFICERS },
+  { id: 'dues_upi_claims',       label: 'UPI Payments',        group: 'dues',      supportsPost: true,  defaultRoles: OFFICERS, defaultPostRoles: OFFICERS },
 
   // ── Accounting ─────────────────────────────────────────────────────────────
   // Off for residents by default. Transparency is served by the Transparency

@@ -20,14 +20,15 @@ import {
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface BPForm {
   code: string; name: string; email: string; phone: string;
-  account_number: string; ifsc: string;
+  account_number: string; ifsc: string; upi_vpa: string; upi_payee_name: string;
   gstin: string; pan: string; service_type_id: string;
   unit_id: string;
   opening_balance: string; opening_balance_type: BalanceType; opening_balance_date: string;
 }
 const emptyForm = (): BPForm => ({
   code: '', name: '', email: '', phone: '',
-  account_number: '', ifsc: '', gstin: '', pan: '', service_type_id: '', unit_id: '',
+  account_number: '', ifsc: '', upi_vpa: '', upi_payee_name: '',
+  gstin: '', pan: '', service_type_id: '', unit_id: '',
   opening_balance: '', opening_balance_type: 'DEBIT', opening_balance_date: '',
 });
 
@@ -96,10 +97,24 @@ function BPFormPanel({
         <div><label style={fl}>Email</label><input style={fc} value={form.email} onChange={e => set({ email: e.target.value })} placeholder="contact@example.com" /></div>
       </div>
       {category === 'BANK' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px', marginBottom: 10 }}>
-          <div><label style={fl}>Account number</label><input style={fc} value={form.account_number} onChange={e => set({ account_number: e.target.value })} placeholder="00123456789" /></div>
-          <div><label style={fl}>IFSC code</label><input style={fc} value={form.ifsc} onChange={e => set({ ifsc: e.target.value })} placeholder="HDFC0001234" /></div>
-        </div>
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px', marginBottom: 10 }}>
+            <div><label style={fl}>Account number</label><input style={fc} value={form.account_number} onChange={e => set({ account_number: e.target.value })} placeholder="00123456789" /></div>
+            <div><label style={fl}>IFSC code</label><input style={fc} value={form.ifsc} onChange={e => set({ ifsc: e.target.value })} placeholder="HDFC0001234" /></div>
+          </div>
+          {/* UPI belongs to the bank account, not the association: one VPA
+              credits exactly one account, and the payee name has to match
+              whoever actually holds it. */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 10px', marginBottom: 4 }}>
+            <div><label style={fl}>UPI ID (optional)</label><input style={fc} value={form.upi_vpa} onChange={e => set({ upi_vpa: e.target.value.trim() })} placeholder="parkavenue@okhdfcbank" /></div>
+            <div><label style={fl}>UPI payee name</label><input style={fc} value={form.upi_payee_name} onChange={e => set({ upi_payee_name: e.target.value })} placeholder="Name on the account" /></div>
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10, lineHeight: 1.5 }}>
+            Residents paying by UPI see the payee name in their app. If the account
+            is in an individual's name, use that name — a payee they do not
+            recognise makes them abandon the payment.
+          </div>
+        </>
       )}
       {category === 'VENDOR' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 10px', marginBottom: 10 }}>
@@ -177,6 +192,8 @@ function BPList({
     email: f.email || null, phone: f.phone || null,
     account_number:  category === 'BANK'   ? f.account_number || null : null,
     ifsc:            category === 'BANK'   ? f.ifsc || null : null,
+    upi_vpa:         category === 'BANK'   ? f.upi_vpa || null : null,
+    upi_payee_name:  category === 'BANK'   ? f.upi_payee_name || null : null,
     gstin:           category === 'VENDOR' ? f.gstin || null : null,
     pan:             category === 'VENDOR' ? f.pan || null : null,
     service_type_id: category === 'VENDOR' ? f.service_type_id || null : null,
@@ -203,6 +220,7 @@ function BPList({
     setEditForm({
       code: bp.code, name: bp.name, email: bp.email ?? '', phone: bp.phone ?? '',
       account_number: bp.account_number ?? '', ifsc: bp.ifsc ?? '',
+      upi_vpa: bp.upi_vpa ?? '', upi_payee_name: bp.upi_payee_name ?? '',
       gstin: bp.gstin ?? '', pan: bp.pan ?? '', service_type_id: bp.service_type_id ?? '',
       unit_id: '',
       opening_balance: bp.opening_balance != null ? String(bp.opening_balance) : '',

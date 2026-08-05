@@ -52,6 +52,7 @@ import OneTimeDuesPage from './pages/dues/OneTimeDuesPage';
 import ArrearsPage from './pages/dues/ArrearsPage';
 import StatementPage, { MyStatementPage } from './pages/dues/StatementPage';
 import PenaltyRunPage from './pages/dues/PenaltyRunPage';
+import UpiClaimsPage from './pages/dues/UpiClaimsPage';
 import OtherReceiptsPage from './pages/receipts/OtherReceiptsPage';
 import WebMenuPage from './pages/admin/WebMenuPage';
 import MobileMenuPage from './pages/admin/MobileMenuPage';
@@ -140,6 +141,7 @@ export default function App() {
         {!IS_NATIVE && <Route path="/dues/arrears" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ArrearsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/statement" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><StatementPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/penalties" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><PenaltyRunPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/upi-claims" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><UpiClaimsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/other-receipts" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OtherReceiptsPage /></RoleRoute>} />}
 
         {/* Expenses */}

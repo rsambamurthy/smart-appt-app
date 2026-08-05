@@ -4,6 +4,7 @@ import { UserRole } from '@prisma/client';
 import { duesController } from './dues.controller';
 import { statementService } from './statement.service';
 import { penaltyService } from './penalty.service';
+import { upiService } from './upi.service';
 import { AuthRequest } from '../../types';
 import { NotFoundError, UnprocessableError } from '../../utils/errors';
 import { paymentUploadController } from './payment-upload.controller';
@@ -197,6 +198,99 @@ router.post('/penalties/:id/waive', async (req: AuthRequest, res, next) => {
     res.json(await penaltyService.waive(
       req.user!.association_id, req.user!.id, req.user!.role,
       req.params['id'] as string, req.body?.reason ?? '',
+    ));
+  } catch (err) { next(err); }
+});
+
+
+// ── Pay by UPI ────────────────────────────────────────────────────────────────
+//
+// The app can open PhonePe/GPay but never learns whether the money moved. So a
+// resident lodges a CLAIM with the UTR their app showed them, and a treasurer
+// confirms it against the bank. Only confirmation creates a payment.
+
+/** Is UPI set up, and who is the payee. Any signed-in user. */
+router.get('/upi/config', async (req: AuthRequest, res, next) => {
+  try { res.json(await upiService.config(req.user!.association_id)); }
+  catch (err) { next(err); }
+});
+
+/** Bank accounts that could collect UPI, and which one is selected. */
+router.get('/upi/accounts', requireRoles(...treasurerOrManagerRoles), async (req: AuthRequest, res, next) => {
+  try { res.json(await upiService.collectionAccounts(req.user!.association_id)); }
+  catch (err) { next(err); }
+});
+
+/** Set the UPI ID and payee name on one bank account. */
+router.put('/upi/accounts/:bpId', requireRoles(...treasurerOrManagerRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await upiService.saveBankUpi(
+      req.user!.association_id, req.params['bpId'] as string, req.body ?? {}, req.user!.id,
+    ));
+  } catch (err) { next(err); }
+});
+
+/** Choose which bank account collects dues by UPI. */
+router.put('/upi/config', requireRoles(...treasurerOrManagerRoles), async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await upiService.selectCollectionAccount(
+      req.user!.association_id, req.body?.bank_bp_id ?? null, req.user!.id,
+    ));
+  } catch (err) { next(err); }
+});
+
+/** The deep link for one bill. Residents get their own flat's bills only. */
+router.get('/upi/intent/:billId', async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await upiService.intentForBill(
+      req.user!.association_id, req.params['billId'] as string,
+      req.user!.id, req.user!.role,
+    ));
+  } catch (err) { next(err); }
+});
+
+/** "I have paid." Settles nothing on its own. */
+router.post('/upi/claims', async (req: AuthRequest, res, next) => {
+  try {
+    res.status(201).json(await upiService.claim(
+      req.user!.association_id, req.user!.id, req.user!.role, req.body ?? {},
+    ));
+  } catch (err) { next(err); }
+});
+
+/** A resident's own claims, for showing "Paid, to be confirmed". */
+router.get('/upi/claims/mine', async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await upiService.myClaims(req.user!.association_id, req.user!.unit_id ?? null));
+  } catch (err) { next(err); }
+});
+
+/** The treasurer's queue. */
+router.get('/upi/claims', requireRoles(...treasurerOrManagerRoles), async (req: AuthRequest, res, next) => {
+  try {
+    const status = req.query['status'] as string | undefined;
+    res.json(await upiService.pending(
+      req.user!.association_id,
+      (status as never) ?? undefined,
+    ));
+  } catch (err) { next(err); }
+});
+
+router.post('/upi/claims/:id/confirm', async (req: AuthRequest, res, next) => {
+  try {
+    // Role checked in the service: it is part of the rule, not the routing,
+    // and the service is what a test harness calls.
+    res.json(await upiService.confirm(
+      req.user!.association_id, req.user!.id, req.user!.role, req.params['id'] as string,
+    ));
+  } catch (err) { next(err); }
+});
+
+router.post('/upi/claims/:id/reject', async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await upiService.reject(
+      req.user!.association_id, req.user!.id, req.user!.role,
+      req.params['id'] as string, req.body?.note ?? '',
     ));
   } catch (err) { next(err); }
 });
