@@ -78,14 +78,20 @@ export default function PayByUpi({
       setVpa(d.upi_vpa);
 
       if (Capacitor.isNativePlatform()) {
-        // canOpenUrl first, so "no UPI app installed" is a sentence rather
-        // than a button that appears to do nothing.
-        const { value } = await AppLauncher.canOpenUrl({ url: 'upi://pay' });
-        if (!value) {
-          setError('No UPI app found on this phone. Install PhonePe, Google Pay or Paytm, or pay by another method.');
+        // Deliberately NOT gated behind AppLauncher.canOpenUrl. On Android that
+        // check is documented as broken for URL *schemes* — it works for
+        // package names — so it answered "no UPI app" on a phone with PhonePe
+        // installed. Attempting the launch and reacting to the failure is the
+        // only reliable signal.
+        try {
+          await AppLauncher.openUrl({ url: d.upi_uri });
+        } catch {
+          setError(
+            'Could not open a UPI app. If PhonePe, Google Pay or Paytm is installed, '
+            + 'try again — otherwise pay by another method.',
+          );
           return;
         }
-        await AppLauncher.openUrl({ url: d.upi_uri });
       } else {
         // On a desktop browser there is nothing to open; the resident is
         // presumably paying from their phone separately.
