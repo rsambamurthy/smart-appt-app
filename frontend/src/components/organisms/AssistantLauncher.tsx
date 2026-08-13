@@ -28,8 +28,14 @@ export default function AssistantLauncher({ bottomOffset = 20 }: { bottomOffset?
 
   // Same hook the menu uses, so the button and the nav can never disagree.
   // Presentation only — the server returns 402 regardless of what renders here.
-  const { canSee } = useEntitlements();
-  if (!canSee('ASSISTANT')) return null;
+  //
+  // `isLoading` is checked as well as `canSee`, which the menu does not need to
+  // do. useEntitlements reports FULL while the query is in flight, so that a
+  // paying association never sees "not subscribed" flash on a page load. For a
+  // menu item that is right. For a floating button it means appearing and then
+  // vanishing a moment later, which reads as a bug. Better to arrive late.
+  const { canSee, isLoading } = useEntitlements();
+  if (isLoading || !canSee('ASSISTANT')) return null;
 
   return (
     <>

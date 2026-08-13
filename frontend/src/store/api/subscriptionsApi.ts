@@ -39,6 +39,10 @@ export const subscriptionsApi = baseApi.injectEndpoints({
         data: AssociationSubscriptions[];
         meta: { page: number; limit: number; total: number; pages: number };
         summary: { active: number; trial: number; expiring: number; lapsed: number };
+        // The server's own module list, so a module added in the backend
+        // appears here without a matching frontend edit. A hardcoded array is
+        // how ASSISTANT became ungrantable the day it shipped.
+        catalog: Record<ModuleKey, { name: string; description: string }>;
         trial_days: number;
       },
       { q?: string; filter?: SubscriptionFilter; page?: number; limit?: number } | void

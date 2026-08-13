@@ -8,7 +8,15 @@ import {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const MODULES: ModuleKey[] = ['ACCOUNTING', 'GOVERNANCE'];
+/**
+ * Columns shown until the server's catalogue arrives.
+ *
+ * The real list comes from the response, not from here. This was previously a
+ * hardcoded array and that is exactly why ASSISTANT could not be granted the
+ * day it shipped: the backend knew about the module, this screen did not, and
+ * nothing failed loudly enough to notice.
+ */
+const FALLBACK_MODULES: ModuleKey[] = ['ACCOUNTING', 'GOVERNANCE'];
 
 const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '';
@@ -75,9 +83,11 @@ const td: CSSProperties = { padding: '8px 12px', borderBottom: '1px solid #f1f5f
 
 // ── Grant / renew ─────────────────────────────────────────────────────────────
 
-function GrantRow({ associationId, associationName, module, current, onDone }: {
+function GrantRow({ associationId, associationName, module, current, onDone, colSpan }: {
   associationId: string; associationName: string; module: ModuleKey;
   current: ModuleEntitlement; onDone: () => void;
+  /** Passed in because the column count now depends on the server catalogue. */
+  colSpan: number;
 }) {
   const [grant, { isLoading }] = useGrantModuleMutation();
   const [cancelModule] = useCancelModuleMutation();
@@ -118,7 +128,7 @@ function GrantRow({ associationId, associationName, module, current, onDone }: {
 
   return (
     <tr>
-      <td colSpan={MODULES.length + 2} style={{ padding: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+      <td colSpan={colSpan} style={{ padding: 0, background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
         <div style={{ padding: '13px 16px' }}>
           <div style={{ fontSize: 12.5, fontWeight: 700, color: '#475569', marginBottom: 10 }}>
             {associationName} · {current.name}
@@ -207,6 +217,13 @@ export default function SubscriptionsPage() {
   const meta    = data?.meta;
   const summary = data?.summary;
 
+  // Driven by the server, so a new module needs no edit here. Falls back only
+  // until the first response arrives.
+  const catalog = data?.catalog;
+  const MODULES = (catalog ? Object.keys(catalog) as ModuleKey[] : FALLBACK_MODULES);
+  const labelOf = (m: ModuleKey) => catalog?.[m]?.name ?? m;
+  const colSpan = MODULES.length + 2;
+
   const tiles = [
     { label: 'Active',        n: summary?.active   ?? 0, colour: '#15803d', bg: '#f0fdf4', filter: 'ALL'      as SubscriptionFilter },
     { label: 'On trial',      n: summary?.trial    ?? 0, colour: '#1d4ed8', bg: '#eff6ff', filter: 'TRIAL'    as SubscriptionFilter },
@@ -268,18 +285,16 @@ export default function SubscriptionsPage() {
               <tr>
                 <th style={{ ...th, width: '40%' }}>Association</th>
                 {MODULES.map(m => (
-                  <th key={m} style={{ ...th, width: 150 }}>
-                    {m === 'ACCOUNTING' ? 'Accounting' : 'Governance'}
-                  </th>
+                  <th key={m} style={{ ...th, width: 150 }}>{labelOf(m)}</th>
                 ))}
                 <th style={{ ...th, width: 40 }} />
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={MODULES.length + 2} style={{ ...td, color: '#94a3b8', padding: '2rem', textAlign: 'center' }}>Loading…</td></tr>
+                <tr><td colSpan={colSpan} style={{ ...td, color: '#94a3b8', padding: '2rem', textAlign: 'center' }}>Loading…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={MODULES.length + 2} style={{ ...td, color: '#94a3b8', padding: '2rem', textAlign: 'center' }}>
+                <tr><td colSpan={colSpan} style={{ ...td, color: '#94a3b8', padding: '2rem', textAlign: 'center' }}>
                   {q || filter !== 'ALL' ? 'No associations match.' : 'No associations yet.'}
                 </td></tr>
               ) : rows.map(a => {
@@ -314,6 +329,7 @@ export default function SubscriptionsPage() {
                       module={openMod.module}
                       current={openMod}
                       onDone={() => setEditing(null)}
+                      colSpan={colSpan}
                     />
                   ) : null,
                 ];
