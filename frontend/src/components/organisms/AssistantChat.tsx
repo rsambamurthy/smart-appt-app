@@ -269,7 +269,7 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
       {showLangs && settings && (
         <div style={{ padding: '10px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
           <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 7 }}>
-            Language for speaking and listening
+            Accent for speaking and listening
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {settings.languages.map(l => (
@@ -403,7 +403,7 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
           <span style={{ flex: 1 }}>
             {/* Showing words as they land, because silence while a microphone is
                 open reads as "it is not hearing me" and people start over. */}
-            {mic.transcript || 'Listening — stop talking when you are done'}
+            {mic.transcript || 'Listening…'}
           </span>
           <button onClick={mic.stop}
                   style={{ ...btn, background: '#fff', color: '#1d4ed8', borderColor: '#bfdbfe', padding: '4px 10px' }}>

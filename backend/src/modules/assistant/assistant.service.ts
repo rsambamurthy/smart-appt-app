@@ -201,29 +201,26 @@ class AssistantService {
   }
 
   /**
-   * The languages offered.
+   * The accents offered. English only.
    *
-   * Kept short and Indian-first on purpose. A list of every BCP-47 tag the
-   * browser might accept is a worse experience than eleven realistic options,
-   * and an association that needs a twelfth will say so.
+   * Indian-language options were listed briefly and removed. Offering Tamil or
+   * Hindi promises something the rest of the product does not keep: Phoebe
+   * still answers in English, because the tool results, the glossary and the
+   * system prompt are all English. A resident who picked Tamil would be
+   * understood and then answered in another language, which is worse than not
+   * being offered the choice.
    *
-   * Whether a device can actually recognise or speak any of these is the
-   * device's business — the browser falls back on its own, and there is no
-   * reliable way to ask it in advance.
+   * The accent still matters on its own — recognition of "two thousand nine
+   * hundred and seventy five rupees" differs sharply between en-IN and en-US.
+   *
+   * When the knowledge base and prompts are translated, this list can grow.
+   * Not before.
    */
   get languages() {
     return [
       { code: 'en-IN', label: 'English (India)' },
-      { code: 'hi-IN', label: 'Hindi' },
-      { code: 'ta-IN', label: 'Tamil' },
-      { code: 'te-IN', label: 'Telugu' },
-      { code: 'kn-IN', label: 'Kannada' },
-      { code: 'ml-IN', label: 'Malayalam' },
-      { code: 'mr-IN', label: 'Marathi' },
-      { code: 'bn-IN', label: 'Bengali' },
-      { code: 'gu-IN', label: 'Gujarati' },
-      { code: 'pa-IN', label: 'Punjabi' },
       { code: 'en-GB', label: 'English (UK)' },
+      { code: 'en-US', label: 'English (US)' },
     ];
   }
 
