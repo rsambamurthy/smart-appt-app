@@ -323,10 +323,7 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
           <span style={{ flex: 1 }}>
             {/* Showing words as they land, because silence while a microphone is
                 open reads as "it is not hearing me" and people start over. */}
-            {mic.transcript
-              || (voice.speaking ? 'Speaking… I will listen again in a moment'
-                : isLoading      ? 'Thinking…'
-                                 : 'Listening — just talk, no need to tap')}
+            {mic.transcript || 'Listening — stop talking when you are done'}
           </span>
           <button onClick={mic.stop}
                   style={{ ...btn, background: '#fff', color: '#1d4ed8', borderColor: '#bfdbfe', padding: '4px 10px' }}>
@@ -367,8 +364,8 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
           <button
             type="button"
             onClick={() => (mic.active ? mic.stop() : mic.start())}
-            aria-label={mic.active ? 'Stop listening' : 'Talk to Phoebe'}
-            title={mic.active ? 'Stop listening' : 'Talk to Phoebe — stays on until you stop it'}
+            aria-label={mic.active ? 'Stop listening' : 'Speak your question'}
+            title={mic.active ? 'Stop listening' : 'Speak your question — sends when you pause'}
             aria-pressed={mic.active}
             style={{
               ...btn, padding: '10px 12px', fontSize: 16,

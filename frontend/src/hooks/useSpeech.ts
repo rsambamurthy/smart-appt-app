@@ -61,13 +61,14 @@ function recognitionCtor(): RecognitionCtor | null {
 const LANG = 'en-IN';
 
 /**
- * How long a hands-free session stays open with nobody saying anything.
+ * How long the microphone stays open with nobody saying anything.
  *
- * The microphone must close on its own. A session left open because someone
- * walked away is exactly the always-listening behaviour this design avoids, and
- * "it was still open from earlier" is not a defence anyone wants to make.
+ * It normally closes as soon as a phrase is finished. This covers the case
+ * where the button was tapped and nothing was said — a microphone left open
+ * because someone was interrupted is exactly the always-listening behaviour
+ * this design avoids.
  */
-const IDLE_CLOSE_MS = 45_000;
+const IDLE_CLOSE_MS = 20_000;
 
 export interface SpeechInput {
   supported:  boolean;
@@ -83,21 +84,27 @@ export interface SpeechInput {
 }
 
 /**
- * Dictation, with an optional hands-free session.
+ * Dictation. One question per tap.
  *
- * `onFinal` fires each time the recogniser settles on a phrase. In a session it
- * fires repeatedly, so one tap covers a whole conversation.
+ * `onFinal` fires when the speaker pauses and the recogniser settles on a
+ * phrase. The microphone then CLOSES. The caller auto-sends from there, so the
+ * flow is: tap, speak, stop talking, and the question goes on its own.
  *
- * WHY A SESSION AND NOT A WAKE WORD. "Hey Phoebe" needs either continuous
- * recognition — which streams the room to Google's servers the entire time the
- * app is open, and keeps the browser's microphone indicator permanently lit — or
- * an on-device wake-word engine, where custom phrases are priced far beyond what
- * a housing society product can carry. A session is the honest middle: the
- * microphone is only ever live because someone deliberately opened it, and it
- * closes itself when the conversation stops.
+ * WHY NOT HANDS-FREE, AND WHY NOT A WAKE WORD.
  *
- * `paused` exists for one reason: Phoebe speaking. Without it the recogniser
- * hears her own answer, transcribes it, and asks it back as a question.
+ * A held-open session was built and removed. Phoebe's spoken answer came back
+ * in through the microphone and was asked as the next question. Pause signals
+ * and settling delays narrowed the window but could not close it: the pause is
+ * a software event, the sound is in the room, and the Web Speech API gives no
+ * access to the echo-cancellation constraints that normal media capture has.
+ *
+ * "Hey Phoebe" is worse again — continuous recognition streams the room to
+ * Google for as long as the app is open and keeps the microphone indicator lit,
+ * and an on-device wake-word engine with a custom phrase costs more per year
+ * than the rest of this product's hosting.
+ *
+ * `paused` is kept as a belt-and-braces guard for the window between a final
+ * phrase and the microphone actually closing.
  */
 export function useSpeechInput(
   onFinal?: (text: string) => void,
@@ -271,6 +278,23 @@ export function useSpeechInput(
         setTranscript('');
         return;
       }
+
+      // ONE QUESTION PER TAP. The microphone closes here rather than
+      // restarting.
+      //
+      // A held-open session was tried and abandoned. Phoebe's spoken answer
+      // came back through the microphone, was transcribed, and was asked as the
+      // next question — a loop. It can be fought with pause signals and timing
+      // guards, and those helped, but they are a race: the pause is a software
+      // event and the sound is in the room, and on a phone speaker the room
+      // wins often enough to matter.
+      //
+      // Closing the microphone before she speaks removes the race instead of
+      // narrowing it. The cost is a tap per question. That is the right trade
+      // for a feature that otherwise talks to itself.
+      clearIdle();
+      activeRef.current = false;
+      setActive(false);
 
       if (said) {
         setTranscript('');
