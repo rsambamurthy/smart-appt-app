@@ -41,7 +41,7 @@ export default function AssistantLauncher({ bottomOffset = 20 }: { bottomOffset?
     <>
       {!open && (
         <button style={fabAt(bottomOffset)} onClick={() => setOpen(true)}
-                aria-label="Open assistant" title="Ask SmartAppt">
+                aria-label="Open Phoebe" title="Ask Phoebe">
           ✦
         </button>
       )}

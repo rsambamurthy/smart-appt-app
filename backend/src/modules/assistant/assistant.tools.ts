@@ -11,6 +11,7 @@ import {
   resolveMenuForRole, MOBILE_MENU_BY_ID, RoleMenuOverrides,
 } from '../system/mobile-menu';
 import { FEATURE_HELP, lookupTerms, adminScreensFor } from './assistant.help';
+import { searchKnowledge } from './assistant.knowledge';
 
 /**
  * What the assistant is allowed to do, and on whose behalf.
@@ -202,6 +203,42 @@ export const TOOLS: ToolDef[] = [
           + (admin.length
               ? 'The admin_and_configuration screens are on the WEB app, not the mobile app — say so when recommending one.'
               : ''),
+      };
+    },
+  },
+
+  {
+    name: 'how_it_works',
+    description:
+      'How some part of SmartAppt works — billing, payments, penalties, '
+      + 'complaints, visitors, meetings, the accounts, configuration. Use for '
+      + '"why is my payment still showing unpaid", "how does billing work", '
+      + '"what happens when I raise a complaint", "how are penalties '
+      + 'calculated". Answer from what this returns; you have no other source.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'The question, in the person\'s own words.' },
+      },
+      required: ['question'],
+    },
+    roles: EVERYONE,
+    handler: async (ctx, args) => {
+      const isOfficer = ctx.role !== UserRole.RESIDENT && ctx.role !== UserRole.GATE_STAFF;
+      const found = searchKnowledge(String(args['question'] ?? ''), isOfficer);
+
+      if (!found.length) {
+        throw new Error(
+          'I do not have anything written about that. Say so plainly and suggest the '
+          + 'association manager — do not describe how you imagine it works.',
+        );
+      }
+      return {
+        sections: found.map(s => ({ title: s.title, explanation: s.body })),
+        _note:
+          'Answer from these sections. They describe HOW things work and deliberately contain '
+          + 'no rates, grace periods, due dates or amounts, because those differ per '
+          + 'association — call a data tool if the person needs an actual figure.',
       };
     },
   },

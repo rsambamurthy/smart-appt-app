@@ -30,6 +30,7 @@ const TOOL_LABELS: Record<string, string> = {
   my_profile:             'your registration details',
   find_feature:           'your app menu',
   explain_term:           'the SmartAppt glossary',
+  how_it_works:           'the SmartAppt guide',
   ledger_balance:         'the ledger',
   my_dues_summary:        'your current dues',
   my_statement:           'your statement of account',
@@ -145,7 +146,7 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
         padding: '12px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc',
       }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 14.5, color: '#0f172a' }}>SmartAppt Assistant</div>
+          <div style={{ fontWeight: 700, fontSize: 14.5, color: '#0f172a' }}>Phoebe</div>
           <div style={{ fontSize: 11.5, color: '#64748b' }}>Answers from your association&rsquo;s live records</div>
         </div>
         {onClose && (
@@ -162,7 +163,10 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
       }}>
         {turns.length === 0 && (
           <div style={{ color: '#64748b', fontSize: 13.5 }}>
-            <p style={{ marginTop: 0 }}>Ask me about your dues, statement, complaints or visitors.</p>
+            <p style={{ marginTop: 0 }}>
+              I&rsquo;m Phoebe. Ask me about your dues, statement, complaints or visitors,
+              or how to do something in SmartAppt.
+            </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, alignItems: 'flex-start' }}>
               {SUGGESTIONS.map(s => (
                 <button key={s} onClick={() => send(s)}
@@ -238,7 +242,7 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Ask about your dues, complaints or visitors…"
+          placeholder="Ask Phoebe…"
           style={{
             flex: 1, padding: '10px 13px', borderRadius: 9,
             border: '1px solid #cbd5e1', fontSize: 14, outline: 'none',
