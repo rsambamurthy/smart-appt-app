@@ -195,15 +195,40 @@ export interface SpeechOutput {
  * permanently in the first ten seconds.
  */
 export function useSpeechOutput(): SpeechOutput {
-  const supported = typeof window !== 'undefined' && 'speechSynthesis' in window;
+  const hasApi = typeof window !== 'undefined' && 'speechSynthesis' in window;
+
+  // The API existing is not the same as it working. Android WebView exposes
+  // speechSynthesis and frequently ships no voices at all, so speak() succeeds
+  // and nothing is heard — a toggle that does nothing, which is worse than no
+  // toggle. Voices also load asynchronously and are commonly empty on the first
+  // call, hence the event as well as the immediate check.
+  const [hasVoices, setHasVoices] = useState(false);
+  useEffect(() => {
+    if (!hasApi) return;
+    const check = () => setHasVoices(window.speechSynthesis.getVoices().length > 0);
+    check();
+    window.speechSynthesis.addEventListener?.('voiceschanged', check);
+    // Some WebViews never fire the event but do populate the list shortly after.
+    const t = window.setTimeout(check, 600);
+    return () => {
+      window.speechSynthesis.removeEventListener?.('voiceschanged', check);
+      window.clearTimeout(t);
+    };
+  }, [hasApi]);
+
+  const supported = hasApi && hasVoices;
+
   const [enabled, setEnabled]   = useState(readPref);
   const [speaking, setSpeaking] = useState(false);
 
+  // Stopping keys off hasApi, not `supported`. `supported` flips false to true
+  // when voices finish loading, and hanging cleanup effects off a value that
+  // changes mid-session cancels speech that is happily in progress.
   const cancel = useCallback(() => {
-    if (!supported) return;
+    if (!hasApi) return;
     window.speechSynthesis.cancel();
     setSpeaking(false);
-  }, [supported]);
+  }, [hasApi]);
 
   const speak = useCallback((text: string, force = false) => {
     if (!supported || (!enabled && !force)) return;
@@ -236,14 +261,14 @@ export function useSpeechOutput(): SpeechOutput {
     setEnabled(prev => {
       const next = !prev;
       try { window.localStorage.setItem(VOICE_PREF_KEY, next ? '1' : '0'); } catch { /* ignore */ }
-      if (!next && supported) window.speechSynthesis.cancel();
+      if (!next && hasApi) window.speechSynthesis.cancel();
       return next;
     });
-  }, [supported]);
+  }, [hasApi]);
 
   // Leaving the panel mid-sentence should stop the voice, not let it finish
   // reading someone's balance to the room.
-  useEffect(() => () => { if (supported) window.speechSynthesis.cancel(); }, [supported]);
+  useEffect(() => () => { if (hasApi) window.speechSynthesis.cancel(); }, [hasApi]);
 
   return { supported, enabled, speaking, toggle, speak, cancel };
 }
