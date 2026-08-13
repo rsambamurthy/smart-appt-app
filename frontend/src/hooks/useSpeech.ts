@@ -60,8 +60,20 @@ function recognitionCtor(): RecognitionCtor | null {
  */
 const LANG = 'en-IN';
 
+/**
+ * How long a hands-free session stays open with nobody saying anything.
+ *
+ * The microphone must close on its own. A session left open because someone
+ * walked away is exactly the always-listening behaviour this design avoids, and
+ * "it was still open from earlier" is not a defence anyone wants to make.
+ */
+const IDLE_CLOSE_MS = 45_000;
+
 export interface SpeechInput {
   supported:  boolean;
+  /** The session is open — the microphone is live, or about to be. */
+  active:     boolean;
+  /** The recogniser is running right now. False while paused for playback. */
   listening:  boolean;
   /** What has been heard so far, including the unconfirmed tail. */
   transcript: string;
@@ -71,49 +83,93 @@ export interface SpeechInput {
 }
 
 /**
- * Dictation.
+ * Dictation, with an optional hands-free session.
  *
- * `onFinal` fires once the recogniser settles on a phrase. The caller decides
- * whether that submits or merely fills the box — this hook does not assume,
- * because auto-sending a misheard question is worse than one extra tap.
+ * `onFinal` fires each time the recogniser settles on a phrase. In a session it
+ * fires repeatedly, so one tap covers a whole conversation.
+ *
+ * WHY A SESSION AND NOT A WAKE WORD. "Hey Phoebe" needs either continuous
+ * recognition — which streams the room to Google's servers the entire time the
+ * app is open, and keeps the browser's microphone indicator permanently lit — or
+ * an on-device wake-word engine, where custom phrases are priced far beyond what
+ * a housing society product can carry. A session is the honest middle: the
+ * microphone is only ever live because someone deliberately opened it, and it
+ * closes itself when the conversation stops.
+ *
+ * `paused` exists for one reason: Phoebe speaking. Without it the recogniser
+ * hears her own answer, transcribes it, and asks it back as a question.
  */
-export function useSpeechInput(onFinal?: (text: string) => void): SpeechInput {
+export function useSpeechInput(
+  onFinal?: (text: string) => void,
+  paused = false,
+): SpeechInput {
+  const [active, setActive]         = useState(false);
   const [listening, setListening]   = useState(false);
   const [transcript, setTranscript] = useState('');
   const [error, setError]           = useState('');
 
-  const recRef   = useRef<SpeechRecognitionLike | null>(null);
-  const finalRef = useRef('');
-  // Held in a ref so restarting the recogniser does not need a fresh closure
-  // over a callback that changes identity on every parent render.
-  const cbRef    = useRef(onFinal);
+  const recRef      = useRef<SpeechRecognitionLike | null>(null);
+  const finalRef    = useRef('');
+  const idleRef     = useRef<number | null>(null);
+  // Held in refs so the restart effect does not need to re-run whenever the
+  // parent re-renders with a new callback identity — which, in a loop that
+  // restarts a microphone, would mean tearing it down and back up constantly.
+  const cbRef       = useRef(onFinal);
+  const activeRef   = useRef(false);
   useEffect(() => { cbRef.current = onFinal; }, [onFinal]);
+  useEffect(() => { activeRef.current = active; }, [active]);
 
   const supported = recognitionCtor() !== null;
 
-  const stop = useCallback(() => {
-    recRef.current?.stop();
-    setListening(false);
+  const clearIdle = useCallback(() => {
+    if (idleRef.current) window.clearTimeout(idleRef.current);
+    idleRef.current = null;
   }, []);
 
-  const start = useCallback(() => {
-    const Ctor = recognitionCtor();
-    if (!Ctor) { setError('Voice input is not available in this browser.'); return; }
-
-    // Any previous session is abandoned rather than left running. Two live
-    // recognisers produce interleaved transcripts and a microphone indicator
-    // that never goes away.
+  const stop = useCallback(() => {
+    clearIdle();
+    activeRef.current = false;
+    setActive(false);
+    setListening(false);
+    setTranscript('');
     recRef.current?.abort();
+    recRef.current = null;
+  }, [clearIdle]);
+
+  const start = useCallback(() => {
+    if (!recognitionCtor()) {
+      setError('Voice input is not available in this browser.');
+      return;
+    }
+    setError('');
+    setTranscript('');
+    setActive(true);
+  }, []);
+
+  /**
+   * The listening loop.
+   *
+   * Declarative on purpose: whenever the session should be running and is not,
+   * this starts a recogniser. `onend` simply clears `listening`, and the effect
+   * brings it back. Chrome ends recognition after every pause, so something has
+   * to restart it — doing that inside `onend` instead produces nested restarts
+   * that are impossible to stop cleanly.
+   */
+  useEffect(() => {
+    if (!active || paused || listening) return;
+    const Ctor = recognitionCtor();
+    if (!Ctor) return;
 
     const rec = new Ctor();
     rec.lang            = LANG;
-    rec.interimResults  = true;    // shows words as they land; the wait feels long otherwise
-    rec.continuous      = false;   // one question, then stop — this is not dictation of a letter
+    rec.interimResults  = true;
+    // Still false. True keeps one recogniser open across pauses, but Chrome
+    // then batches results in ways that delay the final transcript — and the
+    // restart loop already gives continuity.
+    rec.continuous      = false;
     rec.maxAlternatives = 1;
 
     finalRef.current = '';
-    setTranscript('');
-    setError('');
 
     rec.onresult = (e) => {
       let interim = '';
@@ -123,25 +179,37 @@ export function useSpeechInput(onFinal?: (text: string) => void): SpeechInput {
         else           interim += r[0].transcript;
       }
       setTranscript((finalRef.current + interim).trimStart());
+
+      // Any speech at all resets the idle timer. The session closes for
+      // silence, not for taking a while to finish a sentence.
+      clearIdle();
+      idleRef.current = window.setTimeout(() => {
+        if (activeRef.current) stop();
+      }, IDLE_CLOSE_MS);
     };
 
     rec.onerror = (e) => {
-      // 'no-speech' and 'aborted' are ordinary — someone opened the microphone
-      // and thought better of it. Reporting those as errors trains people to
-      // ignore the error line, which then hides a real one.
+      // 'no-speech' and 'aborted' are ordinary in a restart loop — they fire
+      // every time a pause ends a recogniser. Surfacing them would keep an
+      // error banner permanently on screen.
       if (e.error === 'no-speech' || e.error === 'aborted') { setListening(false); return; }
-      setError(
-        e.error === 'not-allowed'
-          ? 'Microphone access was blocked. Allow it in your browser settings to use voice.'
-          : 'Voice input stopped working. Please type instead.',
-      );
-      setListening(false);
+      if (e.error === 'not-allowed') {
+        setError('Microphone access was blocked. Allow it in your browser settings to use voice.');
+        stop();
+        return;
+      }
+      setError('Voice input stopped working. Please type instead.');
+      stop();
     };
 
     rec.onend = () => {
       setListening(false);
       const said = finalRef.current.trim();
-      if (said) cbRef.current?.(said);
+      finalRef.current = '';
+      if (said) {
+        setTranscript('');
+        cbRef.current?.(said);
+      }
     };
 
     recRef.current = rec;
@@ -149,16 +217,31 @@ export function useSpeechInput(onFinal?: (text: string) => void): SpeechInput {
       rec.start();
       setListening(true);
     } catch {
-      // start() throws if called while already running. Not worth surfacing.
+      // Thrown when a recogniser is already running. The effect will settle.
       setListening(false);
     }
-  }, []);
+  }, [active, paused, listening, stop, clearIdle]);
+
+  // Close the session if nothing is ever said after opening it.
+  useEffect(() => {
+    if (!active) return;
+    clearIdle();
+    idleRef.current = window.setTimeout(() => {
+      if (activeRef.current) stop();
+    }, IDLE_CLOSE_MS);
+    return clearIdle;
+    // Only on open — onresult re-arms it thereafter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   // A recogniser left running after the panel closes keeps the browser's
   // microphone indicator lit, which reads as the app listening in secret.
-  useEffect(() => () => { recRef.current?.abort(); }, []);
+  useEffect(() => () => {
+    if (idleRef.current) window.clearTimeout(idleRef.current);
+    recRef.current?.abort();
+  }, []);
 
-  return { supported, listening, transcript, error, start, stop };
+  return { supported, active, listening, transcript, error, start, stop };
 }
 
 // ── Speaking back ───────────────────────────────────────────────────────────

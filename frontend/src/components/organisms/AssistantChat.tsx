@@ -172,7 +172,13 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
     if (countdownRef.current) window.clearTimeout(countdownRef.current);
   }, []);
 
-  const mic = useSpeechInput(onHeard);
+  // Paused while Phoebe is talking and while a question is in flight.
+  //
+  // Without the first, the recogniser hears her own answer, transcribes it, and
+  // asks it straight back — a loop that is funny once and then costs money on
+  // every turn. Without the second, the tail of the previous question lands as
+  // a new one.
+  const mic = useSpeechInput(onHeard, voice.speaking || isLoading);
 
   const decide = async (messageId: string, go: boolean) => {
     try {
@@ -216,7 +222,10 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
             </button>
           )}
           {onClose && (
-            <button onClick={() => { voice.cancel(); onClose(); }} aria-label="Close"
+            // Closing must end the session as well as the speech. A microphone
+            // still open behind a closed panel is the thing this design exists
+            // to avoid.
+            <button onClick={() => { voice.cancel(); mic.stop(); onClose(); }} aria-label="Close"
                     style={{ ...btn, background: 'transparent', color: '#64748b', fontSize: 18, padding: '2px 8px' }}>
               ×
             </button>
@@ -302,15 +311,27 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
         </div>
       )}
 
-      {mic.listening && !pending && (
+      {/* Keyed off `active`, not `listening`. In a hands-free session the
+          recogniser stops and restarts on every pause, and a banner that
+          blinked out between sentences would read as the microphone dropping. */}
+      {mic.active && !pending && (
         <div style={{
           padding: '8px 16px', background: '#eff6ff', color: '#1d4ed8',
           fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          <span aria-hidden style={{ fontSize: 10 }}>●</span>
-          {/* Showing words as they land, because silence while a microphone is
-              open reads as "it is not hearing me" and people start over. */}
-          {mic.transcript || 'Listening…'}
+          <span aria-hidden style={{ fontSize: 10, opacity: mic.listening ? 1 : 0.35 }}>●</span>
+          <span style={{ flex: 1 }}>
+            {/* Showing words as they land, because silence while a microphone is
+                open reads as "it is not hearing me" and people start over. */}
+            {mic.transcript
+              || (voice.speaking ? 'Speaking… I will listen again in a moment'
+                : isLoading      ? 'Thinking…'
+                                 : 'Listening — just talk, no need to tap')}
+          </span>
+          <button onClick={mic.stop}
+                  style={{ ...btn, background: '#fff', color: '#1d4ed8', borderColor: '#bfdbfe', padding: '4px 10px' }}>
+            Stop
+          </button>
         </div>
       )}
 
@@ -345,15 +366,16 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
         {mic.supported && (
           <button
             type="button"
-            onClick={() => (mic.listening ? mic.stop() : mic.start())}
-            aria-label={mic.listening ? 'Stop listening' : 'Speak your question'}
-            title={mic.listening ? 'Stop listening' : 'Speak your question'}
+            onClick={() => (mic.active ? mic.stop() : mic.start())}
+            aria-label={mic.active ? 'Stop listening' : 'Talk to Phoebe'}
+            title={mic.active ? 'Stop listening' : 'Talk to Phoebe — stays on until you stop it'}
+            aria-pressed={mic.active}
             style={{
               ...btn, padding: '10px 12px', fontSize: 16,
-              background: mic.listening ? '#dbeafe' : '#f1f5f9',
-              borderColor: mic.listening ? '#93c5fd' : '#e2e8f0',
+              background: mic.active ? '#dbeafe' : '#f1f5f9',
+              borderColor: mic.active ? '#93c5fd' : '#e2e8f0',
             }}>
-            {mic.listening ? '⏹' : '🎤'}
+            {mic.active ? '⏹' : '🎤'}
           </button>
         )}
         <input
@@ -362,7 +384,7 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
           // so the pending auto-send is abandoned rather than firing over the
           // top of an edit in progress.
           onChange={(e) => { clearPending(); setDraft(e.target.value); }}
-          placeholder={mic.listening ? 'Listening…' : 'Ask Phoebe…'}
+          placeholder={mic.active ? 'Listening…' : 'Ask Phoebe…'}
           style={{
             flex: 1, padding: '10px 13px', borderRadius: 9,
             border: '1px solid #cbd5e1', fontSize: 14, outline: 'none',
