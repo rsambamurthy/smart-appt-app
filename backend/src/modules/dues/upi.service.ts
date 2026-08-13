@@ -385,7 +385,13 @@ export class UpiService {
 
     // Only build a payable QR when there is something to pay and somewhere to
     // pay it. A QR for a settled bill invites a duplicate payment.
-    const payable = due > 0 && cfg.data.enabled && !!cfg.data.upi_vpa;
+    //
+    // The VPA is pulled into its own const so the null check narrows it.
+    // Testing `cfg.data.upi_vpa` through a boolean variable does not: the
+    // compiler still sees `string | null` at the point of use, which is what
+    // forced a non-null assertion here and broke the build downstream.
+    const vpa = cfg.data.upi_vpa;
+    const payable = due > 0 && cfg.data.enabled && vpa !== null;
 
     return {
       data: {
@@ -421,18 +427,18 @@ export class UpiService {
         pending_claim: bill.claims[0]
           ? { amount: num(bill.claims[0].amount), upi_reference: bill.claims[0].upi_reference }
           : null,
-        payment: payable
+        payment: payable && vpa
           ? {
               // The same string the intent would use, so a QR scan and a tap
               // cannot end up paying different amounts to different places.
               upi_uri: buildUpiUri({
-                vpa:       cfg.data.upi_vpa!,
+                vpa,
                 payeeName: cfg.data.payee_name,
                 amount:    due,
                 note:      `${flat} ${label}`.slice(0, 50),
                 ref,
               }),
-              upi_vpa:    cfg.data.upi_vpa,
+              upi_vpa:    vpa,
               payee_name: cfg.data.payee_name,
               bank_name:  cfg.data.bank_name,
             }

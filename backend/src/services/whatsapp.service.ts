@@ -29,6 +29,12 @@ export const TEMPLATES = {
   DUE_NOTICE:        'smartappt_due_notice',
   PAYMENT_CONFIRMED: 'smartappt_payment_confirmed',
   PAYMENT_REJECTED:  'smartappt_payment_rejected',
+  /**
+   * Reference only. The OTP path reads WHATSAPP_OTP_TEMPLATE instead, because
+   * a template name that lives in an env var can be corrected without a
+   * deploy — and a login that cannot be corrected without a deploy is the
+   * wrong thing to hardcode.
+   */
   LOGIN_OTP:         'smartappt_login_otp',
 } as const;
 
@@ -39,12 +45,18 @@ export const TEMPLATES = {
 const DAILY_CAP_PER_ASSOCIATION = Number(process.env.WHATSAPP_DAILY_CAP ?? 2000);
 
 function config() {
-  const token   = process.env.WHATSAPP_TOKEN ?? '';
+  // Both names are read. WHATSAPP_ACCESS_TOKEN is what is already set on
+  // Railway; WHATSAPP_TOKEN is what this file was originally written against.
+  // Reading only the new one would have disabled WhatsApp everywhere and left
+  // no error behind, because `enabled` false means every path silently skips.
+  const token   = process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_ACCESS_TOKEN || '';
   const phoneId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? '';
   return {
     token,
     phoneId,
-    enabled: !!token && !!phoneId,
+    // The '<' check rejects a placeholder like <your-token-here> left in an
+    // env file, which otherwise reads as configured and fails on every send.
+    enabled: !!token && !token.startsWith('<') && !!phoneId,
     verifyToken: process.env.WHATSAPP_VERIFY_TOKEN ?? '',
   };
 }
@@ -236,55 +248,116 @@ class WhatsAppService {
   }
 
   /**
-   * OTP over WhatsApp. Returns true only when Meta accepted it.
+   * OTP over WhatsApp.
    *
-   * Not routed through sendTemplate: an OTP has no association and no user
-   * row yet at first login, and it must not be logged with its code in the
+   * Not routed through sendTemplate: an OTP has no association and no user row
+   * yet at first login, and it must not be logged with its code in the
    * variables column. Losing the delivery record is the right trade for not
    * storing a live credential.
+   *
+   * The template NAME comes from WHATSAPP_OTP_TEMPLATE rather than the
+   * TEMPLATES table, and falls back to a plain text message when it is unset.
+   * That is the behaviour this method already had before the file was
+   * rewritten, and login is the one path that must not change underneath a
+   * working deployment. A hardcoded name would silently break every login the
+   * moment it disagreed with what is approved in Meta.
+   *
+   * Returns the shape auth.service expects; never throws.
    */
-  async sendOtpTemplate(phone: string, otp: string): Promise<boolean> {
-    const c = config();
+  async sendOtp(phone: string, otp: string): Promise<{ sent: boolean; error?: string; meta_response?: unknown }> {
+    const c  = config();
     const to = toWaNumber(phone);
-    if (!c.enabled || !to) return false;
 
-    try {
-      const res = await fetch(`${GRAPH}/${c.phoneId}/messages`, {
-        method: 'POST',
-        headers: {
-          Authorization:  `Bearer ${c.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+    if (!c.enabled) {
+      logger.info(`[WA-SKIP] WhatsApp not configured — OTP for ${phone}: ${otp}`);
+      return { sent: false, error: 'WhatsApp not configured' };
+    }
+    if (!to) return { sent: false, error: `Could not read "${phone}" as a phone number.` };
+
+    const templateName = process.env.WHATSAPP_OTP_TEMPLATE;
+    const templateLang = process.env.WHATSAPP_OTP_TEMPLATE_LANG ?? 'en';
+
+    // An authentication-category template needs the code on the button too;
+    // that is what produces the one-tap copy. Utility templates have no
+    // button, and sending a button component to one is rejected — hence the
+    // opt-in switch rather than always sending it.
+    const withButton = process.env.WHATSAPP_OTP_TEMPLATE_BUTTON === 'true';
+
+    const payload = templateName
+      ? {
           messaging_product: 'whatsapp',
           to,
           type: 'template',
           template: {
-            name: TEMPLATES.LOGIN_OTP,
-            language: { code: 'en' },
+            name: templateName,
+            language: { code: templateLang },
             components: [
               { type: 'body', parameters: [{ type: 'text', text: otp }] },
-              // Authentication templates require the code on the button too,
-              // which is what makes one-tap copy work.
-              {
-                type: 'button', sub_type: 'url', index: '0',
-                parameters: [{ type: 'text', text: otp }],
-              },
+              ...(withButton
+                ? [{ type: 'button', sub_type: 'url', index: '0',
+                     parameters: [{ type: 'text', text: otp }] }]
+                : []),
             ],
           },
-        }),
+        }
+      : {
+          messaging_product: 'whatsapp',
+          to,
+          type: 'text',
+          text: { body: `Your SmartAppt OTP is *${otp}*. Valid for 5 minutes. Do not share this code.` },
+        };
+
+    try {
+      const res  = await fetch(`${GRAPH}/${c.phoneId}/messages`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${c.token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      const body = await res.json() as { error?: { message?: string; code?: number } };
+
+      // The full response is logged deliberately: delivery problems here are
+      // invisible otherwise, and this is how the previous version was debugged.
+      logger.info('WhatsApp API response', { phone, status: res.status, body: JSON.stringify(body) });
+
+      if (!res.ok) {
+        const error = body?.error?.message ?? `HTTP ${res.status}`;
+        logger.error('WhatsApp OTP send failed', { phone, error });
+        return { sent: false, error };
+      }
+      return { sent: true, meta_response: body };
+    } catch (err) {
+      const error = (err as Error).message;
+      logger.error('WhatsApp OTP send failed', { phone, error });
+      return { sent: false, error };
+    }
+  }
+
+  /** Boolean form, for the SMS fallback chain in sms.service. */
+  async sendOtpTemplate(phone: string, otp: string): Promise<boolean> {
+    const { sent } = await this.sendOtp(phone, otp);
+    return sent;
+  }
+
+  /** Plain text message. Kept because it predates this file's rewrite. */
+  async sendMessage(phone: string, message: string): Promise<void> {
+    const c  = config();
+    const to = toWaNumber(phone);
+    if (!c.enabled || !to) {
+      logger.info(`[WA-SKIP] WhatsApp not configured — message to ${phone}`);
+      return;
+    }
+    try {
+      const res = await fetch(`${GRAPH}/${c.phoneId}/messages`, {
+        method:  'POST',
+        headers: { Authorization: `Bearer ${c.token}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ messaging_product: 'whatsapp', to, type: 'text', text: { body: message } }),
       });
       if (!res.ok) {
         const json = await res.json() as { error?: { message?: string } };
-        logger.warn('WhatsApp OTP failed, falling back to SMS', {
-          error: json.error?.message ?? res.statusText,
-        });
-        return false;
+        logger.error('WhatsApp message send failed', { phone, error: json.error?.message ?? res.statusText });
       }
-      return true;
     } catch (err) {
-      logger.warn('WhatsApp OTP threw, falling back to SMS', { error: (err as Error).message });
-      return false;
+      logger.error('WhatsApp message send failed', { phone, error: (err as Error).message });
     }
   }
 
@@ -359,3 +432,10 @@ class WhatsAppService {
 }
 
 export const whatsappService = new WhatsAppService();
+
+/**
+ * The name this service was exported under before the rewrite. Kept as an
+ * alias so an import that predates it does not fail at build — or, worse,
+ * get "fixed" by pointing it somewhere that behaves differently.
+ */
+export const whatsAppService = whatsappService;

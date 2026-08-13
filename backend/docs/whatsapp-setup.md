@@ -42,11 +42,22 @@ Consequences worth being deliberate about:
 On Railway (Gold service):
 
 ```
-WHATSAPP_TOKEN=<permanent system user token>
+WHATSAPP_ACCESS_TOKEN=<permanent system user token>
 WHATSAPP_PHONE_NUMBER_ID=<from WhatsApp Manager, not the phone number itself>
 WHATSAPP_VERIFY_TOKEN=<any random string you invent; used only for the webhook handshake>
 WHATSAPP_DAILY_CAP=2000
+
+# OTP only. Leave the template name unset and OTPs go as plain text, which
+# works inside a 24-hour window and not outside one.
+WHATSAPP_OTP_TEMPLATE=<approved template name, e.g. smartappt_login_otp>
+WHATSAPP_OTP_TEMPLATE_LANG=en
+# 'true' ONLY if the template above is authentication-category with a copy
+# button. Sending a button component to a utility template is rejected.
+WHATSAPP_OTP_TEMPLATE_BUTTON=false
 ```
+
+`WHATSAPP_TOKEN` is accepted as an alias for `WHATSAPP_ACCESS_TOKEN`. Set one,
+not both.
 
 Never paste these into chat, a commit, or a support ticket. A leaked token lets
 anyone message as you.
@@ -144,7 +155,7 @@ That is required, not a mistake.
 
 ## 5. Turning it on
 
-Set the environment variables and restart. Until `WHATSAPP_TOKEN` and
+Set the environment variables and restart. Until the access token and
 `WHATSAPP_PHONE_NUMBER_ID` are both present, `whatsappService.enabled` is false
 and every path silently skips — no errors, no half-sent bill run.
 
