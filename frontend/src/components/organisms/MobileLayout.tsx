@@ -2,6 +2,7 @@ import { Outlet, NavLink, Navigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { useMobileConfig } from '../../contexts/MobileConfigContext';
+import AssistantLauncher from './AssistantLauncher';
 
 // ── Tab definitions ────────────────────────────────────────────────────────────
 
@@ -79,6 +80,10 @@ export default function MobileLayout() {
       {/* Scrollable content area — leaves room for the bottom tab bar */}
       <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 72 }}>
         <Outlet />
+      </div>
+      {/* Sits above the tab bar rather than behind it. */}
+      <div style={{ position: 'relative', zIndex: 900 }}>
+        <AssistantLauncher bottomOffset={84} />
       </div>
       <BottomTabBar />
     </div>

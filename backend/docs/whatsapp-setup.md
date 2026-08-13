@@ -59,6 +59,26 @@ WHATSAPP_OTP_TEMPLATE_BUTTON=false
 `WHATSAPP_TOKEN` is accepted as an alias for `WHATSAPP_ACCESS_TOKEN`. Set one,
 not both.
 
+### OTP delivery and the unsafe echo
+
+`POST /auth/otp/request` used to return the login code in its own response
+body, unconditionally. That is an authentication bypass — anyone who can reach
+the endpoint could submit any resident's phone number and read back their code.
+It is gone.
+
+The login path now goes WhatsApp → Twilio → fail. If nothing delivers, the
+request returns an error instead of the code.
+
+```
+OTP_ECHO_UNSAFE=true
+```
+
+restores the old behaviour. It exists only so that a broken delivery channel
+cannot lock every user out of production while it is being fixed. While it is
+on, the application logs a SECURITY warning on every failed send. Unset it the
+moment WhatsApp or Twilio is delivering, and never leave it on for a live
+association.
+
 Never paste these into chat, a commit, or a support ticket. A leaked token lets
 anyone message as you.
 

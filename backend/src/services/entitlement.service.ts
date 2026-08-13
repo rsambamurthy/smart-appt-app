@@ -45,6 +45,10 @@ export const MODULE_CATALOG: Record<ModuleKey, { name: string; description: stri
     name:        'Governance',
     description: 'Meetings and AGMs, agendas, notices, quorum, resolutions with in-app voting, and minutes.',
   },
+  ASSISTANT: {
+    name:        'Assistant',
+    description: 'In-app chat that answers questions about dues, statements, complaints and visitors from live data, and drafts actions for confirmation.',
+  },
 };
 
 export const ALL_MODULES = Object.keys(MODULE_CATALOG) as ModuleKey[];

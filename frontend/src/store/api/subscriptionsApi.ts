@@ -1,6 +1,6 @@
 import { baseApi } from './baseApi';
 
-export type ModuleKey = 'ACCOUNTING' | 'GOVERNANCE';
+export type ModuleKey = 'ACCOUNTING' | 'GOVERNANCE' | 'ASSISTANT';
 export type ModuleAccess = 'FULL' | 'READ_ONLY' | 'NONE';
 export type SubscriptionStatus = 'TRIAL' | 'ACTIVE' | 'CANCELLED';
 

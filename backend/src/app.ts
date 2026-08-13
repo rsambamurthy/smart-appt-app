@@ -28,6 +28,7 @@ import accountingRouter from './modules/accounting/accounting.routes';
 import subscriptionsRouter from './modules/subscriptions/subscriptions.routes';
 import governanceRouter from './modules/governance/governance.routes';
 import analyticsRouter from './modules/analytics/analytics.routes';
+import assistantRouter from './modules/assistant/assistant.routes';
 import { associationsController } from './modules/associations/associations.controller';
 import { validate } from './middleware/validate';
 import { registerAssociationSchema } from './modules/associations/associations.schema';
@@ -115,6 +116,7 @@ app.use(`${API}/receipts`, receiptsRouter);
 app.use(`${API}/accounting`, accountingRouter);
 app.use(`${API}/subscriptions`, subscriptionsRouter);
 app.use(`${API}/governance`, governanceRouter);
+app.use(`${API}/assistant`, assistantRouter);
 
 // ── Error handling ────────────────────────────────────────────────────────────
 app.use(notFoundHandler);

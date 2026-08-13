@@ -1,0 +1,124 @@
+{
+  "_readme": [
+    "MSG91 OTP setup for SmartAppt.",
+    "",
+    "IMPORTANT: this file is a reference, not something you upload. MSG91 has no",
+    "'import template JSON' feature. The template is registered in two places by",
+    "hand — the DLT portal and the MSG91 panel — and MSG91 then gives you a",
+    "template_id, which is the only thing the application code needs.",
+    "",
+    "The two texts below must be character-for-character identical apart from the",
+    "placeholder syntax ({#var#} on DLT, ##OTP## in MSG91). A single extra space",
+    "or a changed full stop and the operator drops the message silently, with a",
+    "success response from MSG91. That failure mode is why this file exists."
+  ],
+
+  "step_1_dlt_registration": {
+    "where": "Jio / Airtel / Vi / BSNL DLT portal — register once with any one, it propagates",
+    "entity_name": "S H Enterprises",
+    "header_sender_id": {
+      "value": "SMAPPT",
+      "rules": "Exactly 6 alphabetic characters. Transactional/Service-Implicit category."
+    },
+    "template": {
+      "category": "Service Implicit",
+      "type": "SMS",
+      "content": "{#var#} is your OTP to log in to SmartAppt. Valid for 5 minutes. Do not share this code with anyone. - S H Enterprises",
+      "variable_count": 1,
+      "notes": [
+        "'Service Implicit' is correct for OTP: it does not require the recipient",
+        "to have consented, which is what you need for a login code.",
+        "Do not choose Promotional — OTPs on a promotional route are blocked by DND."
+      ]
+    }
+  },
+
+  "step_2_msg91_panel": {
+    "where": "control.msg91.com -> OTP -> Templates -> Add Template",
+    "template_name": "smartappt_login_otp",
+    "content": "##OTP## is your OTP to log in to SmartAppt. Valid for 5 minutes. Do not share this code with anyone. - S H Enterprises",
+    "sender_id": "SMAPPT",
+    "dlt_template_id": "<paste the DLT-issued template id here>",
+    "notes": [
+      "MSG91 uses ##OTP## where DLT uses {#var#}. Everything else must match.",
+      "Saving this returns an MSG91 template_id — a different value from the DLT",
+      "template id. The application uses the MSG91 one."
+    ]
+  },
+
+  "step_3_environment": {
+    "MSG91_AUTH_KEY": "<from control.msg91.com -> Settings -> API keys>",
+    "MSG91_OTP_TEMPLATE_ID": "<the MSG91 template_id from step 2>",
+    "MSG91_SENDER_ID": "SMAPPT",
+    "_note": "Never commit these. Set them on Railway only."
+  },
+
+  "step_4_api": {
+    "_base": "https://control.msg91.com/api/v5",
+    "_headers": {
+      "authkey": "$MSG91_AUTH_KEY",
+      "Content-Type": "application/json"
+    },
+
+    "send": {
+      "method": "POST",
+      "url": "https://control.msg91.com/api/v5/otp",
+      "query": {
+        "template_id": "$MSG91_OTP_TEMPLATE_ID",
+        "mobile": "919876543210",
+        "otp": "483920",
+        "otp_length": 6,
+        "otp_expiry": 5
+      },
+      "body": {},
+      "_notes": [
+        "mobile is country code + number, no '+' and no spaces. toWaNumber() in",
+        "whatsapp.service.ts already produces exactly this shape — reuse it.",
+        "Passing 'otp' explicitly makes MSG91 send OUR code rather than generating",
+        "its own. That matters: the code is already in Redis via setOtp(), and",
+        "verification happens in our own verifyOtp(). Letting MSG91 generate one",
+        "would mean two different codes and a login that never succeeds.",
+        "otp_expiry is in MINUTES. Our TTL is 300 seconds, hence 5."
+      ],
+      "success_response": { "type": "success", "request_id": "..." },
+      "failure_response": { "type": "error", "message": "..." },
+      "_response_warning": "HTTP 200 with type 'error' is normal. Check the body, not the status code."
+    },
+
+    "verify": {
+      "_status": "NOT USED by SmartAppt",
+      "method": "GET",
+      "url": "https://control.msg91.com/api/v5/otp/verify",
+      "query": { "otp": "483920", "mobile": "919876543210" },
+      "_why_unused": [
+        "We verify against Redis in authService.verifyOtp, which also enforces",
+        "attempt limits and lockout. Delegating verification to MSG91 would move",
+        "that logic out of our control and break the dev bypass."
+      ]
+    },
+
+    "resend": {
+      "method": "POST",
+      "url": "https://control.msg91.com/api/v5/otp/retry",
+      "query": { "mobile": "919876543210", "retrytype": "text" },
+      "_note": "'voice' reads the code aloud. Useful where SMS is undelivered, but it needs its own DLT approval."
+    }
+  },
+
+  "step_5_verification": {
+    "checklist": [
+      "Send to a number that has never received a SmartAppt message.",
+      "Confirm the received text matches the registered template EXACTLY.",
+      "Confirm the sender shows as SMAPPT, not a numeric long code.",
+      "Check control.msg91.com -> Reports for DELIVERED, not just SUBMITTED.",
+      "Test to a DND-registered number — service-implicit should still land."
+    ]
+  },
+
+  "_unverified": [
+    "The v5 endpoint paths and parameter names above are from MSG91's public",
+    "documentation and community sources; the docs site would not render fully",
+    "when this was written. Confirm 'otp_expiry' units and the /otp/retry",
+    "parameter names against the panel's own API tester before relying on them."
+  ]
+}

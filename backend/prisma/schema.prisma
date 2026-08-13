@@ -208,6 +208,7 @@ model Association {
   bill_penalties     BillPenalty[]
   payment_claims     PaymentClaim[]
   whatsapp_messages  WhatsAppMessage[]
+  assistant_convos   AssistantConversation[]
   menu_config        MenuGroupConfig[]
   payments           Payment[]
   expenses           Expense[]
@@ -369,6 +370,7 @@ model User {
   claims_made         PaymentClaim[]       @relation("ClaimedBy")
   claims_reviewed     PaymentClaim[]       @relation("ClaimReviewedBy")
   whatsapp_messages   WhatsAppMessage[]    @relation("WhatsAppRecipient")
+  assistant_convos    AssistantConversation[] @relation("AssistantUser")
   compliance_done     ComplianceOccurrence[] @relation("ComplianceCompletedBy")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
@@ -1134,6 +1136,78 @@ model PaymentClaim {
   @@map("payment_claims")
 }
 
+enum AssistantAuthor {
+  USER
+  ASSISTANT
+}
+
+/// One chat thread between a person and the assistant.
+///
+/// Scoped to an association as well as a user, because a manager who works
+/// across two associations must not carry context from one into the other —
+/// the answers would be right and the attribution wrong, which is worse than
+/// being wrong outright.
+model AssistantConversation {
+  id             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String              @db.Uuid
+  association    Association         @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  user_id        String              @db.Uuid
+  user           User                @relation("AssistantUser", fields: [user_id], references: [id], onDelete: Cascade)
+
+  /// Taken from the first question, for the history list.
+  title          String?             @db.VarChar(160)
+
+  /// The role at the time of asking. A person demoted from TREASURER to
+  /// RESIDENT should not have old committee-wide answers re-rendered for them,
+  /// and this is how that thread is identified.
+  role_at_start  UserRole
+
+  messages       AssistantMessage[]
+
+  last_message_at DateTime           @default(now()) @db.Timestamptz
+  created_at     DateTime            @default(now()) @db.Timestamptz
+  updated_at     DateTime            @updatedAt @db.Timestamptz
+
+  @@index([association_id, user_id, last_message_at])
+  @@map("assistant_conversations")
+}
+
+/// Every turn, including which tools ran and what they cost.
+///
+/// This is an audit trail first and a transcript second. When a resident says
+/// "the app told me I owed nothing", `tool_calls` is what settles it — the
+/// answer can be traced back to the exact query and the exact result.
+model AssistantMessage {
+  id              String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conversation_id String                @db.Uuid
+  conversation    AssistantConversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+
+  author          AssistantAuthor
+  content         String                @db.Text
+
+  /// [{ name, arguments, result_summary }] for an assistant turn.
+  /// Deliberately not the full result: a statement can be large, and storing
+  /// it twice makes this table the biggest one in the database within a year.
+  tool_calls      Json?
+
+  /// Null until the user acts. An action the model proposed and the person
+  /// either confirmed or abandoned, kept so that a write can always be traced
+  /// to the sentence that suggested it.
+  proposed_action Json?
+  action_status   String?               @db.VarChar(20)
+
+  input_tokens    Int                   @default(0)
+  output_tokens   Int                   @default(0)
+  model           String?               @db.VarChar(60)
+  /// Populated when the turn failed, so a blank reply is explainable.
+  error           String?               @db.Text
+
+  created_at      DateTime              @default(now()) @db.Timestamptz
+
+  @@index([conversation_id, created_at])
+  @@map("assistant_messages")
+}
+
 enum BPCategory {
   BANK
   VENDOR
@@ -1484,6 +1558,7 @@ model FinancialYearClose {
 enum ModuleKey {
   ACCOUNTING
   GOVERNANCE
+  ASSISTANT
 }
 
 enum SubscriptionStatus {

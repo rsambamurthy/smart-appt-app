@@ -6,7 +6,7 @@ import {
 import { signAccessToken, signRefreshToken, verifyToken } from '../../config/jwt';
 import { generateOtp, generateToken, hashToken, normalisePhone } from '../../utils/helpers';
 import { UnauthorizedError, ConflictError, RateLimitError, NotFoundError, UnprocessableError } from '../../utils/errors';
-import { whatsAppService } from '../../services/whatsapp.service';
+import { smsService } from '../../services/sms.service';
 import logger from '../../utils/logger';
 import { AuditAction } from '@prisma/client';
 import { auditService } from '../../services/audit.service';
@@ -17,7 +17,10 @@ function hashMpin(mpin: string): string {
 
 export class AuthService {
   // ── OTP Request ─────────────────────────────────────────────────────────────
-  async requestOtp(rawPhone: string): Promise<{ wa_status?: object; dev_otp?: string }> {
+  async requestOtp(rawPhone: string): Promise<{
+    delivery: { channel: string; sent: boolean };
+    dev_otp?: string;
+  }> {
     const phone = normalisePhone(rawPhone);
 
     // Rate limit: 3 OTP requests per phone per 10 minutes
@@ -35,10 +38,38 @@ export class AuthService {
     const otp = generateOtp(otpLength);
 
     await setOtp(phone, otp, ttl);
-    const waResult = await whatsAppService.sendOtp(phone, otp);
 
-    logger.info(`OTP for ${phone}: ${otp}`);
-    return { wa_status: waResult, dev_otp: otp };
+    // Routed through smsService, not WhatsApp directly. WhatsApp is tried
+    // first inside it, then Twilio. Calling WhatsApp here meant the SMS
+    // fallback existed but was unreachable from the one path that needed it.
+    const delivery = await smsService.sendOtp(phone, otp);
+
+    if (delivery.sent) {
+      // The code itself is never logged. It is a live credential for the next
+      // five minutes, and anyone with log access should not be able to use it.
+      logger.info('OTP dispatched', { phone, channel: delivery.channel });
+      return { delivery: { channel: delivery.channel, sent: true } };
+    }
+
+    logger.error('OTP could not be delivered', { phone, error: delivery.error });
+
+    // ESCAPE HATCH. Returning the code to the caller is an authentication
+    // bypass: anyone who can post a phone number gets that person's login
+    // code. It was previously unconditional. It is kept only so a broken
+    // delivery channel cannot lock every user out of production, and it must
+    // be turned off again the moment WhatsApp or Twilio is delivering.
+    if (process.env.OTP_ECHO_UNSAFE === 'true') {
+      logger.warn(
+        'SECURITY: OTP_ECHO_UNSAFE is on — login codes are being returned in API responses. ' +
+        'Anyone can obtain any user\'s code. Unset this as soon as OTP delivery works.',
+        { phone },
+      );
+      return { delivery: { channel: 'none', sent: false }, dev_otp: otp };
+    }
+
+    throw new UnprocessableError(
+      'We could not send your code. Please try again shortly, or contact your association.',
+    );
   }
 
   // ── OTP Verify ──────────────────────────────────────────────────────────────

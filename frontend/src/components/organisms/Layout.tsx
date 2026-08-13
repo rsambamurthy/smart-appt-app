@@ -10,6 +10,7 @@ import { useGetMenuConfigQuery } from '../../store/api/systemApi';
 import { IS_NATIVE } from '../../hooks/usePlatform';
 import { useEntitlements } from '../../hooks/useEntitlements';
 import type { ModuleKey } from '../../store/api/subscriptionsApi';
+import AssistantLauncher from './AssistantLauncher';
 import SubscriptionBanner from '../molecules/SubscriptionBanner';
 
 export interface NavItem {
@@ -476,6 +477,7 @@ function WebLayout({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+      <AssistantLauncher />
     </div>
   );
 }

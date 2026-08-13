@@ -132,7 +132,11 @@ export default function LoginPage() {
 
   const sendOtp = async () => {
     const result = await requestOtp({ phone }).unwrap();
-    if (result?.data?.wa_status) setWaStatus(result.data.wa_status as { sent: boolean; error?: string });
+    const d = result?.data?.delivery;
+    if (d) setWaStatus({ sent: d.sent, error: d.sent ? undefined : 'Could not send the code.' });
+    // Present only when the server is in development, or when someone has
+    // deliberately switched the unsafe echo on. In normal production this is
+    // absent and the box never renders.
     if (result?.data?.dev_otp) setDevOtp(result.data.dev_otp as string);
   };
 

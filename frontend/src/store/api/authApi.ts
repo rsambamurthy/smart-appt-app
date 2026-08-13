@@ -2,7 +2,13 @@ import { baseApi } from './baseApi';
 
 export const authApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
-    requestOtp: builder.mutation<{ data: { wa_status?: object; dev_otp?: string } }, { phone: string }>({
+    requestOtp: builder.mutation<{
+      data: {
+        delivery: { channel: string; sent: boolean };
+        /** Development only, or when OTP_ECHO_UNSAFE is deliberately set. */
+        dev_otp?: string;
+      };
+    }, { phone: string }>({
       query: (body) => ({ url: '/auth/otp/request', method: 'POST', body }),
     }),
     verifyOtp: builder.mutation<{ data: { access_token: string; refresh_token: string; user: object } }, { phone: string; otp: string }>({

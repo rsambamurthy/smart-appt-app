@@ -22,11 +22,25 @@ function getClient(): ReturnType<typeof twilio> | null {
   }
 }
 
+/**
+ * Which route actually carried the code, if any.
+ *
+ * The caller needs this to decide whether a login can proceed at all, so it
+ * must distinguish "sent by SMS" from "sent by nothing". The previous
+ * signature returned void, which is why the auth path could not tell the
+ * difference and echoed the OTP back to the client instead.
+ */
+export type OtpDelivery = {
+  channel: 'whatsapp' | 'sms' | 'dev' | 'none';
+  sent:    boolean;
+  error?:  string;
+};
+
 class SmsService {
-  async sendOtp(phone: string, otp: string): Promise<void> {
+  async sendOtp(phone: string, otp: string): Promise<OtpDelivery> {
     if (process.env.NODE_ENV === 'development') {
       logger.info(`[SMS-DEV] OTP to ${phone}: ${otp}`);
-      return;
+      return { channel: 'dev', sent: true };
     }
 
     // WhatsApp first when configured: Indian SMS routes drop OTPs often enough
@@ -37,19 +51,29 @@ class SmsService {
     // down, or the person has no WhatsApp, or they blocked the sender, they
     // must still be able to log in — losing the only route into the product is
     // not a failure mode worth trading for a slightly better delivery rate.
-    if (await whatsappService.sendOtpTemplate(phone, otp)) return;
+    if (await whatsappService.sendOtpTemplate(phone, otp)) {
+      return { channel: 'whatsapp', sent: true };
+    }
 
     const client = getClient();
-    if (!client) return;
+    if (!client) {
+      logger.error('OTP undeliverable: WhatsApp did not send and Twilio is not configured', { phone });
+      return { channel: 'none', sent: false, error: 'No delivery channel is configured.' };
+    }
     try {
       await client.messages.create({
         body: `Your SmartAppt OTP is ${otp}. Valid for 5 minutes. Do not share.`,
         messagingServiceSid: process.env.TWILIO_MESSAGE_SERVICE_SID!,
         to: phone,
       });
+      return { channel: 'sms', sent: true };
     } catch (err) {
-      logger.error('Twilio OTP send failed', { phone, error: (err as Error).message });
+      const error = (err as Error).message;
+      logger.error('Twilio OTP send failed', { phone, error });
       await this.sendViaMSG91(phone, otp);
+      // MSG91 is a stub that only logs, so this is honestly reported as
+      // undelivered rather than counted as a successful fallback.
+      return { channel: 'none', sent: false, error };
     }
   }
 
