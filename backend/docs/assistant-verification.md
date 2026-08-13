@@ -317,6 +317,32 @@ Test the same as RESIDENT: expected to say configuration is not available to
 them. `adminScreensFor` filters by role, so a resident is never told these
 screens exist.
 
+### Directions a person can follow
+
+The first version answered a manager with the URL path — "go to /admin/users".
+Technically correct and useless: nobody navigates an app by typing a route. A
+person looks at the left-hand menu, finds a heading, and clicks an item.
+
+Both catalogues now return `how_to_get_there` in menu wording:
+
+- Web: "Open the Configuration menu in the left sidebar, then click Manage Users"
+- Mobile, on a tab: "In the mobile app, tap Bills in the bar at the bottom"
+- Mobile, elsewhere: "In the mobile app, tap More in the bar at the bottom, then
+  Pre-Approve Visitor"
+
+The path is still returned as `direct_link`, but Phoebe is told not to quote it
+unless asked for a link.
+
+Test: "how do I add a new resident?" as MANAGER.
+
+- Expected: Configuration menu, then Manage Users, and that it is on the web app.
+- Failure: a URL, an internal group name like `community`, or "go to settings".
+
+Two things must match the frontend word for word, and both are hand-maintained:
+the `menu` and `label` fields in `WEB_ADMIN_SCREENS` against `NAV_GROUPS`, and
+`MOBILE_TAB_FOR_ITEM` against the tab list in `MobileLayout.tsx`. Rename a menu
+group and Phoebe will confidently name the old one.
+
 **Drift warning.** `WEB_ADMIN_SCREENS` in `assistant.help.ts` is hand-maintained,
 because the web catalogue (`NAV_GROUPS`) lives in the frontend — the server
 cannot read it the way `find_feature` reads `MOBILE_MENU`. **If you move or

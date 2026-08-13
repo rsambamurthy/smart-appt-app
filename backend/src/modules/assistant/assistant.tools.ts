@@ -10,7 +10,9 @@ import { entitlementService } from '../../services/entitlement.service';
 import {
   resolveMenuForRole, MOBILE_MENU_BY_ID, RoleMenuOverrides,
 } from '../system/mobile-menu';
-import { FEATURE_HELP, lookupTerms, adminScreensFor } from './assistant.help';
+import {
+  FEATURE_HELP, lookupTerms, adminScreensFor, mobileDirectionsFor,
+} from './assistant.help';
 import { searchKnowledge } from './assistant.knowledge';
 
 /**
@@ -163,12 +165,16 @@ export const TOOLS: ToolDef[] = [
       const term = String(args['task'] ?? '').toLowerCase().trim();
 
       const screens = visible.map(r => {
-        const item = MOBILE_MENU_BY_ID.get(r.id);
+        const item  = MOBILE_MENU_BY_ID.get(r.id);
+        const label = item?.label ?? r.id;
         return {
-          screen:      item?.label ?? r.id,
-          section:     item?.group ?? null,
-          what_it_is:  FEATURE_HELP[r.id] ?? null,
-          can_create_here: r.can_post,
+          screen:           label,
+          // Actual directions rather than an internal group id. `group` on the
+          // catalogue is 'community' | 'dues' | 'gate' and so on — useful for
+          // organising code, meaningless to a person holding a phone.
+          how_to_get_there: mobileDirectionsFor(r.id, label),
+          what_it_is:       FEATURE_HELP[r.id] ?? null,
+          can_create_here:  r.can_post,
         };
       });
 
@@ -178,7 +184,7 @@ export const TOOLS: ToolDef[] = [
       const words = term.split(/\s+/).filter(w => w.length > 2);
       const hits = words.length
         ? screens.filter(s => {
-            const hay = `${s.screen} ${s.what_it_is ?? ''} ${s.section ?? ''}`.toLowerCase();
+            const hay = `${s.screen} ${s.what_it_is ?? ''}`.toLowerCase();
             return words.some(w => hay.includes(w));
           })
         : [];
@@ -186,10 +192,16 @@ export const TOOLS: ToolDef[] = [
       // Configuration lives on the web app, and the web catalogue is not
       // readable from the server, so it comes from a hand-maintained list.
       // Filtered by role, so a resident never learns these screens exist.
+      // Told in menu wording, not as a URL. "Go to /admin/users" is correct and
+      // useless — nobody navigates an app by typing a route. People look at the
+      // left-hand menu, find a heading, and click an item under it.
       const admin = adminScreensFor(ctx.role).map(s => ({
-        screen:     s.label,
-        where:      `Web app, ${s.path}`,
-        what_it_is: s.what_it_is,
+        how_to_get_there: `Open the ${s.menu} menu in the left sidebar, then click ${s.label}`,
+        menu:             s.menu,
+        screen:           s.label,
+        what_it_is:       s.what_it_is,
+        // Secondary. Only worth mentioning if someone asks for a direct link.
+        direct_link:      s.path,
       }));
 
       return {
@@ -201,7 +213,9 @@ export const TOOLS: ToolDef[] = [
           + 'menu or setting — if what they want is not here, say it is not available to them '
           + 'and suggest they ask their association manager. '
           + (admin.length
-              ? 'The admin_and_configuration screens are on the WEB app, not the mobile app — say so when recommending one.'
+              ? 'The admin_and_configuration screens are on the WEB app, not the mobile app — say so when recommending one. '
+                + 'Give directions using how_to_get_there, in menu wording. Do NOT tell anyone to visit a URL path '
+                + 'unless they explicitly ask for a link; a route is not something a person navigates by.'
               : ''),
       };
     },

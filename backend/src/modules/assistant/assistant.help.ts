@@ -83,6 +83,9 @@ export const FEATURE_HELP: Record<string, string> = {
  * IF YOU MOVE OR RENAME AN ADMIN SCREEN, UPDATE IT HERE.
  */
 export interface AdminScreen {
+  /** The sidebar section it sits under, exactly as the menu shows it. */
+  menu:   string;
+  /** The menu item, exactly as the menu shows it. */
   label:  string;
   path:   string;
   roles:  string[];
@@ -92,59 +95,94 @@ export interface AdminScreen {
 const MANAGER = ['SUPER_USER', 'MANAGER'];
 const TREASURY = ['SUPER_USER', 'TREASURER'];
 
+/**
+ * `menu` and `label` must match NAV_GROUPS in the frontend WORD FOR WORD.
+ *
+ * The first version of this list gave only a URL path, and Phoebe duly told a
+ * manager to go to "/admin/users". Technically correct, useless in practice —
+ * nobody navigates an app by typing a route. A person looks at the left-hand
+ * menu, finds a heading, and clicks an item under it. So that is what she has
+ * to say: "Configuration, then Manage Users".
+ *
+ * The path stays as a secondary hint for anyone who wants to paste it, but the
+ * menu wording is what gets spoken.
+ */
 export const WEB_ADMIN_SCREENS: AdminScreen[] = [
   {
-    label: 'Manage Users', path: '/admin/users', roles: MANAGER,
+    menu: 'Configuration', label: 'Manage Users', path: '/admin/users', roles: MANAGER,
     what_it_is: 'Add residents, set their role, link them to a flat, deactivate someone who has moved out.',
   },
   {
-    label: 'Manage Units', path: '/admin/units', roles: MANAGER,
+    menu: 'Configuration', label: 'Manage Units', path: '/admin/units', roles: MANAGER,
     what_it_is: 'The list of flats — add or edit flat numbers, blocks, floors and area.',
   },
   {
-    label: 'Web Menu by Role', path: '/admin/web-menu', roles: MANAGER,
-    what_it_is: 'Choose which menu items each role sees on the web app.',
-  },
-  {
-    label: 'Mobile Menu by Role', path: '/admin/mobile-menu', roles: MANAGER,
-    what_it_is: 'Choose which screens each role sees in the mobile app, and which they can post from.',
-  },
-  {
-    label: 'Audit Trail', path: '/admin/audit-log', roles: MANAGER,
-    what_it_is: 'Who changed what, and when.',
-  },
-  {
-    label: 'Fee Configuration', path: '/dues/config', roles: TREASURY,
+    menu: 'Configuration', label: 'Fee Configuration', path: '/dues/config', roles: TREASURY,
     what_it_is: 'How maintenance is calculated, the billing cycle, due dates, and the opening cash balance.',
   },
   {
-    label: 'Late Payment Penalty', path: '/dues/penalties', roles: [...TREASURY, 'MANAGER'],
-    what_it_is: 'The penalty rate and grace period, and where a penalty run is applied or reversed.',
-  },
-  {
-    label: 'UPI Payments', path: '/dues/upi-claims', roles: [...TREASURY, 'MANAGER'],
-    what_it_is: 'Payments residents have reported, waiting to be confirmed against the bank statement. Also where the collection bank account and its UPI ID are set.',
-  },
-  {
-    label: 'Chart of Accounts', path: '/accounting/chart-of-accounts', roles: [...MANAGER, 'TREASURER'],
+    menu: 'Configuration', label: 'Chart of Accounts', path: '/accounting/chart-of-accounts', roles: [...MANAGER, 'TREASURER'],
     what_it_is: 'The ledger account structure — income heads, expense heads, assets and liabilities.',
   },
   {
-    label: 'Business Partners', path: '/accounting/business-partners', roles: [...MANAGER, 'TREASURER'],
+    menu: 'Configuration', label: 'Business Partners', path: '/accounting/business-partners', roles: [...MANAGER, 'TREASURER'],
     what_it_is: 'Banks, vendors and per-flat sub-ledger accounts.',
   },
   {
-    label: 'FY Closure', path: '/accounting/fy-closure', roles: [...MANAGER, 'TREASURER'],
+    menu: 'System Settings', label: 'Web Menu by Role', path: '/admin/web-menu', roles: MANAGER,
+    what_it_is: 'Choose which menu items each role sees on the web app.',
+  },
+  {
+    menu: 'System Settings', label: 'Mobile Menu by Role', path: '/admin/mobile-menu', roles: MANAGER,
+    what_it_is: 'Choose which screens each role sees in the mobile app, and which they can post from.',
+  },
+  {
+    menu: 'System Settings', label: 'Audit Trail', path: '/admin/audit-log', roles: MANAGER,
+    what_it_is: 'Who changed what, and when.',
+  },
+  {
+    menu: 'Dues & Payments', label: 'Late Payment Penalty', path: '/dues/penalties', roles: [...TREASURY, 'MANAGER'],
+    what_it_is: 'The penalty rate and grace period, and where a penalty run is applied or reversed.',
+  },
+  {
+    menu: 'Dues & Payments', label: 'UPI Payments', path: '/dues/upi-claims', roles: [...TREASURY, 'MANAGER'],
+    what_it_is: 'Payments residents have reported, waiting to be confirmed against the bank statement. Also where the collection bank account and its UPI ID are set.',
+  },
+  {
+    menu: 'Accounting', label: 'FY Closure', path: '/accounting/fy-closure', roles: [...MANAGER, 'TREASURER'],
     what_it_is: 'Set which month the financial year starts, and close a year once its accounts are final.',
   },
   {
-    label: 'Subscriptions', path: '/admin/subscriptions', roles: ['SUPER_USER'],
+    menu: 'Associations', label: 'Subscriptions', path: '/admin/subscriptions', roles: ['SUPER_USER'],
     what_it_is: 'Which modules each association may use.',
   },
 ];
 
 export function adminScreensFor(role: string): AdminScreen[] {
   return WEB_ADMIN_SCREENS.filter(s => s.roles.includes(role));
+}
+
+/**
+ * Where a mobile screen is reached from.
+ *
+ * The bottom tab bar carries five destinations; everything else is behind More.
+ * Naming the tab is the difference between "open Bills" and "open the app and
+ * look around". Keyed by MOBILE_MENU item id.
+ *
+ * Mirrors the tab list in MobileLayout.tsx — update together.
+ */
+const MOBILE_TAB_FOR_ITEM: Record<string, string> = {
+  dues_my_bills:       'Bills',
+  announcements_feed:  'Feed',
+  maintenance_list:    'Service',
+  visitors_preapprove: 'Visitors',
+};
+
+export function mobileDirectionsFor(itemId: string, label: string): string {
+  const tab = MOBILE_TAB_FOR_ITEM[itemId];
+  return tab
+    ? `In the mobile app, tap ${tab} in the bar at the bottom`
+    : `In the mobile app, tap More in the bar at the bottom, then ${label}`;
 }
 
 export interface GlossaryEntry {

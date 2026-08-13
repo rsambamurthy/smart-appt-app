@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, CSSProperties } from 'react';
+import { useEffect, useRef, useState, useCallback, CSSProperties } from 'react';
 import {
   useAskMutation, useConfirmAssistantActionMutation, useCancelAssistantActionMutation,
 } from '../../store/api/assistantApi';
+import { useSpeechInput, useSpeechOutput } from '../../hooks/useSpeech';
 
 /**
  * The in-app assistant.
@@ -97,10 +98,12 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
   const [confirmAction]      = useConfirmAssistantActionMutation();
   const [cancelAction]       = useCancelAssistantActionMutation();
 
+  const voice = useSpeechOutput();
+
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [turns, isLoading]);
 
-  const send = async (text: string) => {
+  const send = useCallback(async (text: string) => {
     const message = text.trim();
     if (!message || isLoading) return;
     setError('');
@@ -116,11 +119,21 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
         tools: d.used_tools, action: d.proposed_action,
         status: d.proposed_action ? 'PENDING' : undefined,
       }]);
+
+      // Read the cleaned text, not the raw reply — otherwise a stray asterisk
+      // gets pronounced. Only the answer is spoken; a proposed action still has
+      // to be read and tapped, because "yes" said aloud is not a confirmation
+      // anyone could later point to.
+      voice.speak(plain(d.answer));
     } catch (err: unknown) {
       const detail = (err as { data?: { detail?: string } })?.data?.detail;
       setError(detail ?? 'The assistant could not answer just now.');
     }
-  };
+  }, [ask, convoId, isLoading, voice]);
+
+  // Dictation fills the box rather than sending. A misheard question sent
+  // automatically costs a round trip and some trust; one extra tap costs a tap.
+  const mic = useSpeechInput(useCallback((heard: string) => setDraft(heard), []));
 
   const decide = async (messageId: string, go: boolean) => {
     try {
@@ -149,12 +162,27 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
           <div style={{ fontWeight: 700, fontSize: 14.5, color: '#0f172a' }}>Phoebe</div>
           <div style={{ fontSize: 11.5, color: '#64748b' }}>Answers from your association&rsquo;s live records</div>
         </div>
-        {onClose && (
-          <button onClick={onClose} aria-label="Close"
-                  style={{ ...btn, background: 'transparent', color: '#64748b', fontSize: 18, padding: '2px 8px' }}>
-            ×
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {voice.supported && (
+            <button
+              onClick={voice.toggle}
+              aria-label={voice.enabled ? 'Turn off spoken answers' : 'Read answers aloud'}
+              title={voice.enabled ? 'Spoken answers on' : 'Read answers aloud'}
+              aria-pressed={voice.enabled}
+              style={{
+                ...btn, background: 'transparent', fontSize: 16, padding: '2px 7px',
+                color: voice.enabled ? '#1e293b' : '#cbd5e1',
+              }}>
+              {voice.enabled ? '🔊' : '🔇'}
+            </button>
+          )}
+          {onClose && (
+            <button onClick={() => { voice.cancel(); onClose(); }} aria-label="Close"
+                    style={{ ...btn, background: 'transparent', color: '#64748b', fontSize: 18, padding: '2px 8px' }}>
+              ×
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{
@@ -229,9 +257,21 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
         <div ref={endRef} />
       </div>
 
-      {error && (
+      {(error || mic.error) && (
         <div style={{ padding: '9px 16px', background: '#fef2f2', color: '#b91c1c', fontSize: 12.5 }}>
-          {error}
+          {error || mic.error}
+        </div>
+      )}
+
+      {mic.listening && (
+        <div style={{
+          padding: '8px 16px', background: '#eff6ff', color: '#1d4ed8',
+          fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8,
+        }}>
+          <span aria-hidden style={{ fontSize: 10 }}>●</span>
+          {/* Showing words as they land, because silence while a microphone is
+              open reads as "it is not hearing me" and people start over. */}
+          {mic.transcript || 'Listening…'}
         </div>
       )}
 
@@ -239,10 +279,27 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
         onSubmit={(e) => { e.preventDefault(); void send(draft); }}
         style={{ display: 'flex', gap: 8, padding: 12, borderTop: '1px solid #e2e8f0' }}
       >
+        {/* Hidden rather than disabled where dictation cannot work — inside the
+            Capacitor WebView, and in browsers without the API. A microphone
+            button that does nothing on tap is worse than no button. */}
+        {mic.supported && (
+          <button
+            type="button"
+            onClick={() => (mic.listening ? mic.stop() : mic.start())}
+            aria-label={mic.listening ? 'Stop listening' : 'Speak your question'}
+            title={mic.listening ? 'Stop listening' : 'Speak your question'}
+            style={{
+              ...btn, padding: '10px 12px', fontSize: 16,
+              background: mic.listening ? '#dbeafe' : '#f1f5f9',
+              borderColor: mic.listening ? '#93c5fd' : '#e2e8f0',
+            }}>
+            {mic.listening ? '⏹' : '🎤'}
+          </button>
+        )}
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Ask Phoebe…"
+          placeholder={mic.listening ? 'Listening…' : 'Ask Phoebe…'}
           style={{
             flex: 1, padding: '10px 13px', borderRadius: 9,
             border: '1px solid #cbd5e1', fontSize: 14, outline: 'none',
