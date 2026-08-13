@@ -103,7 +103,7 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [turns, isLoading]);
 
-  const send = useCallback(async (text: string) => {
+  const send = useCallback(async (text: string, spoken = false) => {
     const message = text.trim();
     if (!message || isLoading) return;
     setError('');
@@ -111,7 +111,14 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
     setTurns(t => [...t, { id: `u-${Date.now()}`, who: 'you', text: message }]);
 
     try {
-      const res = await ask({ message, conversation_id: convoId }).unwrap();
+      const res = await ask({
+        message,
+        conversation_id: convoId,
+        // Tells the server this was asked out loud, so the answer comes back
+        // shaped for the ear: a couple of sentences, no lists. A five-line
+        // breakdown is fine to scan and tedious to listen to.
+        input_mode: spoken ? 'voice' : undefined,
+      }).unwrap();
       const d = res.data;
       setConvo(d.conversation_id);
       setTurns(t => [...t, {
@@ -121,19 +128,51 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
       }]);
 
       // Read the cleaned text, not the raw reply — otherwise a stray asterisk
-      // gets pronounced. Only the answer is spoken; a proposed action still has
-      // to be read and tapped, because "yes" said aloud is not a confirmation
-      // anyone could later point to.
-      voice.speak(plain(d.answer));
+      // gets pronounced. Forced when the question was spoken: someone talking
+      // to Phoebe is not watching the screen, so a silent answer is a dead end.
+      //
+      // Only the answer is spoken. A proposed action still has to be read and
+      // tapped, because "yes" said aloud is not a confirmation anyone could
+      // later point to.
+      voice.speak(plain(d.answer), spoken);
     } catch (err: unknown) {
       const detail = (err as { data?: { detail?: string } })?.data?.detail;
       setError(detail ?? 'The assistant could not answer just now.');
     }
   }, [ask, convoId, isLoading, voice]);
 
-  // Dictation fills the box rather than sending. A misheard question sent
-  // automatically costs a round trip and some trust; one extra tap costs a tap.
-  const mic = useSpeechInput(useCallback((heard: string) => setDraft(heard), []));
+  // ── Auto-send after a pause ───────────────────────────────────────────────
+  //
+  // The recogniser ends on its own when someone stops talking, and that is the
+  // moment to send. But not instantly: dictation mishears, and a wrong question
+  // sent before it can be read costs a round trip and some trust. A short
+  // cancellable window gives both — hands free by default, recoverable when the
+  // transcript is wrong.
+  const [pending, setPending] = useState<string | null>(null);
+  const countdownRef = useRef<number | null>(null);
+
+  const clearPending = useCallback(() => {
+    if (countdownRef.current) window.clearTimeout(countdownRef.current);
+    countdownRef.current = null;
+    setPending(null);
+  }, []);
+
+  const onHeard = useCallback((heard: string) => {
+    setDraft(heard);
+    setPending(heard);
+    if (countdownRef.current) window.clearTimeout(countdownRef.current);
+    countdownRef.current = window.setTimeout(() => {
+      countdownRef.current = null;
+      setPending(null);
+      void send(heard, true);
+    }, 1600);
+  }, [send]);
+
+  useEffect(() => () => {
+    if (countdownRef.current) window.clearTimeout(countdownRef.current);
+  }, []);
+
+  const mic = useSpeechInput(onHeard);
 
   const decide = async (messageId: string, go: boolean) => {
     try {
@@ -263,7 +302,7 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
         </div>
       )}
 
-      {mic.listening && (
+      {mic.listening && !pending && (
         <div style={{
           padding: '8px 16px', background: '#eff6ff', color: '#1d4ed8',
           fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8,
@@ -272,6 +311,27 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
           {/* Showing words as they land, because silence while a microphone is
               open reads as "it is not hearing me" and people start over. */}
           {mic.transcript || 'Listening…'}
+        </div>
+      )}
+
+      {/* The escape hatch. Visible, short, and it says what it heard — so a
+          mis-transcription can be caught before it is asked. */}
+      {pending && (
+        <div style={{
+          padding: '8px 16px', background: '#fffbeb', borderTop: '1px solid #fde68a',
+          fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{ flex: 1, color: '#92400e' }}>
+            Sending &ldquo;{pending}&rdquo;…
+          </span>
+          <button onClick={clearPending}
+                  style={{ ...btn, background: '#fff', color: '#92400e', borderColor: '#fcd34d', padding: '5px 11px' }}>
+            Cancel
+          </button>
+          <button onClick={() => { clearPending(); void send(pending, true); }}
+                  style={{ ...btn, background: '#92400e', color: '#fff', padding: '5px 11px' }}>
+            Send now
+          </button>
         </div>
       )}
 
@@ -298,7 +358,10 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
         )}
         <input
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          // Typing during the countdown means the transcript is being corrected,
+          // so the pending auto-send is abandoned rather than firing over the
+          // top of an edit in progress.
+          onChange={(e) => { clearPending(); setDraft(e.target.value); }}
           placeholder={mic.listening ? 'Listening…' : 'Ask Phoebe…'}
           style={{
             flex: 1, padding: '10px 13px', borderRadius: 9,

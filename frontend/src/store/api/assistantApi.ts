@@ -25,7 +25,12 @@ export interface AssistantMessage {
 
 export const assistantApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
-    ask: builder.mutation<{ data: AskResponse }, { message: string; conversation_id?: string }>({
+    ask: builder.mutation<{ data: AskResponse }, {
+      message: string;
+      conversation_id?: string;
+      /** 'voice' when the question was spoken, so the answer is shaped for the ear. */
+      input_mode?: 'voice';
+    }>({
       query: (body) => ({ url: '/assistant/ask', method: 'POST', body }),
     }),
     getAssistantConversation: builder.query<

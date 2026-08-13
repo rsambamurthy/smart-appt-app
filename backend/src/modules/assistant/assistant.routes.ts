@@ -57,6 +57,9 @@ router.post('/ask', async (req: AuthRequest, res, next) => {
     res.json(await assistantService.ask(contextOf(req), {
       message:         String(req.body?.message ?? ''),
       conversation_id: req.body?.conversation_id ? String(req.body.conversation_id) : undefined,
+      // Only 'voice' is honoured; anything else is treated as typed. A client
+      // cannot widen what the assistant does by inventing a mode.
+      spoken:          req.body?.input_mode === 'voice',
     }));
   } catch (err) { next(err); }
 });

@@ -175,7 +175,15 @@ export interface SpeechOutput {
   enabled:   boolean;
   speaking:  boolean;
   toggle:    () => void;
-  speak:     (text: string) => void;
+  /**
+   * `force` speaks even when the toggle is off.
+   *
+   * Used for one case only: the question was asked out loud. Someone talking to
+   * Phoebe is not looking at the screen, and answering them silently is a dead
+   * end. It does not change the saved preference — this turn is spoken, the
+   * toggle still governs typed questions.
+   */
+  speak:     (text: string, force?: boolean) => void;
   cancel:    () => void;
 }
 
@@ -197,8 +205,8 @@ export function useSpeechOutput(): SpeechOutput {
     setSpeaking(false);
   }, [supported]);
 
-  const speak = useCallback((text: string) => {
-    if (!supported || !enabled) return;
+  const speak = useCallback((text: string, force = false) => {
+    if (!supported || (!enabled && !force)) return;
     const clean = text.trim();
     if (!clean) return;
 
