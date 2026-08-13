@@ -23,8 +23,25 @@ export interface AssistantMessage {
   action_status:   string | null;
 }
 
+export interface AssistantSettings {
+  /** The association default. A resident may override it on their own device. */
+  voice_language:  string;
+  languages:       Array<{ code: string; label: string }>;
+  can_set_default: boolean;
+}
+
 export const assistantApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
+    getAssistantSettings: builder.query<{ data: AssistantSettings }, void>({
+      query: () => '/assistant/settings',
+      providesTags: ['AssistantConversation'],
+    }),
+    setAssistantLanguage: builder.mutation<{ data: { voice_language: string } }, string>({
+      query: (voice_language) => ({
+        url: '/assistant/settings/language', method: 'PUT', body: { voice_language },
+      }),
+      invalidatesTags: ['AssistantConversation'],
+    }),
     ask: builder.mutation<{ data: AskResponse }, {
       message: string;
       conversation_id?: string;
@@ -64,6 +81,8 @@ export const assistantApi = baseApi.injectEndpoints({
 });
 
 export const {
+  useGetAssistantSettingsQuery,
+  useSetAssistantLanguageMutation,
   useAskMutation,
   useGetAssistantConversationQuery,
   useListAssistantConversationsQuery,

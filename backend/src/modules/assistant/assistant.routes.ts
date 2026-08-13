@@ -37,6 +37,20 @@ function contextOf(req: AuthRequest): ToolContext {
   };
 }
 
+// GET /assistant/settings — the association default and the language list
+router.get('/settings', async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await assistantService.settings(contextOf(req)));
+  } catch (err) { next(err); }
+});
+
+// PUT /assistant/settings/language — manager sets the association default
+router.put('/settings/language', async (req: AuthRequest, res, next) => {
+  try {
+    res.json(await assistantService.setLanguage(contextOf(req), String(req.body?.voice_language ?? '')));
+  } catch (err) { next(err); }
+});
+
 // GET /assistant/conversations
 router.get('/conversations', async (req: AuthRequest, res, next) => {
   try {

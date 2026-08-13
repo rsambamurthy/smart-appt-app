@@ -54,11 +54,33 @@ function recognitionCtor(): RecognitionCtor | null {
 }
 
 /**
- * Indian English. The difference between en-US and en-IN on "two thousand nine
- * hundred and seventy five rupees" is not subtle, and every user of this app is
- * in India.
+ * Fallback only. The real value comes from the association's setting, or from
+ * whatever this resident chose on their own device.
+ *
+ * Indian English rather than en-US: the difference on "two thousand nine
+ * hundred and seventy five rupees" is not subtle.
  */
-const LANG = 'en-IN';
+const FALLBACK_LANG = 'en-IN';
+
+const LANG_PREF_KEY = 'smartappt.phoebe.lang';
+
+/**
+ * The resident's own choice, if they made one.
+ *
+ * Kept on the device and never sent anywhere. Which language someone speaks at
+ * home is not something their committee needs a record of, and the association
+ * setting is a default rather than an instruction.
+ */
+export function readLangPref(): string | null {
+  try { return window.localStorage.getItem(LANG_PREF_KEY); } catch { return null; }
+}
+
+export function writeLangPref(code: string | null): void {
+  try {
+    if (code) window.localStorage.setItem(LANG_PREF_KEY, code);
+    else      window.localStorage.removeItem(LANG_PREF_KEY);
+  } catch { /* private mode; the association default still applies */ }
+}
 
 /**
  * How long the microphone stays open with nobody saying anything.
@@ -109,6 +131,7 @@ export interface SpeechInput {
 export function useSpeechInput(
   onFinal?: (text: string) => void,
   paused = false,
+  lang: string = FALLBACK_LANG,
 ): SpeechInput {
   const [active, setActive]         = useState(false);
   const [listening, setListening]   = useState(false);
@@ -224,7 +247,7 @@ export function useSpeechInput(
     if (!Ctor) return;
 
     const rec = new Ctor();
-    rec.lang            = LANG;
+    rec.lang            = lang;
     rec.interimResults  = true;
     // Still false. True keeps one recogniser open across pauses, but Chrome
     // then batches results in ways that delay the final transcript — and the
@@ -310,7 +333,9 @@ export function useSpeechInput(
       // Thrown when a recogniser is already running. The effect will settle.
       setListening(false);
     }
-  }, [active, paused, settling, listening, stop, clearIdle]);
+    // `lang` is a dependency: changing language mid-session must take effect on
+    // the next recogniser, not at some unpredictable later point.
+  }, [active, paused, settling, listening, lang, stop, clearIdle]);
 
   // Close the session if nothing is ever said after opening it.
   useEffect(() => {
@@ -368,7 +393,7 @@ export interface SpeechOutput {
  * someone opened in an office is a good way to have the feature switched off
  * permanently in the first ten seconds.
  */
-export function useSpeechOutput(): SpeechOutput {
+export function useSpeechOutput(lang: string = FALLBACK_LANG): SpeechOutput {
   const hasApi = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
   // The API existing is not the same as it working. Android WebView exposes
@@ -414,13 +439,20 @@ export function useSpeechOutput(): SpeechOutput {
     window.speechSynthesis.cancel();
 
     const u = new SpeechSynthesisUtterance(clean);
-    u.lang = LANG;
+    u.lang = lang;
 
-    // Prefer an Indian English voice when the system has one. Falling back
-    // silently is fine; the wrong accent is understandable, absence is not.
-    const voice = window.speechSynthesis.getVoices()
-      .find(v => v.lang === LANG)
-      ?? window.speechSynthesis.getVoices().find(v => v.lang.startsWith('en-IN'));
+    // Exact tag first, then the base language — a device with ta-LK but not
+    // ta-IN should still read Tamil. Falling through to whatever the system
+    // picks is fine: the wrong accent is understandable, silence is not.
+    //
+    // No voice is chosen by gender, deliberately. Which voices exist is the
+    // device's business, most Android installs carry one per language, and an
+    // association deciding how the app sounds to every resident is a choice
+    // nobody needs to make on their behalf.
+    const voices = window.speechSynthesis.getVoices();
+    const base   = lang.split('-')[0];
+    const voice  = voices.find(v => v.lang === lang)
+                ?? voices.find(v => v.lang.replace('_', '-').startsWith(`${base}-`));
     if (voice) u.voice = voice;
 
     u.rate = 1;
@@ -429,7 +461,7 @@ export function useSpeechOutput(): SpeechOutput {
 
     setSpeaking(true);
     window.speechSynthesis.speak(u);
-  }, [supported, enabled]);
+  }, [supported, enabled, lang]);
 
   const toggle = useCallback(() => {
     setEnabled(prev => {

@@ -200,6 +200,69 @@ class AssistantService {
     return used >= DAILY_TOKEN_CAP;
   }
 
+  /**
+   * The languages offered.
+   *
+   * Kept short and Indian-first on purpose. A list of every BCP-47 tag the
+   * browser might accept is a worse experience than eleven realistic options,
+   * and an association that needs a twelfth will say so.
+   *
+   * Whether a device can actually recognise or speak any of these is the
+   * device's business — the browser falls back on its own, and there is no
+   * reliable way to ask it in advance.
+   */
+  get languages() {
+    return [
+      { code: 'en-IN', label: 'English (India)' },
+      { code: 'hi-IN', label: 'Hindi' },
+      { code: 'ta-IN', label: 'Tamil' },
+      { code: 'te-IN', label: 'Telugu' },
+      { code: 'kn-IN', label: 'Kannada' },
+      { code: 'ml-IN', label: 'Malayalam' },
+      { code: 'mr-IN', label: 'Marathi' },
+      { code: 'bn-IN', label: 'Bengali' },
+      { code: 'gu-IN', label: 'Gujarati' },
+      { code: 'pa-IN', label: 'Punjabi' },
+      { code: 'en-GB', label: 'English (UK)' },
+    ];
+  }
+
+  /** The association's default, plus the choices, for the panel to render. */
+  async settings(ctx: ToolContext) {
+    const cfg = await prisma.associationConfig.findUnique({
+      where:  { association_id: ctx.associationId },
+      select: { assistant_voice_language: true },
+    });
+    return {
+      data: {
+        voice_language: cfg?.assistant_voice_language ?? 'en-IN',
+        languages:      this.languages,
+        // Drives whether the panel offers "set for everyone". Presentation
+        // only — the route enforces the role.
+        can_set_default:
+          ctx.role === UserRole.MANAGER || ctx.role === UserRole.SUPER_USER,
+      },
+    };
+  }
+
+  /** Change the association default. Manager and super user only. */
+  async setLanguage(ctx: ToolContext, code: string) {
+    if (ctx.role !== UserRole.MANAGER && ctx.role !== UserRole.SUPER_USER) {
+      throw new UnprocessableError('Only a manager can change the association default.');
+    }
+    if (!this.languages.some(l => l.code === code)) {
+      throw new UnprocessableError('That is not a language I can be set to.');
+    }
+    await prisma.associationConfig.update({
+      where: { association_id: ctx.associationId },
+      data:  { assistant_voice_language: code },
+    });
+    logger.info('Assistant language changed', {
+      association_id: ctx.associationId, user_id: ctx.userId, code,
+    });
+    return { data: { voice_language: code } };
+  }
+
   async listConversations(ctx: ToolContext) {
     const rows = await prisma.assistantConversation.findMany({
       where:   { association_id: ctx.associationId, user_id: ctx.userId },

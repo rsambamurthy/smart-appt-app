@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, useCallback, CSSProperties } from 'react';
 import {
   useAskMutation, useConfirmAssistantActionMutation, useCancelAssistantActionMutation,
+  useGetAssistantSettingsQuery, useSetAssistantLanguageMutation,
 } from '../../store/api/assistantApi';
-import { useSpeechInput, useSpeechOutput } from '../../hooks/useSpeech';
+import {
+  useSpeechInput, useSpeechOutput, readLangPref, writeLangPref,
+} from '../../hooks/useSpeech';
 
 /**
  * The in-app assistant.
@@ -98,7 +101,23 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
   const [confirmAction]      = useConfirmAssistantActionMutation();
   const [cancelAction]       = useCancelAssistantActionMutation();
 
-  const voice = useSpeechOutput();
+  // Language: the association's default, unless this person has chosen
+  // otherwise on this device. Their choice wins and never leaves the browser.
+  const { data: settingsRes } = useGetAssistantSettingsQuery();
+  const settings = settingsRes?.data;
+  const [ownLang, setOwnLang] = useState<string | null>(readLangPref);
+  const lang = ownLang ?? settings?.voice_language ?? 'en-IN';
+
+  const [setAssociationLang] = useSetAssistantLanguageMutation();
+  const [showLangs, setShowLangs] = useState(false);
+
+  const chooseLang = (code: string) => {
+    setOwnLang(code);
+    writeLangPref(code);
+    setShowLangs(false);
+  };
+
+  const voice = useSpeechOutput(lang);
 
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [turns, isLoading]);
@@ -178,7 +197,7 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
   // asks it straight back — a loop that is funny once and then costs money on
   // every turn. Without the second, the tail of the previous question lands as
   // a new one.
-  const mic = useSpeechInput(onHeard, voice.speaking || isLoading);
+  const mic = useSpeechInput(onHeard, voice.speaking || isLoading, lang);
 
   const decide = async (messageId: string, go: boolean) => {
     try {
@@ -208,6 +227,20 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
           <div style={{ fontSize: 11.5, color: '#64748b' }}>Answers from your association&rsquo;s live records</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {/* Language lives here rather than on an admin screen. It is a voice
+              setting, this is where voice happens, and a manager who wants to
+              change it for everyone is almost certainly looking at the panel
+              when they decide that. */}
+          {(mic.supported || voice.supported) && !!settings?.languages?.length && (
+            <button
+              onClick={() => setShowLangs(v => !v)}
+              aria-label="Language"
+              title={settings.languages.find(l => l.code === lang)?.label ?? lang}
+              aria-expanded={showLangs}
+              style={{ ...btn, background: 'transparent', color: '#64748b', fontSize: 11.5, padding: '3px 7px' }}>
+              {lang.split('-')[0].toUpperCase()}
+            </button>
+          )}
           {voice.supported && (
             <button
               onClick={voice.toggle}
@@ -232,6 +265,53 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
           )}
         </div>
       </div>
+
+      {showLangs && settings && (
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+          <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 7 }}>
+            Language for speaking and listening
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {settings.languages.map(l => (
+              <button key={l.code} onClick={() => chooseLang(l.code)}
+                style={{
+                  ...btn, fontSize: 12, padding: '5px 10px', fontWeight: 500,
+                  background:   lang === l.code ? '#1e293b' : '#fff',
+                  color:        lang === l.code ? '#fff' : '#475569',
+                  borderColor:  lang === l.code ? '#1e293b' : '#cbd5e1',
+                }}>
+                {l.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Only a manager sees this, and it is worded so it is obvious the
+              two things are different: your choice, and everyone's starting
+              point. */}
+          {settings.can_set_default && (
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => { void setAssociationLang(lang); }}
+                style={{ ...btn, fontSize: 12, padding: '5px 10px', background: '#f1f5f9', color: '#334155', borderColor: '#cbd5e1' }}>
+                Also make this the association default
+              </button>
+              <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                New residents start here. Anyone can change their own.
+              </span>
+            </div>
+          )}
+
+          {ownLang && (
+            <button
+              onClick={() => { setOwnLang(null); writeLangPref(null); setShowLangs(false); }}
+              style={{ ...btn, marginTop: 8, fontSize: 11.5, padding: '4px 9px', background: 'transparent', color: '#64748b' }}>
+              Use the association default
+              {settings.languages.find(l => l.code === settings.voice_language)
+                ? ` (${settings.languages.find(l => l.code === settings.voice_language)!.label})` : ''}
+            </button>
+          )}
+        </div>
+      )}
 
       <div style={{
         flex: 1, overflowY: 'auto', padding: 16,

@@ -261,6 +261,15 @@ model AssociationConfig {
   otp_max_attempts          Int            @default(3) @db.SmallInt
   otp_lockout_minutes       Int            @default(15) @db.SmallInt
   otp_resend_cooldown_sec   Int            @default(60) @db.SmallInt
+
+  /// BCP-47 tag the assistant listens and speaks in, e.g. "en-IN", "ta-IN".
+  ///
+  /// An association-level DEFAULT, not a rule. Recognition accuracy swings
+  /// hard on this — a society in Chennai is not the same as one in Bangalore —
+  /// so it belongs to whoever knows the community. A resident who speaks
+  /// something else overrides it on their own device; that preference is not
+  /// stored here, because it is nobody else's business.
+  assistant_voice_language  String         @default("en-IN") @db.VarChar(10)
   session_idle_timeout_min  Int            @default(30) @db.SmallInt
   max_concurrent_sessions   Int            @default(5) @db.SmallInt
   expense_approval_threshold Decimal       @default(0) @db.Decimal(10, 2)
