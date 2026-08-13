@@ -207,6 +207,7 @@ model Association {
   bills              Bill[]
   bill_penalties     BillPenalty[]
   payment_claims     PaymentClaim[]
+  whatsapp_messages  WhatsAppMessage[]
   menu_config        MenuGroupConfig[]
   payments           Payment[]
   expenses           Expense[]
@@ -319,6 +320,13 @@ model User {
   move_in_date   DateTime?   @db.Date
   move_out_date  DateTime?   @db.Date
   is_active      Boolean     @default(true)
+  /// WhatsApp is opt-in per person. Meta requires demonstrable consent, and a
+  /// resident who never agreed must not be messaged just because the
+  /// association enabled the feature.
+  whatsapp_opt_in     Boolean   @default(false)
+  whatsapp_opted_at   DateTime? @db.Timestamptz
+  /// Only when it differs from the login phone. Most residents use one number.
+  whatsapp_phone      String?   @db.VarChar(20)
   profile_photo_s3_key String? @db.Text
   vehicle_numbers String[]   @db.VarChar(20)
   notification_prefs Json?
@@ -360,6 +368,7 @@ model User {
   penalties_waived    BillPenalty[]        @relation("PenaltyWaiver")
   claims_made         PaymentClaim[]       @relation("ClaimedBy")
   claims_reviewed     PaymentClaim[]       @relation("ClaimReviewedBy")
+  whatsapp_messages   WhatsAppMessage[]    @relation("WhatsAppRecipient")
   compliance_done     ComplianceOccurrence[] @relation("ComplianceCompletedBy")
   audit_logs          AuditLog[]
   invites_sent        UserInvite[]        @relation("InvitedBy")
@@ -1011,6 +1020,60 @@ enum BPSide {
   RECEIVABLE
   PAYABLE
   BOTH
+}
+
+enum WhatsAppStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+/// Every WhatsApp message we attempted, and what became of it.
+///
+/// Kept because WhatsApp fails quietly. A template can be paused by Meta, a
+/// number can hit its tier limit, a resident can block the sender — and none
+/// of that surfaces anywhere unless it is written down. Without this table the
+/// first sign of trouble is a committee asking why nobody got their bill.
+///
+/// It is also the only basis for charging an association for what they sent.
+model WhatsAppMessage {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String         @db.Uuid
+  association    Association    @relation(fields: [association_id], references: [id])
+  /// Null for messages not tied to a person, e.g. a test send.
+  user_id        String?        @db.Uuid
+  user           User?          @relation("WhatsAppRecipient", fields: [user_id], references: [id])
+
+  to_phone       String         @db.VarChar(20)
+  template       String         @db.VarChar(100)
+  /// What the template was filled with. Useful when a resident disputes what
+  /// they were told, and when a template rejection needs reproducing.
+  variables      Json?
+
+  /// What this message was about, so a bill can show what was sent for it.
+  reference_type String?        @db.VarChar(50)
+  reference_id   String?        @db.Uuid
+
+  status         WhatsAppStatus @default(QUEUED)
+  /// Meta's message id, which is what delivery webhooks arrive against.
+  wa_message_id  String?        @unique @db.VarChar(120)
+  error_code     String?        @db.VarChar(40)
+  error_message  String?        @db.Text
+
+  sent_at        DateTime?      @db.Timestamptz
+  delivered_at   DateTime?      @db.Timestamptz
+  read_at        DateTime?      @db.Timestamptz
+  failed_at      DateTime?      @db.Timestamptz
+
+  created_at     DateTime       @default(now()) @db.Timestamptz
+  updated_at     DateTime       @updatedAt @db.Timestamptz
+
+  @@index([association_id, created_at])
+  @@index([reference_type, reference_id])
+  @@index([status])
+  @@map("whatsapp_messages")
 }
 
 enum PaymentClaimStatus {

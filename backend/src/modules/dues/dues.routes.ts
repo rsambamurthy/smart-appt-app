@@ -5,6 +5,7 @@ import { duesController } from './dues.controller';
 import { statementService } from './statement.service';
 import { penaltyService } from './penalty.service';
 import { upiService } from './upi.service';
+import { whatsappService } from '../../services/whatsapp.service';
 import { AuthRequest } from '../../types';
 import { NotFoundError, UnprocessableError } from '../../utils/errors';
 import { paymentUploadController } from './payment-upload.controller';
@@ -19,6 +20,29 @@ import {
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 const treasurerOrManagerRoles = [UserRole.SUPER_USER, UserRole.TREASURER, UserRole.MANAGER];
+
+// ── WhatsApp webhook — no auth, must sit ABOVE router.use(authenticate) ──────
+//
+// Meta verifies the endpoint with a GET handshake, then POSTs delivery
+// statuses. Both must always return 200 quickly: Meta retries failures and
+// disables an endpoint that keeps erroring, which would silently end delivery
+// reporting.
+router.get('/whatsapp/webhook', (req, res) => {
+  const challenge = whatsappService.verifyWebhook(
+    String(req.query['hub.mode'] ?? ''),
+    String(req.query['hub.verify_token'] ?? ''),
+    String(req.query['hub.challenge'] ?? ''),
+  );
+  if (challenge) return res.status(200).send(challenge);
+  return res.sendStatus(403);
+});
+
+router.post('/whatsapp/webhook', (req, res) => {
+  // Acknowledge first, process after. Meta times out at a few seconds and a
+  // slow database must not turn into a retry storm.
+  res.sendStatus(200);
+  void whatsappService.handleStatusWebhook(req.body);
+});
 
 // Razorpay webhook — no auth, raw body
 router.post('/payments/webhook', (req, res, next) =>

@@ -12,6 +12,7 @@ import {
 import { AuditAction, BillStatus, ExpenseStatus, OneTimeDueStatus, PaymentMode, UserRole } from '@prisma/client';
 import { auditService } from '../../services/audit.service';
 import { journalService } from '../accounting/journal.service';
+import { duesNotifyService } from './dues-notify.service';
 
 // Default platform Razorpay instance (fallback if association has no own keys)
 const defaultRazorpay = new Razorpay({
@@ -229,6 +230,11 @@ export class DuesService {
         created_units: created, skipped_units: skipped,
       },
     });
+
+    // Send the notices after the run is recorded, never inside it. A WhatsApp
+    // outage must not roll back a set of bills that were generated correctly,
+    // and the resident can always open the notice in the app regardless.
+    void duesNotifyService.sendDueNoticesForBills(associationId, created);
 
     return { data: { created: created.length, skipped: skipped.length } };
   }

@@ -1,5 +1,6 @@
 import twilio from 'twilio';
 import logger from '../utils/logger';
+import { whatsappService } from './whatsapp.service';
 
 // Lazy Twilio client — only initialised when credentials are actually configured
 let _client: ReturnType<typeof twilio> | null = null;
@@ -27,6 +28,17 @@ class SmsService {
       logger.info(`[SMS-DEV] OTP to ${phone}: ${otp}`);
       return;
     }
+
+    // WhatsApp first when configured: Indian SMS routes drop OTPs often enough
+    // that "I never got the code" is a support burden, and an authentication
+    // template is comparable in cost.
+    //
+    // SMS stays as the fallback rather than being replaced. If WhatsApp is
+    // down, or the person has no WhatsApp, or they blocked the sender, they
+    // must still be able to log in — losing the only route into the product is
+    // not a failure mode worth trading for a slightly better delivery rate.
+    if (await whatsappService.sendOtpTemplate(phone, otp)) return;
+
     const client = getClient();
     if (!client) return;
     try {

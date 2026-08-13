@@ -3,6 +3,7 @@ import prisma from '../../config/database';
 import { NotFoundError, UnprocessableError, ForbiddenError, ConflictError } from '../../utils/errors';
 import { journalService } from '../accounting/journal.service';
 import { auditService } from '../../services/audit.service';
+import { duesNotifyService } from './dues-notify.service';
 
 /**
  * Paying by UPI, without a payment gateway.
@@ -594,7 +595,12 @@ export class UpiService {
       select: {
         id: true, bill_id: true, unit_id: true, amount: true,
         upi_reference: true, paid_on: true, status: true,
-        bill: { select: { total_amount: true, unit: { select: { flat_number: true } } } },
+        bill: {
+          select: {
+            total_amount: true, period_month: true, period_year: true, bill_label: true,
+            unit: { select: { flat_number: true } },
+          },
+        },
       },
     });
     if (!claim) throw new NotFoundError('Payment claim');
@@ -604,6 +610,8 @@ export class UpiService {
 
     const amount = num(claim.amount);
     const flat   = claim.bill.unit.flat_number;
+    const label  = claim.bill.bill_label
+      ?? `${MONTHS[claim.bill.period_month - 1] ?? claim.bill.period_month} ${claim.bill.period_year}`;
     const now    = new Date();
 
     // Which bank actually received it, so the entry credits that account
@@ -675,6 +683,16 @@ export class UpiService {
       new_value:      { payment_id: payment.id, upi_reference: claim.upi_reference },
     });
 
+    // Best-effort, and after the money is safely recorded. A resident left
+    // wondering whether their payment landed is the complaint this prevents.
+    void duesNotifyService.paymentConfirmed(associationId, {
+      unitId:    claim.unit_id,
+      amount,
+      reference: claim.upi_reference,
+      billLabel: label,
+      billId:    claim.bill_id,
+    });
+
     return { data: { id: claim.id, payment_id: payment.id } };
   }
 
@@ -696,6 +714,7 @@ export class UpiService {
     const claim = await prisma.paymentClaim.findFirst({
       where:  { id: claimId, association_id: associationId },
       select: { id: true, status: true, upi_reference: true,
+                unit_id: true, bill_id: true, amount: true,
                 unit: { select: { flat_number: true } } },
     });
     if (!claim) throw new NotFoundError('Payment claim');
@@ -720,6 +739,14 @@ export class UpiService {
       action:         AuditAction.UPDATE,
       summary:        `Rejected UPI claim from Flat ${claim.unit.flat_number} (UTR ${claim.upi_reference}): ${reason}`,
       new_value:      { status: 'REJECTED', review_note: reason },
+    });
+
+    void duesNotifyService.paymentRejected(associationId, {
+      unitId:    claim.unit_id,
+      amount:    num(claim.amount),
+      reference: claim.upi_reference,
+      reason,
+      billId:    claim.bill_id,
     });
 
     return { data: { id: claim.id, status: PaymentClaimStatus.REJECTED } };
