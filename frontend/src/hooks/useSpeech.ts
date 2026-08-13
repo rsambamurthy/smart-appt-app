@@ -111,6 +111,12 @@ export function useSpeechInput(
   const recRef      = useRef<SpeechRecognitionLike | null>(null);
   const finalRef    = useRef('');
   const idleRef     = useRef<number | null>(null);
+  /**
+   * Set when a recogniser is torn down for a reason other than the speaker
+   * finishing — a pause, or the session closing. `onend` fires either way, and
+   * without this it would deliver a half-heard phrase as a finished question.
+   */
+  const discardRef  = useRef(false);
   // Held in refs so the restart effect does not need to re-run whenever the
   // parent re-renders with a new callback identity — which, in a loop that
   // restarts a microphone, would mean tearing it down and back up constantly.
@@ -129,12 +135,62 @@ export function useSpeechInput(
   const stop = useCallback(() => {
     clearIdle();
     activeRef.current = false;
+    discardRef.current = true;
     setActive(false);
     setListening(false);
     setTranscript('');
     recRef.current?.abort();
     recRef.current = null;
   }, [clearIdle]);
+
+  /**
+   * Cut the microphone the moment `paused` goes true.
+   *
+   * THE DEFECT THIS FIXES. The listening effect below returns early when a
+   * recogniser is already running, so a pause arriving mid-phrase changed
+   * nothing — the microphone stayed open right through Phoebe's spoken answer
+   * and transcribed it as the next question. The pause only bit at the next
+   * natural restart, by which point the damage was done.
+   *
+   * Aborting here ends it immediately. `onend` fires, `listening` clears, and
+   * the effect declines to restart while paused. When the pause lifts, the
+   * loop picks up again on its own.
+   */
+  useEffect(() => {
+    if (!paused) return;
+    if (!recRef.current) return;
+    discardRef.current = true;
+    finalRef.current = '';
+    recRef.current.abort();
+    recRef.current = null;
+    setTranscript('');
+    setListening(false);
+  }, [paused]);
+
+  /**
+   * A guard band around the pause, in both directions.
+   *
+   * Aborting on pause is not enough on its own, because the pause signal and
+   * the sound do not line up at either edge:
+   *
+   *   LEADING — the answer arrives, `isLoading` clears, and the speech
+   *   synthesiser has not started yet, so `speaking` is briefly false. The
+   *   microphone reopens into that gap and catches her first few words.
+   *
+   *   TRAILING — `onend` fires when the synthesiser finishes writing audio, not
+   *   when the room goes quiet. Reopening the instant it fires catches the tail
+   *   through the speakers.
+   *
+   * Either one restarts the loop the user hit. A short settling period after
+   * the pause lifts closes both. Six hundred milliseconds is long enough to
+   * cover the overlap and short enough that nobody notices it before speaking.
+   */
+  const [settling, setSettling] = useState(false);
+  useEffect(() => {
+    if (paused) { setSettling(true); return; }
+    const t = window.setTimeout(() => setSettling(false), 600);
+    return () => window.clearTimeout(t);
+  }, [paused]);
 
   const start = useCallback(() => {
     if (!recognitionCtor()) {
@@ -156,7 +212,7 @@ export function useSpeechInput(
    * that are impossible to stop cleanly.
    */
   useEffect(() => {
-    if (!active || paused || listening) return;
+    if (!active || paused || settling || listening) return;
     const Ctor = recognitionCtor();
     if (!Ctor) return;
 
@@ -206,6 +262,16 @@ export function useSpeechInput(
       setListening(false);
       const said = finalRef.current.trim();
       finalRef.current = '';
+
+      // Torn down deliberately — a pause or a stop. Whatever was captured is
+      // half a sentence at best, and sending it would mean Phoebe answering a
+      // fragment nobody finished saying.
+      if (discardRef.current) {
+        discardRef.current = false;
+        setTranscript('');
+        return;
+      }
+
       if (said) {
         setTranscript('');
         cbRef.current?.(said);
@@ -220,7 +286,7 @@ export function useSpeechInput(
       // Thrown when a recogniser is already running. The effect will settle.
       setListening(false);
     }
-  }, [active, paused, listening, stop, clearIdle]);
+  }, [active, paused, settling, listening, stop, clearIdle]);
 
   // Close the session if nothing is ever said after opening it.
   useEffect(() => {
@@ -238,6 +304,7 @@ export function useSpeechInput(
   // microphone indicator lit, which reads as the app listening in secret.
   useEffect(() => () => {
     if (idleRef.current) window.clearTimeout(idleRef.current);
+    discardRef.current = true;
     recRef.current?.abort();
   }, []);
 
