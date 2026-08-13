@@ -62,6 +62,91 @@ export const FEATURE_HELP: Record<string, string> = {
   dues_statement:  'Statement of account for any flat.',
 };
 
+/**
+ * Configuration and administration screens, which live on the WEB app only.
+ *
+ * This list is hand-maintained, and that is a compromise worth naming. The web
+ * catalogue (NAV_GROUPS) lives in the frontend — `system.service.ts` says so
+ * outright: "the frontend owns the catalogue" — so the server cannot read it
+ * the way find_feature reads MOBILE_MENU. Duplicating it here means it can
+ * drift.
+ *
+ * The alternative was worse. Without this, a manager asking "help me configure
+ * my association" got told configuration is "beyond what I can help with",
+ * which is both unhelpful and untrue — they administer the thing.
+ *
+ * Two things keep the drift survivable: it covers only configuration screens,
+ * which change rarely, and every entry carries its own role list, so a wrong
+ * entry shows the wrong person a real screen rather than sending anyone to a
+ * page that does not exist.
+ *
+ * IF YOU MOVE OR RENAME AN ADMIN SCREEN, UPDATE IT HERE.
+ */
+export interface AdminScreen {
+  label:  string;
+  path:   string;
+  roles:  string[];
+  what_it_is: string;
+}
+
+const MANAGER = ['SUPER_USER', 'MANAGER'];
+const TREASURY = ['SUPER_USER', 'TREASURER'];
+
+export const WEB_ADMIN_SCREENS: AdminScreen[] = [
+  {
+    label: 'Manage Users', path: '/admin/users', roles: MANAGER,
+    what_it_is: 'Add residents, set their role, link them to a flat, deactivate someone who has moved out.',
+  },
+  {
+    label: 'Manage Units', path: '/admin/units', roles: MANAGER,
+    what_it_is: 'The list of flats — add or edit flat numbers, blocks, floors and area.',
+  },
+  {
+    label: 'Web Menu by Role', path: '/admin/web-menu', roles: MANAGER,
+    what_it_is: 'Choose which menu items each role sees on the web app.',
+  },
+  {
+    label: 'Mobile Menu by Role', path: '/admin/mobile-menu', roles: MANAGER,
+    what_it_is: 'Choose which screens each role sees in the mobile app, and which they can post from.',
+  },
+  {
+    label: 'Audit Trail', path: '/admin/audit-log', roles: MANAGER,
+    what_it_is: 'Who changed what, and when.',
+  },
+  {
+    label: 'Fee Configuration', path: '/dues/config', roles: TREASURY,
+    what_it_is: 'How maintenance is calculated, the billing cycle, due dates, and the opening cash balance.',
+  },
+  {
+    label: 'Late Payment Penalty', path: '/dues/penalties', roles: [...TREASURY, 'MANAGER'],
+    what_it_is: 'The penalty rate and grace period, and where a penalty run is applied or reversed.',
+  },
+  {
+    label: 'UPI Payments', path: '/dues/upi-claims', roles: [...TREASURY, 'MANAGER'],
+    what_it_is: 'Payments residents have reported, waiting to be confirmed against the bank statement. Also where the collection bank account and its UPI ID are set.',
+  },
+  {
+    label: 'Chart of Accounts', path: '/accounting/chart-of-accounts', roles: [...MANAGER, 'TREASURER'],
+    what_it_is: 'The ledger account structure — income heads, expense heads, assets and liabilities.',
+  },
+  {
+    label: 'Business Partners', path: '/accounting/business-partners', roles: [...MANAGER, 'TREASURER'],
+    what_it_is: 'Banks, vendors and per-flat sub-ledger accounts.',
+  },
+  {
+    label: 'FY Closure', path: '/accounting/fy-closure', roles: [...MANAGER, 'TREASURER'],
+    what_it_is: 'Set which month the financial year starts, and close a year once its accounts are final.',
+  },
+  {
+    label: 'Subscriptions', path: '/admin/subscriptions', roles: ['SUPER_USER'],
+    what_it_is: 'Which modules each association may use.',
+  },
+];
+
+export function adminScreensFor(role: string): AdminScreen[] {
+  return WEB_ADMIN_SCREENS.filter(s => s.roles.includes(role));
+}
+
 export interface GlossaryEntry {
   term:       string;
   /** Other ways people ask for the same thing. Matched case-insensitively. */

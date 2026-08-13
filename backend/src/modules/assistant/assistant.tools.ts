@@ -10,7 +10,7 @@ import { entitlementService } from '../../services/entitlement.service';
 import {
   resolveMenuForRole, MOBILE_MENU_BY_ID, RoleMenuOverrides,
 } from '../system/mobile-menu';
-import { FEATURE_HELP, lookupTerms } from './assistant.help';
+import { FEATURE_HELP, lookupTerms, adminScreensFor } from './assistant.help';
 
 /**
  * What the assistant is allowed to do, and on whose behalf.
@@ -182,13 +182,26 @@ export const TOOLS: ToolDef[] = [
           })
         : [];
 
+      // Configuration lives on the web app, and the web catalogue is not
+      // readable from the server, so it comes from a hand-maintained list.
+      // Filtered by role, so a resident never learns these screens exist.
+      const admin = adminScreensFor(ctx.role).map(s => ({
+        screen:     s.label,
+        where:      `Web app, ${s.path}`,
+        what_it_is: s.what_it_is,
+      }));
+
       return {
         matching_screens: hits.length ? hits : null,
         all_screens_available_to_this_person: cap(screens, 30),
+        admin_and_configuration_screens: admin.length ? admin : null,
         _note:
           'These are the only screens this person can open. Do not mention any other screen, '
           + 'menu or setting — if what they want is not here, say it is not available to them '
-          + 'and suggest they ask their association manager.',
+          + 'and suggest they ask their association manager. '
+          + (admin.length
+              ? 'The admin_and_configuration screens are on the WEB app, not the mobile app — say so when recommending one.'
+              : ''),
       };
     },
   },

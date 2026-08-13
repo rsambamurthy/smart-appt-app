@@ -288,6 +288,41 @@ will also define *your* terms its own way, and "levy" meaning something slightly
 different to the assistant than to your committee is a support problem you would
 never find.
 
+### The invented persona
+
+A live test as a MANAGER produced:
+
+> I'm the resident support assistant for HT Association. Configuration of the
+> association — menu structure, settings, user roles — is a manager or system
+> administrator task that is beyond what I can help with.
+
+Nothing in the prompt says "resident support assistant". The model invented a
+persona, then reasoned from it to refuse the person who actually administers the
+association. It had just offered that same user a per-flat lookup, which only a
+committee role can do — so it contradicted itself within two messages.
+
+Two fixes. The prompt now states the assistant serves every role and must not
+describe itself as limited to one, and must not refuse on the grounds that
+something is "a manager task" without calling `find_feature` first — the person
+asking may be the manager.
+
+Test as MANAGER: "can you help me configure my association?"
+
+- Expected: names Manage Users, Web Menu by Role, Mobile Menu by Role, Fee
+  Configuration and so on, and says they are on the web app.
+- Failure: any self-description as a resident-only assistant, or a refusal that
+  does not follow a `find_feature` call.
+
+Test the same as RESIDENT: expected to say configuration is not available to
+them. `adminScreensFor` filters by role, so a resident is never told these
+screens exist.
+
+**Drift warning.** `WEB_ADMIN_SCREENS` in `assistant.help.ts` is hand-maintained,
+because the web catalogue (`NAV_GROUPS`) lives in the frontend — the server
+cannot read it the way `find_feature` reads `MOBILE_MENU`. **If you move or
+rename an admin screen, update that list.** It covers configuration screens only,
+which change rarely, and every entry carries its own role list.
+
 **`assistant.help.ts` is meant to be edited by you.** Every definition in it is
 what a resident gets told verbatim. Nothing in it states a rate, a grace period
 or a due date, deliberately — those differ per association, and a figure in that
