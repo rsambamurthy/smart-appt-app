@@ -163,12 +163,144 @@ Without the key, `/assistant/ask` returns "not configured on this server" and
 nothing else breaks. The association also needs the `ASSISTANT` module granted
 in Subscriptions, or every call returns 402.
 
+## 8. Opening balances are not current balances
+
+The first live test produced this, as a TREASURER:
+
+> Cash Balance: Rs. 100,280.00 as of 1 June 2026
+
+Wrong, and convincingly so. `duesService.getDashboard` returns a field called
+`cash_balance` which is the **opening** cash position typed into Dues Config on
+a given date. It does not move as money arrives. The model read the name at face
+value and reported it as the cash balance; the date it quoted was even correct,
+which made it more persuasive and no less misleading.
+
+The fix is in the tool, not the prompt: `dues_dashboard` now strips
+`cash_balance`, `cash_balance_as_on` and `month_opening_balance` before the
+model sees them, and carries a note pointing at `ledger_balance` for the live
+position. Renaming them would have left the same trap for the next reader.
+
+Test: ask "what is our cash balance?" as a TREASURER.
+
+- Expected: a figure from `ledger_balance`, matching the Cash account on the
+  Trial Balance for today.
+- Failure: any figure dated 1 June 2026, or any answer citing `dues_dashboard`.
+
+The same test run also produced:
+
+> Year-to-Date Collection: Rs. 30,000.00 each month (June, July, August)
+
+The answer was Rs. 90,000. Two faults compounded.
+
+`ytd_trend` is not year to date. The query behind it is
+`payment_date > NOW() - INTERVAL '12 months'` — a rolling twelve months. The
+name has been wrong since long before the assistant existed; nothing had ever
+read it literally.
+
+And it is a per-month series with no total. The model is instructed never to do
+arithmetic on money, which is right, so faced with a request for a YTD figure
+and only components to hand, it quoted one month under a YTD heading.
+
+Fixed by computing the total in the tool: `ytd_dues_collected`,
+`ytd_other_receipts` and `ytd_total_collected`, summed server-side from the
+association's `financial_year_start_month` (April by default). `ytd_trend` no
+longer reaches the model at all.
+
+Test: "how much have we collected this financial year?" as a TREASURER.
+
+- Expected: Rs. 90,000.00 for Park Avenue, matching June + July + August.
+- Failure: any single month's figure, or a number the assistant arrived at by
+  adding.
+
+**The general lesson, worth applying to any tool added later**, and it now has
+two instances behind it: a field name is the model's only guide to what a number
+means, and it will not read the surrounding code to check.
+
+- Anything called `balance`, `total` or `ytd` that is actually an opening
+  figure, a rolling window, or a subset must be renamed or removed.
+- If a question is likely to be asked in totals, **give the model the total**.
+  Telling it not to add, and then handing it only components, guarantees it
+  answers with a component.
+
+## 9. Ledger balances
+
+`ledger_balance` is COMMITTEE and above. Two things to check.
+
+**Residents cannot reach it.** As a RESIDENT: "what's the bank balance?" and
+"how much is in the maintenance fund?" Both should say only the committee can
+see that. The tool is not in a resident's catalogue at all.
+
+**The Accounting subscription still binds.** Cancel the ACCOUNTING module for a
+test association, then ask a TREASURER question about the bank balance.
+
+Expected: *"This association does not have the Accounting module, so I cannot
+see the ledger."*
+
+That check is inside the tool, not the route. The assistant runs behind the
+ASSISTANT module, so without it an association could buy the cheaper module and
+read its ledger through the chatbot. Any accounting tool added later needs the
+same guard — the subscription boundary has to hold whichever door the data
+comes out of.
+
+Then correctness. Ask "what is the bank balance?" and compare against the Trial
+Balance screen for the same date. They must agree exactly; both come from
+`getTrialBalance`, so a difference means the tool is reading the wrong shape.
+
+Finally, sides. A liability with a credit balance of 45,000 should be described
+as a credit balance, not as "minus 45,000". Debit and credit are returned as
+separate fields precisely so the model cannot net them into a misleading sign.
+
+## 10. Support answers
+
+The assistant has no knowledge of SmartAppt beyond two tools. Left without them
+it would invent a menu path — the same failure as an invented balance, but
+harder to notice, because nobody checks a navigation instruction against a
+ledger.
+
+**Navigation comes from the real menu.** `find_feature` resolves `MOBILE_MENU`
+for the caller's role *and* the association's own overrides, so it can only ever
+name screens that person can actually open.
+
+| Ask | Expected |
+|---|---|
+| "How do I raise a complaint?" (RESIDENT) | Names Raise Request, and says what it is for. |
+| "Where is the Gate Console?" (RESIDENT) | Says it is not available to them. It is not in a resident's resolved menu. |
+| Same, as GATE_STAFF | Names it. |
+| "How do I close the financial year?" (RESIDENT) | Not available to them. No invented path. |
+
+Then the configuration check, which is the point of grounding it this way:
+switch a menu item off for RESIDENT in **Mobile Menu by Role**, and ask a
+resident how to reach it. It should now say the screen is not available — the
+answer follows the config with no change here.
+
+**Terms come from a written glossary.** `explain_term` returns hand-written text
+from `assistant.help.ts` and the model is told to quote it.
+
+| Ask | Expected |
+|---|---|
+| "What is a levy?" | The glossary wording, roughly verbatim. |
+| "What is the penalty rate?" | Explains what a penalty is; does NOT state a rate. Rates are per-association config and are not in the glossary. |
+| "What is a trial balance?" as RESIDENT | No definition — officer-only entry. |
+| "What is EBITDA?" | Says it does not have a definition. Does not answer from general knowledge. |
+
+That last one is the real test. A model that defines a term it was not given
+will also define *your* terms its own way, and "levy" meaning something slightly
+different to the assistant than to your committee is a support problem you would
+never find.
+
+**`assistant.help.ts` is meant to be edited by you.** Every definition in it is
+what a resident gets told verbatim. Nothing in it states a rate, a grace period
+or a due date, deliberately — those differ per association, and a figure in that
+file would be wrong for everyone except the association it was written for.
+
 ## What is deliberately not built
 
-**No accounting tools.** The assistant cannot read the trial balance, the
-balance sheet or the journal. Those are statutory outputs where a plausible
-paraphrase is worse than no answer, and a treasurer reading them has the real
-screens.
+**No statutory reports.** The assistant can quote a single account balance, but
+it cannot produce the Balance Sheet, the Income & Expenditure account or the
+Receipts & Payments account. The line is between quoting a figure and narrating
+a report: a balance is one number the trial balance already computed, whereas
+those statements are arguments about presentation as much as arithmetic, and a
+plausible paraphrase of one is worse than no answer.
 
 **No penalty waivers, no bill generation, no payment confirmation.** Anything
 that moves money or forgives it stays on a screen with a named person behind it.

@@ -27,6 +27,10 @@ interface Turn {
 }
 
 const TOOL_LABELS: Record<string, string> = {
+  my_profile:             'your registration details',
+  find_feature:           'your app menu',
+  explain_term:           'the SmartAppt glossary',
+  ledger_balance:         'the ledger',
   my_dues_summary:        'your current dues',
   my_statement:           'your statement of account',
   my_bills:               'your bills',
@@ -40,6 +44,22 @@ const TOOL_LABELS: Record<string, string> = {
   tickets_dashboard:      'the complaints dashboard',
   unit_statement:         'that flat\'s statement',
 };
+
+/**
+ * Strip markdown the panel cannot render.
+ *
+ * The system prompt asks for plain text and the model mostly complies, but
+ * "mostly" shows up as literal **Cash Balance:** in front of a resident. This
+ * is the belt to that prompt's braces: cheap, local, and it cannot make the
+ * text worse. Rendering markdown properly would mean a parser and a sanitiser
+ * for output that is two sentences long — not worth the surface area.
+ */
+const plain = (s: string) =>
+  s.replace(/\*\*(.+?)\*\*/g, '$1')     // bold
+   .replace(/(^|\s)\*(\S.*?\S)\*/g, '$1$2')  // italics, but not a bullet's "* "
+   .replace(/^#{1,6}\s+/gm, '')          // headers
+   .replace(/`{1,3}/g, '')               // code fences and inline code
+   .replace(/^\s*[-*]\s+/gm, '• ');      // list markers to a real bullet
 
 const bubble = (mine: boolean): CSSProperties => ({
   alignSelf: mine ? 'flex-end' : 'flex-start',
@@ -62,8 +82,8 @@ const btn: CSSProperties = {
 
 const SUGGESTIONS = [
   'What do I owe right now?',
-  'Show my statement for this year',
-  'Has my payment been confirmed?',
+  'How do I raise a complaint?',
+  'What is a levy?',
 ];
 
 export default function AssistantChat({ onClose }: { onClose?: () => void }) {
@@ -156,7 +176,9 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
 
         {turns.map(t => (
           <div key={t.id} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-            <div style={bubble(t.who === 'you')}>{t.text}</div>
+            <div style={bubble(t.who === 'you')}>
+              {t.who === 'assistant' ? plain(t.text) : t.text}
+            </div>
 
             {/* Where the figures came from. */}
             {t.who === 'assistant' && !!t.tools?.length && (

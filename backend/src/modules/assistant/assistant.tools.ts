@@ -1,10 +1,16 @@
-import { UserRole } from '@prisma/client';
+import { UserRole, ModuleKey } from '@prisma/client';
 import prisma from '../../config/database';
 import { statementService } from '../dues/statement.service';
 import { duesService } from '../dues/dues.service';
 import { upiService } from '../dues/upi.service';
 import { maintenanceService } from '../maintenance/maintenance.service';
 import { visitorsService } from '../visitors/visitors.service';
+import { journalService } from '../accounting/journal.service';
+import { entitlementService } from '../../services/entitlement.service';
+import {
+  resolveMenuForRole, MOBILE_MENU_BY_ID, RoleMenuOverrides,
+} from '../system/mobile-menu';
+import { FEATURE_HELP, lookupTerms } from './assistant.help';
 
 /**
  * What the assistant is allowed to do, and on whose behalf.
@@ -80,6 +86,142 @@ function cap<T>(rows: T[], n = 25): T[] {
 }
 
 export const TOOLS: ToolDef[] = [
+
+  // ── Who am I ──────────────────────────────────────────────────────────────
+  {
+    name: 'my_profile',
+    description:
+      'Who the signed-in person is: their name, flat number, block, whether '
+      + 'they are the owner or a tenant, their role, and the association name. '
+      + 'Use for "what is my flat number", "which apartment am I registered to", '
+      + '"is my account linked to my flat". Call this before any other tool if '
+      + 'the question is about identity rather than money.',
+    input_schema: { type: 'object', properties: {} },
+    roles: EVERYONE,
+    handler: async (ctx) => {
+      const user = await prisma.user.findFirst({
+        where:  { id: ctx.userId, association_id: ctx.associationId },
+        select: {
+          name: true, phone: true, role: true, is_owner: true,
+          unit: { select: { flat_number: true, block: true, floor: true } },
+          association: { select: { name: true, city: true } },
+        },
+      });
+      if (!user) throw new Error('I could not find your account.');
+
+      return {
+        name:         user.name,
+        role:         user.role,
+        association:  user.association?.name ?? null,
+        city:         user.association?.city ?? null,
+        // Null rather than absent, so the model has something concrete to
+        // report. "Not linked to a flat" is a real answer a resident needs —
+        // it is usually why their dues screen is empty.
+        flat_number:  user.unit?.flat_number ?? null,
+        block:        user.unit?.block ?? null,
+        floor:        user.unit?.floor ?? null,
+        relationship: user.unit ? (user.is_owner ? 'Owner' : 'Tenant') : null,
+        linked_to_a_flat: !!user.unit,
+      };
+    },
+  },
+
+  // ── Using SmartAppt ───────────────────────────────────────────────────────
+  {
+    name: 'find_feature',
+    description:
+      'Where to do something in SmartAppt. Use for "how do I raise a complaint", '
+      + '"where can I see my statement", "how do I pay", "where is the gate '
+      + 'console". Returns the screens this person can actually open, with what '
+      + 'each is for. ALWAYS use this rather than describing menus from memory — '
+      + 'you have no other knowledge of this app and every association can '
+      + 'configure its own menu.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        task: {
+          type: 'string',
+          description: 'What they are trying to do, in their words, e.g. "pay my bill", "complain about the lift".',
+        },
+      },
+    },
+    roles: EVERYONE,
+    handler: async (ctx, args) => {
+      // The association's own overrides, resolved for this role. A screen the
+      // manager switched off does not get recommended, and a resident is never
+      // sent somewhere they will be refused.
+      const cfg = await prisma.mobileConfig.findUnique({
+        where:  { association_id: ctx.associationId },
+        select: { menu_items: true },
+      });
+      const resolved = resolveMenuForRole(
+        ctx.role, (cfg?.menu_items ?? null) as RoleMenuOverrides | null,
+      );
+
+      const visible = resolved.filter(r => r.enabled);
+      const term = String(args['task'] ?? '').toLowerCase().trim();
+
+      const screens = visible.map(r => {
+        const item = MOBILE_MENU_BY_ID.get(r.id);
+        return {
+          screen:      item?.label ?? r.id,
+          section:     item?.group ?? null,
+          what_it_is:  FEATURE_HELP[r.id] ?? null,
+          can_create_here: r.can_post,
+        };
+      });
+
+      // Scored rather than filtered: a term matching nothing returns the whole
+      // (short) list instead of "no results", so the answer is always at worst
+      // "here is what you can open".
+      const words = term.split(/\s+/).filter(w => w.length > 2);
+      const hits = words.length
+        ? screens.filter(s => {
+            const hay = `${s.screen} ${s.what_it_is ?? ''} ${s.section ?? ''}`.toLowerCase();
+            return words.some(w => hay.includes(w));
+          })
+        : [];
+
+      return {
+        matching_screens: hits.length ? hits : null,
+        all_screens_available_to_this_person: cap(screens, 30),
+        _note:
+          'These are the only screens this person can open. Do not mention any other screen, '
+          + 'menu or setting — if what they want is not here, say it is not available to them '
+          + 'and suggest they ask their association manager.',
+      };
+    },
+  },
+
+  {
+    name: 'explain_term',
+    description:
+      'What a SmartAppt or association term means — levy, penalty, arrears, '
+      + 'payment claim, statement of account, sub-ledger, trial balance. Quote '
+      + 'the definition returned; do not write your own.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        term: { type: 'string', description: 'The word or phrase to explain.' },
+      },
+      required: ['term'],
+    },
+    roles: EVERYONE,
+    handler: async (ctx, args) => {
+      const isOfficer = ctx.role !== UserRole.RESIDENT && ctx.role !== UserRole.GATE_STAFF;
+      const found = lookupTerms(String(args['term'] ?? ''), isOfficer);
+
+      if (!found.length) {
+        throw new Error(
+          `I do not have a definition for "${args['term']}". Say that plainly rather than guessing at one.`,
+        );
+      }
+      return {
+        definitions: found.map(f => ({ term: f.term, definition: f.definition })),
+        _note: 'Quote these definitions. Do not extend them with rates, grace periods or due dates — those differ per association and are not in this data.',
+      };
+    },
+  },
 
   // ── Resident, read ────────────────────────────────────────────────────────
   {
@@ -208,11 +350,92 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'dues_dashboard',
     description:
-      'Headline dues figures for the association — this month\'s billing, '
-      + 'receipts and pending amounts. Committee and above only.',
+      'Headline DUES figures for the association — this month\'s billing, '
+      + 'receipts and pending amounts. Contains no cash or bank position: for '
+      + 'those use ledger_balance. Committee and above only.',
     input_schema: { type: 'object', properties: {} },
     roles: COMMITTEE,
-    handler: async (ctx) => duesService.getDashboard(ctx.associationId),
+    handler: async (ctx) => {
+      const res = await duesService.getDashboard(ctx.associationId);
+      const d = (res as { data?: Record<string, unknown> }).data ?? {};
+
+      // `cash_balance` and `month_opening_balance` are stripped rather than
+      // renamed, and this is deliberate.
+      //
+      // Both are OPENING balances. `cash_balance` is the figure a treasurer
+      // typed into Dues Config as the starting cash position on a given date;
+      // it does not move as money comes in. The name reads like a current
+      // balance, and the assistant duly reported "Cash Balance: Rs. 100,280.00
+      // as of 1 June 2026" as though it were today's cash — the date was even
+      // correct, which made it more convincing and no less wrong.
+      //
+      // Renaming them would leave the same trap for the next reader. The live
+      // cash position is in the ledger, so the model is sent there instead.
+      const {
+        cash_balance: _cb,
+        cash_balance_as_on: _cbAsOn,
+        month_opening_balance: _mob,
+        ytd_trend: _ytd,
+        ...duesOnly
+      } = d;
+
+      // `ytd_trend` is dropped too, and for a sharper reason than the opening
+      // balances: the name is simply false. The query behind it is
+      // `payment_date > NOW() - INTERVAL '12 months'` — a rolling twelve
+      // months, not year to date — and it is a per-month series with no total.
+      //
+      // The model is told never to do arithmetic on money, correctly. So when
+      // asked for year-to-date collection it did the only thing left open to
+      // it: quoted one month's figure under a YTD heading. Rs. 30,000 where the
+      // answer was Rs. 90,000.
+      //
+      // The fix is to compute the total here rather than hope the model adds
+      // three numbers correctly. It is one query, and it is right every time.
+      const cfg = await prisma.associationConfig.findUnique({
+        where:  { association_id: ctx.associationId },
+        select: { financial_year_start_month: true },
+      });
+      const fyStartMonth = cfg?.financial_year_start_month ?? 4;   // April, Indian FY
+
+      const now = new Date();
+      // If today is before the FY start month, the year began last calendar
+      // year. In April–March terms: February 2027 belongs to FY starting
+      // April 2026.
+      const fyStartYear = (now.getMonth() + 1) >= fyStartMonth
+        ? now.getFullYear()
+        : now.getFullYear() - 1;
+      const fyStart = new Date(Date.UTC(fyStartYear, fyStartMonth - 1, 1));
+
+      const [billing, other] = await Promise.all([
+        prisma.payment.aggregate({
+          where: { association_id: ctx.associationId, payment_date: { gte: fyStart } },
+          _sum:  { amount: true },
+        }),
+        prisma.otherReceipt.aggregate({
+          where: {
+            association_id: ctx.associationId, deleted_at: null,
+            receipt_date: { gte: fyStart },
+          },
+          _sum: { amount: true },
+        }),
+      ]);
+
+      const duesCollected  = Number(billing._sum.amount ?? 0);
+      const otherCollected = Number(other._sum.amount ?? 0);
+
+      return {
+        ...duesOnly,
+        financial_year_start: fyStart.toISOString().slice(0, 10),
+        // Split as well as totalled, so "collection this year" and "dues
+        // collected this year" are both answerable without adding anything.
+        ytd_dues_collected:   duesCollected,
+        ytd_other_receipts:   otherCollected,
+        ytd_total_collected:  Math.round((duesCollected + otherCollected) * 100) / 100,
+        _note:
+          'ytd_* figures are totals for the financial year to date, already summed — quote them directly. '
+          + 'There is no cash or bank balance here; call ledger_balance for the live position.',
+      };
+    },
   },
 
   {
@@ -233,6 +456,92 @@ export const TOOLS: ToolDef[] = [
     input_schema: { type: 'object', properties: {} },
     roles: COMMITTEE,
     handler: async (ctx) => maintenanceService.getDashboard(ctx.associationId),
+  },
+
+  // ── Ledger ────────────────────────────────────────────────────────────────
+  //
+  // A deliberate reversal. The first version of this file had no accounting
+  // tools, on the grounds that a plausible paraphrase of a statutory report is
+  // worse than no answer. That reasoning holds for the Balance Sheet and the
+  // Income & Expenditure account, which are arguments about presentation as
+  // much as arithmetic — and it does NOT hold for a single account balance,
+  // which is one number the trial balance already computes.
+  //
+  // So: balances yes, statements no. The line is between quoting a figure and
+  // narrating a report.
+  {
+    name: 'ledger_balance',
+    description:
+      'The current balance of a ledger account — bank, cash, a specific income '
+      + 'or expense head, or any account in the chart. Search by name or code, '
+      + 'e.g. "bank", "4008", "maintenance income". Returns every account that '
+      + 'matches with its balance, so an ambiguous name lists the candidates '
+      + 'rather than guessing. Treasurer, committee and manager only.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        search: {
+          type: 'string',
+          description: 'Part of the account name or its code. Omit to list all accounts with a non-zero balance.',
+        },
+        as_of: { type: 'string', description: 'As-at date, YYYY-MM-DD. Defaults to today.' },
+      },
+    },
+    roles: COMMITTEE,
+    handler: async (ctx, args) => {
+      // The assistant runs behind the ASSISTANT module, not ACCOUNTING. Without
+      // this check, an association could buy the cheap module and read its
+      // ledger through the chatbot — the subscription boundary has to hold
+      // whichever door the data comes out of.
+      const access = await entitlementService.accessFor(ctx.associationId, ModuleKey.ACCOUNTING, ctx.role);
+      if (access === 'NONE') {
+        throw new Error('This association does not have the Accounting module, so I cannot see the ledger.');
+      }
+
+      const asOf = (args['as_of'] as string | undefined) ?? new Date().toISOString().slice(0, 10);
+      const tb   = await journalService.getTrialBalance(ctx.associationId, { asOf });
+
+      // Note the `.data` — getTrialBalance wraps its payload the way the
+      // controllers expect. Reading `tb.accounts` compiles happily against a
+      // loose cast and yields an empty list at runtime, which would have shown
+      // up as "no account has a balance yet" on a ledger full of money.
+      const accounts = (tb as { data?: { accounts?: Array<{
+        code: string; name: string; type: string; sub_type: string | null;
+        debitBalance: number; creditBalance: number;
+      }> } }).data?.accounts ?? [];
+
+      const term = String(args['search'] ?? '').trim().toLowerCase();
+      const matches = accounts.filter(a => {
+        const nonZero = a.debitBalance !== 0 || a.creditBalance !== 0;
+        if (!term) return nonZero;
+        return a.code.toLowerCase().includes(term) || a.name.toLowerCase().includes(term);
+      });
+
+      if (!matches.length) {
+        throw new Error(
+          term
+            ? `No account matches "${args['search']}". Ask me to list the accounts if you are not sure of the name.`
+            : 'No account has a balance yet.',
+        );
+      }
+
+      return {
+        as_of: asOf,
+        // Debit and credit are kept separate rather than netted into one
+        // signed number. A treasurer reads "credit balance 45,000" on a
+        // liability correctly; a "-45,000" invites the model to describe it
+        // as negative, which for a liability is the opposite of the truth.
+        accounts: cap(matches, 20).map(a => ({
+          code: a.code,
+          name: a.name,
+          type: a.type,
+          sub_type: a.sub_type,
+          debit_balance:  a.debitBalance,
+          credit_balance: a.creditBalance,
+        })),
+        truncated: matches.length > 20 ? matches.length - 20 : 0,
+      };
+    },
   },
 
   {
