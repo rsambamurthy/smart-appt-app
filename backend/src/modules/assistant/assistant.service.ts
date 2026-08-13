@@ -67,6 +67,43 @@ const LOOKS_LIKE_SPOKEN_MONEY = /\brupees?\b|\blakhs?\b|\bcrores?\b/i;
 const REFUSED_WITHOUT_LOOKING =
   /\b(?:can(?:no|')?t (?:help|do|assist)|unable to (?:help|assist)|outside (?:of )?what i can|beyond what i can|not something i can|don'?t have (?:the )?(?:ability|access)|administrative task|contact your (?:association )?manager|speak (?:with|to) your (?:association )?manager)\b/i;
 
+/**
+ * Answers that are legitimately produced without calling anything.
+ *
+ * A refusal, an admission of not knowing, or a question back. Everything else
+ * said with no tool behind it is an assertion about a person or their money
+ * that nothing in the database supports.
+ */
+const SAFE_WITHOUT_TOOLS =
+  /\b(?:i (?:do not|don'?t) (?:have|know)|i (?:cannot|can'?t|am not able to)|i am not sure|could you|would you like|which (?:flat|bill|month)|what would you|not available to you|ask your (?:association )?manager)\b|\?\s*$/i;
+
+/**
+ * THE FABRICATION GUARD.
+ *
+ * Asked "what is my name", Phoebe replied: "You're Ashok Patel, registered to
+ * flat 2C in the Rear block. You're the owner and treasurer." Every element
+ * invented. `tool_calls` was empty, and no such user existed.
+ *
+ * A wrong balance is a wrong number. A wrong person is a wrong number attached
+ * to someone who does not exist, and in a system holding real residents' data
+ * that is the worst thing this assistant can do.
+ *
+ * So the rule is no longer "suppress ungrounded figures" — pattern-matching
+ * money was always going to miss the next category, and it did. The rule is now
+ * the invariant the whole design assumed and never enforced:
+ *
+ *   IF NO TOOL SUCCEEDED, PHOEBE MAY NOT ASSERT ANYTHING.
+ *
+ * She may refuse, say she does not know, or ask a question. She may not state a
+ * name, a flat, a balance, a date or a status. There is no legitimate answer
+ * that asserts a fact about this association without having read it.
+ */
+function isUnsupportedAssertion(answer: string): boolean {
+  const a = answer.trim();
+  if (!a) return false;
+  return !SAFE_WITHOUT_TOOLS.test(a);
+}
+
 function systemPrompt(
   ctx: ToolContext, associationName: string, today: string, spoken = false,
 ): string {
@@ -86,6 +123,7 @@ function systemPrompt(
     '- If the tools cannot answer it, say so plainly and suggest who can. Do not guess, estimate or illustrate with made-up numbers.',
     '- You have NO knowledge of how SmartAppt works beyond what how_it_works, find_feature and explain_term return. Never describe a screen, menu, button or setting from memory — every association configures its own menu, and a plausible-sounding path that does not exist wastes someone\'s afternoon.',
     '- Never do arithmetic on money yourself. The totals in tool results are already correct; quote them.',
+    '- EARLIER MESSAGES IN THIS CONVERSATION ARE NOT A SOURCE. If you are asked again about a name, flat, balance, date or status you mentioned before, call the tool again. Do not repeat it from the transcript — you will keep some of it and quietly change the rest.',
     '- If a total you have been asked for is not in the results, say you do not have it. Do not answer with one component instead, and do not add the components up.',
     '- Be brief. Two or three sentences, or a short list. These are people checking something on a phone.',
     '- PLAIN TEXT ONLY. The chat window does not render markdown, so asterisks appear literally as **like this**. Never use *, **, #, or backticks. For a label, write "Total billed: Rs. 90,000.00".',
@@ -291,20 +329,29 @@ class AssistantService {
       if (!calls.length) {
         answer = texts.map(t => t.text).join('\n').trim();
 
-        // Refused without looking. One corrective turn, once — enough to make
-        // her check, not enough to argue her into something she should refuse.
-        // If she says no again after calling find_feature, that answer stands.
-        if (!nudged && !audit.some(a => a.ok) && REFUSED_WITHOUT_LOOKING.test(answer)) {
+        // Nothing was looked up this turn. One corrective turn, once.
+        //
+        // This covers both ways that goes wrong: refusing without checking, and
+        // — worse — answering from the conversation transcript instead of the
+        // database. History is replayed as plain text, so a fact from three
+        // turns ago can be restated with no tool call, and the model rebuilds
+        // it from tokens rather than reading it. That is how a correct flat and
+        // block arrived with an invented name attached.
+        if (!nudged && !audit.some(a => a.ok) && !SAFE_WITHOUT_TOOLS.test(answer)) {
           nudged = true;
+          const refusing = REFUSED_WITHOUT_LOOKING.test(answer);
           messages.push({ role: 'assistant', content: answer });
           messages.push({
             role: 'user',
-            content:
-              'You decided you could not help without looking anything up. Before refusing, call '
-              + 'find_feature with what this person is trying to do. Your tools are filtered to this '
-              + 'person\'s role, so anything find_feature returns is something they are allowed to do — '
-              + 'and they may well be the manager. If find_feature genuinely has nothing for it, then '
-              + 'say so and name who can help.',
+            content: refusing
+              ? 'You decided you could not help without looking anything up. Before refusing, call '
+                + 'find_feature with what this person is trying to do. Your tools are filtered to this '
+                + 'person\'s role, so anything it returns is something they are allowed to do — and they '
+                + 'may well be the manager. If it genuinely has nothing, say so and name who can help.'
+              : 'You answered without calling any tool, so nothing you just said came from this '
+                + 'association\'s records. Do not restate names, flat numbers, balances or dates from '
+                + 'earlier in this conversation — earlier text is not a source. Call the tool that '
+                + 'actually holds this information and answer from what it returns.',
           });
           answer = '';
           continue;
@@ -361,12 +408,21 @@ class AssistantService {
     // the ledger. There is no charitable reading of that, so it is replaced
     // rather than shown with a caveat.
     const grounded = audit.some(a => a.ok && a.summary === 'ok');
-    const quotesMoney = LOOKS_LIKE_MONEY.test(answer) || LOOKS_LIKE_SPOKEN_MONEY.test(answer);
-    if (!grounded && quotesMoney) {
-      logger.warn('Assistant produced an ungrounded figure; answer suppressed', {
+
+    // The corrective turn above gets one chance to fix this. If it did not —
+    // no tool ran and she is still asserting something — the answer does not
+    // go out. Previously this only caught money, which is why an invented
+    // resident sailed through: the guard was looking for rupee signs while
+    // she was making up a person.
+    if (!grounded && isUnsupportedAssertion(answer)) {
+      const quotesMoney = LOOKS_LIKE_MONEY.test(answer) || LOOKS_LIKE_SPOKEN_MONEY.test(answer);
+      logger.warn('Assistant asserted something with no tool behind it; answer suppressed', {
         association_id: ctx.associationId, user_id: ctx.userId,
+        money: quotesMoney, suppressed: answer.slice(0, 300),
       });
-      answer = 'I could not retrieve your account just now, so I do not want to quote a figure. Please open the Dues screen, or try again shortly.';
+      answer = quotesMoney
+        ? 'I could not read your account just now, so I do not want to quote a figure. Please open the Dues screen, or try again shortly.'
+        : 'I could not look that up just now, so I would rather not answer from memory. Please try again in a moment.';
     }
 
     if (!answer) {

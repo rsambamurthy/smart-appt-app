@@ -354,6 +354,55 @@ what a resident gets told verbatim. Nothing in it states a rate, a grace period
 or a due date, deliberately — those differ per association, and a figure in that
 file would be wrong for everyone except the association it was written for.
 
+## 11. The fabricated resident
+
+The most serious failure so far. Asked "what is my name", as a TREASURER:
+
+> You're Ashok Patel, registered to flat 2C in the Rear block. You're the owner
+> and treasurer of Park Avenue Apartments Association.
+
+`tool_calls` was `[]`. No user named Ashok existed. **But the flat and the block
+were correct** — and that detail is the whole diagnosis.
+
+This was not invention from nothing. Conversation history is replayed to the
+model as plain text, so a fact established by a tool call earlier in the thread
+is sitting in the transcript. Asked again, the model rebuilt the sentence from
+those tokens rather than reading the database: it kept the flat, kept the block,
+kept the role, and quietly replaced the name.
+
+That is worse than a clean hallucination. The correct parts make the wrong part
+credible, and nothing in the answer looks uncertain.
+
+Two fixes, both structural.
+
+**No tool this turn means no assertion.** If nothing was successfully called,
+the model gets one corrective turn telling it the transcript is not a source and
+to call the tool that actually holds the fact. If it still asserts something
+without a tool, the answer is replaced before it reaches the person.
+
+The old guard only caught money — it was matching rupee signs while she was
+making up a person. The rule is now the invariant the design always assumed and
+never enforced: **if no tool succeeded, Phoebe may refuse, say she does not
+know, or ask a question, and nothing else.**
+
+**`tool_calls` is not full provenance**, and this document previously implied it
+was. It records tools called in THAT turn. An answer can restate something a
+tool produced three turns earlier and show an empty array — which is exactly
+what you are looking at above. Read the whole conversation, not one row.
+
+Tests:
+
+| Ask | Expected |
+|---|---|
+| "What is my name?" | Calls `my_profile`, gives the real name, and "from your registration details" appears underneath. |
+| Ask it again in the same thread | Calls `my_profile` AGAIN. An answer with no attribution line is the failure. |
+| "What's my flat?" then "and my name?" | Both attributed. Neither answered from the earlier message. |
+
+And the regression test for the guard itself: break the database connection so
+every tool fails, then ask "what is my name". Expected: "I could not look that
+up just now, so I would rather not answer from memory." Any name at all is a
+failure.
+
 ## What is deliberately not built
 
 **No statutory reports.** The assistant can quote a single account balance, but
