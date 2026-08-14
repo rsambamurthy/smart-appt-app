@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { IS_NATIVE } from './usePlatform';
 
 /**
@@ -369,10 +369,17 @@ function readPref(): boolean {
   catch { return false; }          // private mode, or storage disabled
 }
 
+const VOICE_PICK_KEY = 'smartappt.phoebe.voiceURI';
+
 export interface SpeechOutput {
   supported: boolean;
   enabled:   boolean;
   speaking:  boolean;
+  /** Voices installed for the chosen accent, for the person to pick from. */
+  voices:    SpeechSynthesisVoice[];
+  /** Their pick, or null to let the browser decide. */
+  voiceURI:  string | null;
+  chooseVoice: (uri: string | null) => void;
   toggle:    () => void;
   /**
    * `force` speaks even when the toggle is off.
@@ -420,6 +427,43 @@ export function useSpeechOutput(lang: string = FALLBACK_LANG): SpeechOutput {
   const [enabled, setEnabled]   = useState(readPref);
   const [speaking, setSpeaking] = useState(false);
 
+  /**
+   * Which voice, chosen by the person, kept on their device.
+   *
+   * This exists because guessing failed twice. First a broad fallback grabbed
+   * any English voice and turned Phoebe male overnight. Narrowing it to an
+   * exact accent match did not help: Windows ships both Heera and Ravi for
+   * en-IN, and picking between them by list order or by a `default` flag is
+   * still a coin toss the user cannot see.
+   *
+   * Naming an assistant Phoebe and having her read in a male voice is
+   * incoherent, and no heuristic fixes that — inferring gender from a voice
+   * name is guesswork dressed up as logic, and wrong in other languages.
+   *
+   * So the list is shown and the person picks. It stays on their device: a
+   * committee has no business deciding how the app sounds to everyone, and
+   * this way nobody has to.
+   */
+  const [voiceURI, setVoiceURI] = useState<string | null>(() => {
+    try { return window.localStorage.getItem(VOICE_PICK_KEY); } catch { return null; }
+  });
+
+  const chooseVoice = useCallback((uri: string | null) => {
+    setVoiceURI(uri);
+    try {
+      if (uri) window.localStorage.setItem(VOICE_PICK_KEY, uri);
+      else     window.localStorage.removeItem(VOICE_PICK_KEY);
+    } catch { /* private mode */ }
+    if (hasApi) window.speechSynthesis.cancel();
+  }, [hasApi]);
+
+  /** Voices for the chosen accent. Empty until the list loads. */
+  const voices = useMemo(() => {
+    if (!hasApi || !hasVoices) return [];
+    return window.speechSynthesis.getVoices()
+      .filter(v => v.lang.replace('_', '-') === lang);
+  }, [hasApi, hasVoices, lang]);
+
   // Stopping keys off hasApi, not `supported`. `supported` flips false to true
   // when voices finish loading, and hanging cleanup effects off a value that
   // changes mid-session cancels speech that is happily in progress.
@@ -458,13 +502,18 @@ export function useSpeechOutput(lang: string = FALLBACK_LANG): SpeechOutput {
     // No voice is selected by gender, deliberately — which voices exist is the
     // device's business, and an association deciding how the app sounds to
     // every resident is a choice nobody needs made for them.
-    const voices = window.speechSynthesis.getVoices();
-    const exact  = voices.filter(v => v.lang.replace('_', '-') === lang);
-    // Among equals, prefer the one the platform marks as default, then a local
-    // (offline) voice — so the same person hears the same voice each time
-    // rather than whatever the list happened to yield today.
-    const voice  = exact.find(v => v.default) ?? exact.find(v => v.localService) ?? exact[0];
-    if (voice) u.voice = voice;
+    const all   = window.speechSynthesis.getVoices();
+    const exact = all.filter(v => v.lang.replace('_', '-') === lang);
+
+    // Their choice wins, provided it is still installed and still matches the
+    // accent — a voice picked for en-IN should not follow them to en-GB.
+    const picked = voiceURI ? exact.find(v => v.voiceURI === voiceURI) : undefined;
+    if (picked) u.voice = picked;
+    else if (exact.length === 1) u.voice = exact[0];
+    // With several to choose from and no choice made, deliberately set nothing.
+    // The browser's own default for this language is a considered decision;
+    // the first entry of an unordered list is not, and that is precisely how
+    // the voice changed on its own.
 
     u.rate = 1;
     u.onend   = () => setSpeaking(false);
@@ -472,7 +521,7 @@ export function useSpeechOutput(lang: string = FALLBACK_LANG): SpeechOutput {
 
     setSpeaking(true);
     window.speechSynthesis.speak(u);
-  }, [supported, enabled, lang]);
+  }, [supported, enabled, lang, voiceURI]);
 
   const toggle = useCallback(() => {
     setEnabled(prev => {
@@ -487,5 +536,5 @@ export function useSpeechOutput(lang: string = FALLBACK_LANG): SpeechOutput {
   // reading someone's balance to the room.
   useEffect(() => () => { if (hasApi) window.speechSynthesis.cancel(); }, [hasApi]);
 
-  return { supported, enabled, speaking, toggle, speak, cancel };
+  return { supported, enabled, speaking, voices, voiceURI, chooseVoice, toggle, speak, cancel };
 }

@@ -301,6 +301,46 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
             </div>
           )}
 
+          {/* The voice itself.
+              Guessing here failed twice — a broad fallback made Phoebe male
+              overnight, and narrowing it to an exact accent match did not help
+              because Windows ships two en-IN voices and picking between them by
+              list order is a coin toss nobody can see. Voice names are shown as
+              the system reports them; no gender is inferred from a name, which
+              is guesswork dressed as logic and wrong in half the world. */}
+          {voice.supported && voice.voices.length > 1 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 7 }}>
+                Voice — tap to hear it
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {voice.voices.map(v => (
+                  <button key={v.voiceURI}
+                    onClick={() => {
+                      voice.chooseVoice(v.voiceURI);
+                      // Speak a sample immediately. Choosing a voice from a
+                      // list of names without hearing it is guesswork too.
+                      window.setTimeout(() => voice.speak('This is how I will sound.', true), 60);
+                    }}
+                    style={{
+                      ...btn, fontSize: 12, padding: '5px 10px', fontWeight: 500,
+                      background:  voice.voiceURI === v.voiceURI ? '#1e293b' : '#fff',
+                      color:       voice.voiceURI === v.voiceURI ? '#fff' : '#475569',
+                      borderColor: voice.voiceURI === v.voiceURI ? '#1e293b' : '#cbd5e1',
+                    }}>
+                    {v.name.replace(/^Microsoft\s+/, '').replace(/\s*-\s*English.*$/i, '')}
+                  </button>
+                ))}
+              </div>
+              {voice.voiceURI && (
+                <button onClick={() => voice.chooseVoice(null)}
+                  style={{ ...btn, marginTop: 7, fontSize: 11.5, padding: '4px 9px', background: 'transparent', color: '#64748b' }}>
+                  Use the browser default
+                </button>
+              )}
+            </div>
+          )}
+
           {ownLang && (
             <button
               onClick={() => { setOwnLang(null); writeLangPref(null); setShowLangs(false); }}
