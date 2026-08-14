@@ -199,6 +199,13 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
   // a new one.
   const mic = useSpeechInput(onHeard, voice.speaking || isLoading, lang);
 
+  // Interim words go straight into the input box as they are heard. Replaces
+  // the banner: same feedback, in the place someone is already looking, with
+  // nothing to press.
+  useEffect(() => {
+    if (mic.active && mic.transcript) setDraft(mic.transcript);
+  }, [mic.active, mic.transcript]);
+
   const decide = async (messageId: string, go: boolean) => {
     try {
       if (go) await confirmAction(messageId).unwrap();
@@ -231,14 +238,20 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
               setting, this is where voice happens, and a manager who wants to
               change it for everyone is almost certainly looking at the panel
               when they decide that. */}
-          {(mic.supported || voice.supported) && !!settings?.languages?.length && (
+          {/* A gear, not a two-letter language code. The code was meaningful to
+              whoever wrote it and to nobody else — the person who built this app
+              could not find the voice settings behind it. */}
+          {(mic.supported || voice.supported) && (
             <button
               onClick={() => setShowLangs(v => !v)}
-              aria-label="Language"
-              title={settings.languages.find(l => l.code === lang)?.label ?? lang}
+              aria-label="Voice settings"
+              title="Voice settings"
               aria-expanded={showLangs}
-              style={{ ...btn, background: 'transparent', color: '#64748b', fontSize: 11.5, padding: '3px 7px' }}>
-              {lang.split('-')[0].toUpperCase()}
+              style={{
+                ...btn, background: showLangs ? '#e2e8f0' : 'transparent',
+                color: '#64748b', fontSize: 15, padding: '3px 8px',
+              }}>
+              ⚙
             </button>
           )}
           {voice.supported && (
@@ -266,13 +279,20 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
         </div>
       </div>
 
-      {showLangs && settings && (
+      {/* Opens on the gear alone — not gated on the settings request having
+          landed. Gating it meant the panel silently did nothing if that call
+          was slow or failed, which is indistinguishable from a broken button. */}
+      {showLangs && (
         <div style={{ padding: '10px 16px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: '#334155', marginBottom: 10 }}>
+            Voice settings
+          </div>
+
           <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 7 }}>
             Accent for speaking and listening
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {settings.languages.map(l => (
+            {(settings?.languages ?? [{ code: 'en-IN', label: 'English (India)' }]).map(l => (
               <button key={l.code} onClick={() => chooseLang(l.code)}
                 style={{
                   ...btn, fontSize: 12, padding: '5px 10px', fontWeight: 500,
@@ -288,7 +308,7 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
           {/* Only a manager sees this, and it is worded so it is obvious the
               two things are different: your choice, and everyone's starting
               point. */}
-          {settings.can_set_default && (
+          {settings?.can_set_default && (
             <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <button
                 onClick={() => { void setAssociationLang(lang); }}
@@ -308,7 +328,11 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
               list order is a coin toss nobody can see. Voice names are shown as
               the system reports them; no gender is inferred from a name, which
               is guesswork dressed as logic and wrong in half the world. */}
-          {voice.supported && voice.voices.length > 1 && (
+          {/* Shown whenever there is a voice at all, not only when there are
+              several. With one voice the row still tells you which one you are
+              hearing, and lets you play it — silence with no explanation was
+              how the male voice went unexplained for a day. */}
+          {voice.supported && voice.voices.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 11.5, color: '#64748b', marginBottom: 7 }}>
                 Voice — tap to hear it
@@ -341,7 +365,7 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
             </div>
           )}
 
-          {ownLang && (
+          {ownLang && settings && (
             <button
               onClick={() => { setOwnLang(null); writeLangPref(null); setShowLangs(false); }}
               style={{ ...btn, marginTop: 8, fontSize: 11.5, padding: '4px 9px', background: 'transparent', color: '#64748b' }}>
@@ -349,6 +373,14 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
               {settings.languages.find(l => l.code === settings.voice_language)
                 ? ` (${settings.languages.find(l => l.code === settings.voice_language)!.label})` : ''}
             </button>
+          )}
+
+          {voice.supported && voice.voices.length === 0 && (
+            <div style={{ marginTop: 10, fontSize: 11.5, color: '#94a3b8' }}>
+              Your device has no voice installed for this accent, so the browser
+              will choose one. Windows adds voices under Settings, Time &amp; language,
+              Speech.
+            </div>
           )}
         </div>
       )}
@@ -434,23 +466,13 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
       {/* Keyed off `active`, not `listening`. In a hands-free session the
           recogniser stops and restarts on every pause, and a banner that
           blinked out between sentences would read as the microphone dropping. */}
-      {mic.active && !pending && (
-        <div style={{
-          padding: '8px 16px', background: '#eff6ff', color: '#1d4ed8',
-          fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8,
-        }}>
-          <span aria-hidden style={{ fontSize: 10, opacity: mic.listening ? 1 : 0.35 }}>●</span>
-          <span style={{ flex: 1 }}>
-            {/* Showing words as they land, because silence while a microphone is
-                open reads as "it is not hearing me" and people start over. */}
-            {mic.transcript || 'Listening…'}
-          </span>
-          <button onClick={mic.stop}
-                  style={{ ...btn, background: '#fff', color: '#1d4ed8', borderColor: '#bfdbfe', padding: '4px 10px' }}>
-            Stop
-          </button>
-        </div>
-      )}
+      {/* The listening banner and its Stop button are gone.
+          A Stop button reads as something you are meant to press, so it turned
+          every question into stop-then-tap-again — when the microphone already
+          closes itself the moment you stop speaking. A control that invites an
+          unnecessary action is worse than no control.
+          Words now land in the input box instead, which is where the eye
+          already is, and the microphone button shows whether it is live. */}
 
       {/* The escape hatch. Visible, short, and it says what it heard — so a
           mis-transcription can be caught before it is asked. */}
@@ -504,7 +526,10 @@ export default function AssistantChat({ onClose }: { onClose?: () => void }) {
           placeholder={mic.active ? 'Listening…' : 'Ask Phoebe…'}
           style={{
             flex: 1, padding: '10px 13px', borderRadius: 9,
-            border: '1px solid #cbd5e1', fontSize: 14, outline: 'none',
+            // The box itself shows the microphone is live, so nothing else has to.
+            border: `1px solid ${mic.active ? '#93c5fd' : '#cbd5e1'}`,
+            background: mic.active ? '#eff6ff' : '#fff',
+            fontSize: 14, outline: 'none',
           }}
         />
         <button type="submit" disabled={isLoading || !draft.trim()}
