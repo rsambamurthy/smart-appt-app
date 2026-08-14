@@ -3,7 +3,7 @@ import { AuditAction, MobileConfig, Prisma, UserRole } from '@prisma/client';
 import { auditService } from '../../services/audit.service';
 import { ForbiddenError } from '../../utils/errors';
 import {
-  MOBILE_MENU, resolveMenuForRole, pruneToOverrides,
+  MOBILE_AVAILABLE, MOBILE_MENU_BY_ID, resolveMenuForRole, pruneToOverrides,
   type RoleMenuOverrides, type ResolvedMenuItem,
 } from './mobile-menu';
 
@@ -168,10 +168,34 @@ export class SystemService {
     return {
       data: {
         ...(config ?? { ...MOBILE_DEFAULTS, association_id: associationId }),
-        // Only what this role may see, and only the ids — the app looks up
-        // labels from its own catalogue.
         menu_items: null,
-        menu: resolved.filter(i => i.enabled),
+        // Whole rows, not bare ids.
+        //
+        // The app used to look labels up in its own hardcoded list, which is
+        // how the More screen came to render six items out of a catalogue of
+        // twenty-six: enabling anything else changed the resolved menu and the
+        // phone had no row for it. Sending label, icon and path means a new
+        // item appears on every phone without an app release.
+        //
+        // Filtered to items that HAVE a mobile screen. An enabled item with no
+        // route sends someone to the catch-all, which reads as the app
+        // forgetting where it was going.
+        menu: resolved
+          .filter(i => i.enabled)
+          .map(i => {
+            const item = MOBILE_MENU_BY_ID.get(i.id);
+            if (!item?.mobilePath) return null;
+            return {
+              id:       i.id,
+              can_post: i.can_post,
+              label:    item.label,
+              path:     item.mobilePath,
+              icon:     item.icon ?? null,
+              hint:     item.hint ?? null,
+              group:    item.group,
+            };
+          })
+          .filter(Boolean),
         role,
       },
     };
@@ -198,7 +222,14 @@ export class SystemService {
         // The catalogue travels with the matrix so the admin screen never
         // holds its own copy of the item list. That duplication is how the
         // old screen came to offer items the app had never heard of.
-        items: MOBILE_MENU.map(i => ({
+        //
+        // MOBILE_AVAILABLE, not MOBILE_MENU: only items with a mobile screen.
+        // The matrix previously listed all twenty-six, including screens that
+        // exist on the web alone — so a super user could switch on Arrears or
+        // Ledger for a role and nothing would change, because the phone has no
+        // route to send them to. A toggle that configures nothing is a support
+        // call, not a feature.
+        items: MOBILE_AVAILABLE.map(i => ({
           id: i.id, label: i.label, group: i.group, supports_post: i.supportsPost,
         })),
         roles,

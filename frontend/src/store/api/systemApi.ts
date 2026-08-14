@@ -37,10 +37,29 @@ export interface MobileConfig {
    * items are sent, and only for this user's role — the device never receives
    * other roles' configuration.
    */
-  menu?: ResolvedMenuItem[];
+  menu?: MobileMenuEntry[];
   role?: string;
 }
 
+/**
+ * A row the phone can render as-is.
+ *
+ * Label, icon and path come from the server rather than a list kept in the
+ * app. That list was the reason a super user could enable an item and see no
+ * change: the screen only knew about six of them, and anything else had no row
+ * to draw. Now a new item reaches every phone without an app release.
+ */
+export interface MobileMenuEntry {
+  id:       string;
+  can_post: boolean;
+  label:    string;
+  path:     string;
+  icon:     string | null;
+  hint:     string | null;
+  group:    'community' | 'dues' | 'accounting' | 'governance' | 'gate';
+}
+
+/** Kept for the admin matrix, which still works in enabled/can_post terms. */
 export interface ResolvedMenuItem {
   id: string;
   enabled: boolean;

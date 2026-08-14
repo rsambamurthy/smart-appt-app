@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../store';
-import { useGetMyMobileConfigQuery, type MobileConfig } from '../store/api/systemApi';
+import {
+  useGetMyMobileConfigQuery, type MobileConfig, type MobileMenuEntry,
+} from '../store/api/systemApi';
 
 // Safe defaults — all features on, no branding overrides
 const DEFAULT_CONFIG: MobileConfig = {
@@ -45,6 +47,8 @@ interface MobileConfigValue extends MobileConfig {
   can:     (itemId: string) => boolean;
   canPost: (itemId: string) => boolean;
   ready:   boolean;
+  /** Everything this person may open, in catalogue order, ready to render. */
+  items:   MobileMenuEntry[];
 }
 
 const MobileConfigContext = createContext<MobileConfigValue>({
@@ -52,6 +56,7 @@ const MobileConfigContext = createContext<MobileConfigValue>({
   can: () => true,
   canPost: () => true,
   ready: false,
+  items: [],
 });
 
 export function MobileConfigProvider({ children }: { children: React.ReactNode }) {
@@ -67,6 +72,7 @@ export function MobileConfigProvider({ children }: { children: React.ReactNode }
     return {
       ...config,
       ready: menu !== undefined,
+      items:   menu ?? [],
       can:     (id) => (menu === undefined ? true : byId.has(id)),
       canPost: (id) => (menu === undefined ? true : (byId.get(id)?.can_post ?? false)),
     };

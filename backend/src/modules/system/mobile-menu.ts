@@ -25,6 +25,28 @@ export interface MobileMenuItem {
   id:       string;
   label:    string;
   group:    'community' | 'dues' | 'accounting' | 'governance' | 'gate';
+  /**
+   * The route inside the mobile app, when one exists.
+   *
+   * ABSENT MEANS THERE IS NO MOBILE SCREEN, and the item is hidden from the
+   * Mobile Menu by Role matrix entirely.
+   *
+   * This is the fix for a real defect. The matrix offered twenty-six items;
+   * `App.tsx` registers eleven routes on native and wraps the rest in
+   * `!IS_NATIVE`. Enabling Arrears or Ledger for a role resolved correctly on
+   * the server and then had nowhere to send anyone — the catch-all bounced
+   * them to Home. My Statement was already in the More page and already doing
+   * exactly that.
+   *
+   * A switch that cannot do anything is worse than an absent one: it looks
+   * like a broken app rather than a missing feature. When a mobile screen is
+   * built, add its path here and the item appears in the matrix on its own.
+   */
+  mobilePath?: string;
+  /** Shown on the More screen. Presentational, kept beside the label. */
+  icon?:    string;
+  /** One line under the label on the More screen. */
+  hint?:    string;
   /** Whether "can post" is meaningful — a read-only report has no write side. */
   supportsPost: boolean;
   /** Roles that see it out of the box. */
@@ -54,19 +76,20 @@ const COMMITTEE_AND_UP: UserRole[] = [
  */
 export const MOBILE_MENU: MobileMenuItem[] = [
   // ── Community ──────────────────────────────────────────────────────────────
-  { id: 'dues_my_bills',         label: 'My Bills',            group: 'community', supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
-  { id: 'dues_my_statement',     label: 'My Statement',        group: 'community', supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
-  { id: 'dues_pay_upi',          label: 'Pay by UPI',          group: 'community', supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },
-  { id: 'announcements_feed',    label: 'Announcements',       group: 'community', supportsPost: false, defaultRoles: [...RESIDENTS_AND_UP, UserRole.GATE_STAFF] },
-  { id: 'announcements_docs',    label: 'Documents',           group: 'community', supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
-  { id: 'maintenance_list',      label: 'Service Requests',    group: 'community', supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: OFFICERS },
-  { id: 'maintenance_new',       label: 'Raise Request',       group: 'community', supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },
-  { id: 'expenses_transparency', label: 'Transparency',        group: 'community', supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
+  { id: 'dues_my_bills',         label: 'My Bills',            group: 'community', mobilePath: '/mobile/bills',                icon: '🧾', hint: 'View and pay dues',                    supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
+  { id: 'dues_my_statement',     label: 'My Statement',        group: 'community',                                                                                                        supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
+  { id: 'dues_pay_upi',          label: 'Pay by UPI',          group: 'community',                                                                                                        supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },
+  { id: 'announcements_feed',    label: 'Announcements',       group: 'community', mobilePath: '/announcements',               icon: '📢', hint: 'Community notices and updates',        supportsPost: false, defaultRoles: [...RESIDENTS_AND_UP, UserRole.GATE_STAFF] },
+  { id: 'announcements_docs',    label: 'Documents',           group: 'community', mobilePath: '/documents',                   icon: '📁', hint: 'Bye-laws, circulars and minutes',      supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
+  { id: 'maintenance_list',      label: 'Service Requests',    group: 'community', mobilePath: '/maintenance',                 icon: '🔧', hint: 'Raise and track maintenance requests', supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: OFFICERS },
+  { id: 'maintenance_new',       label: 'Raise Request',       group: 'community', mobilePath: '/maintenance/new',             icon: '➕', hint: 'Report something that needs fixing',   supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },
+  { id: 'expenses_transparency', label: 'Transparency',        group: 'community',                                                                                                        supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
 
   // ── Visitors and gate ──────────────────────────────────────────────────────
-  { id: 'visitors_preapprove',   label: 'Pre-Approve Visitor', group: 'gate',      supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },
-  { id: 'visitors_approvals',    label: 'Visitor Approvals',   group: 'gate',      supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },
-  { id: 'gate_console',          label: 'Gate Console',        group: 'gate',      supportsPost: true,  defaultRoles: [UserRole.GATE_STAFF, UserRole.MANAGER, UserRole.SUPER_USER], defaultPostRoles: [UserRole.GATE_STAFF, UserRole.MANAGER, UserRole.SUPER_USER] },
+  { id: 'visitors_preapprove',   label: 'Pre-Approve Visitor', group: 'gate',      mobilePath: '/mobile/visitors/preapprove',   icon: '🚪', hint: 'Tell the gate someone is coming',      supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },
+  { id: 'visitors_approvals',    label: 'Visitor Approvals',   group: 'gate',      mobilePath: '/mobile/visitors/requests',     icon: '✅', hint: 'Approve or decline visitors',          supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },
+  { id: 'visitors_log',          label: 'Visitor Log',         group: 'gate',      mobilePath: '/mobile/visitors/log',          icon: '📋', hint: 'Who came and when',                    supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
+  { id: 'gate_console',          label: 'Gate Console',        group: 'gate',      mobilePath: '/mobile/gate',                  icon: '🛡️', hint: 'Log entries, exits and deliveries',    supportsPost: true,  defaultRoles: [UserRole.GATE_STAFF, UserRole.MANAGER, UserRole.SUPER_USER], defaultPostRoles: [UserRole.GATE_STAFF, UserRole.MANAGER, UserRole.SUPER_USER] },
 
   // ── Dues ───────────────────────────────────────────────────────────────────
   { id: 'dues_bills',            label: 'All Bills',           group: 'dues',      supportsPost: true,  defaultRoles: OFFICERS, defaultPostRoles: OFFICERS },
@@ -91,6 +114,19 @@ export const MOBILE_MENU: MobileMenuItem[] = [
 ];
 
 export const MOBILE_MENU_BY_ID = new Map(MOBILE_MENU.map(i => [i.id, i]));
+
+/**
+ * The items a phone can actually open.
+ *
+ * Everything the Mobile Menu by Role matrix shows, and everything sent to a
+ * device, is filtered through this. An item with no `mobilePath` is a screen
+ * that exists only on the web; offering it as a mobile toggle configures
+ * nothing.
+ */
+export const MOBILE_AVAILABLE = MOBILE_MENU.filter(i => !!i.mobilePath);
+
+/** True when this item has a screen on the phone. */
+export const hasMobileScreen = (id: string) => !!MOBILE_MENU_BY_ID.get(id)?.mobilePath;
 
 export interface ResolvedMenuItem {
   id:       string;

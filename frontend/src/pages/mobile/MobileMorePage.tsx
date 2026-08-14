@@ -106,23 +106,45 @@ export default function MobileMorePage() {
             turns something off for the whole association, the menu decides
             which roles among them see it. */}
         {(() => {
-          const rows = [
-            { item: 'dues_my_bills',      flag: config.feature_bills,         icon: '🧾', label: 'Bills',            sub: 'View and pay dues',                        to: '/mobile/bills'     },
-            { item: 'dues_my_statement',  flag: config.feature_bills,         icon: '📄', label: 'My Statement',     sub: 'Every charge and payment, with a balance', to: '/dues/my-statement'},
-            { item: 'announcements_feed', flag: config.feature_announcements, icon: '📢', label: 'Announcements',    sub: 'Community notices and updates',            to: '/announcements'    },
-            { item: 'maintenance_list',   flag: config.feature_complaints,    icon: '🔧', label: 'Service Requests', sub: 'Raise and track maintenance requests',     to: '/maintenance'      },
-            { item: 'visitors_preapprove',flag: config.feature_visitors,      icon: '🚪', label: 'Visitors',         sub: 'Gate activity and pre-approvals',          to: '/mobile/visitors'  },
-            { item: 'gate_console',       flag: user?.role === 'GATE_STAFF',                         icon: '🛡️', label: 'Gate Console',     sub: 'Log entries and exits',                    to: '/mobile/gate'      },
-          ].filter(r => r.flag && config.can(r.item));
+          /**
+           * Rendered from what the server sent, not from a list kept here.
+           *
+           * The old version was six hardcoded rows. The catalogue has more, so
+           * enabling anything outside those six in Mobile Menu by Role changed
+           * the resolved menu and produced no visible effect — the screen had
+           * no row to draw. One of the six also pointed at /dues/my-statement,
+           * which is not a route inside the app, so it silently bounced to Home.
+           *
+           * Now every row carries its own label, icon and path from the
+           * catalogue, and only items with a real mobile screen are sent. A new
+           * item appears here without an app release.
+           *
+           * The association-wide feature flags still apply on top: the flag
+           * turns something off for everyone, the menu decides which roles
+           * among them see it.
+           */
+          const FLAG_FOR_GROUP: Record<string, boolean | undefined> = {
+            community: undefined,
+            gate:      config.feature_visitors,
+          };
 
+          const flagFor = (id: string, group: string): boolean => {
+            if (id.startsWith('dues_'))          return config.feature_bills;
+            if (id.startsWith('announcements_')) return config.feature_announcements;
+            if (id.startsWith('maintenance_'))   return config.feature_complaints;
+            if (id.startsWith('visitors_') || id === 'gate_console') return config.feature_visitors;
+            return FLAG_FOR_GROUP[group] ?? true;
+          };
+
+          const rows = config.items.filter(i => flagFor(i.id, i.group));
           if (!rows.length) return null;
 
           return (
             <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', marginBottom: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
               <div style={{ padding: '8px 16px', fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', background: '#f8fafc' }}>Features</div>
               {rows.map(r => (
-                <MenuRow key={r.item} icon={r.icon} label={r.label} sublabel={r.sub}
-                  onClick={() => navigate(r.to)} />
+                <MenuRow key={r.id} icon={r.icon ?? '•'} label={r.label} sublabel={r.hint ?? ''}
+                  onClick={() => navigate(r.path)} />
               ))}
             </div>
           );

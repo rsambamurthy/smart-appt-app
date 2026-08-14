@@ -441,18 +441,29 @@ export function useSpeechOutput(lang: string = FALLBACK_LANG): SpeechOutput {
     const u = new SpeechSynthesisUtterance(clean);
     u.lang = lang;
 
-    // Exact tag first, then the base language — a device with ta-LK but not
-    // ta-IN should still read Tamil. Falling through to whatever the system
-    // picks is fine: the wrong accent is understandable, silence is not.
+    // EXACT TAG ONLY. If the requested accent has no voice installed, leave
+    // `u.voice` unset and let the browser choose for `u.lang`.
     //
-    // No voice is chosen by gender, deliberately. Which voices exist is the
-    // device's business, most Android installs carry one per language, and an
-    // association deciding how the app sounds to every resident is a choice
-    // nobody needs to make on their behalf.
+    // An earlier version fell back to any voice sharing the base language —
+    // `en-*` for `en-IN`. That looks helpful and is not: on a machine with no
+    // Indian English voice it took the first English one in the list, which on
+    // Windows is Microsoft David. The voice changed from female to male
+    // overnight for no reason the user could see, purely because a fallback got
+    // broader.
+    //
+    // Picking nothing is better than picking arbitrarily. The browser's own
+    // default for a language is a considered choice; the first entry of an
+    // unordered list is not.
+    //
+    // No voice is selected by gender, deliberately — which voices exist is the
+    // device's business, and an association deciding how the app sounds to
+    // every resident is a choice nobody needs made for them.
     const voices = window.speechSynthesis.getVoices();
-    const base   = lang.split('-')[0];
-    const voice  = voices.find(v => v.lang === lang)
-                ?? voices.find(v => v.lang.replace('_', '-').startsWith(`${base}-`));
+    const exact  = voices.filter(v => v.lang.replace('_', '-') === lang);
+    // Among equals, prefer the one the platform marks as default, then a local
+    // (offline) voice — so the same person hears the same voice each time
+    // rather than whatever the list happened to yield today.
+    const voice  = exact.find(v => v.default) ?? exact.find(v => v.localService) ?? exact[0];
     if (voice) u.voice = voice;
 
     u.rate = 1;
