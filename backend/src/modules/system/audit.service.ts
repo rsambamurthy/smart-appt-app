@@ -14,6 +14,21 @@ export interface AuditQuery {
   search?: string;
 }
 
+/**
+ * Entity types that carry one tenant's own financial record — what a specific
+ * flat paid, when, by what mode and against which bill. A super user
+ * administers associations and subscriptions, not residents' money; they have
+ * no legitimate reason to see any individual's payment history, so these
+ * types are kept out of their audit view entirely rather than merely
+ * filterable away, which a super user could just as easily clear.
+ *
+ * This is not a security boundary — a super user's platform-level access
+ * still lets them reach the underlying records elsewhere if a genuine
+ * support case needs it. It only keeps a specific tenant's payments from
+ * turning up unasked-for while browsing a general trail of who-changed-what.
+ */
+const TENANT_FINANCIAL_ENTITY_TYPES = ['payment'];
+
 export class AuditReadService {
   /**
    * List audit entries for one association.
@@ -29,7 +44,13 @@ export class AuditReadService {
       where.association_id = associationId;
     }
 
-    if (query.entity_type)  where.entity_type  = query.entity_type;
+    const entityTypeConditions: Prisma.AuditLogWhereInput[] = [];
+    if (query.entity_type) entityTypeConditions.push({ entity_type: query.entity_type });
+    if (role === UserRole.SUPER_USER) {
+      entityTypeConditions.push({ entity_type: { notIn: TENANT_FINANCIAL_ENTITY_TYPES } });
+    }
+    if (entityTypeConditions.length) where.AND = entityTypeConditions;
+
     if (query.entity_id)    where.entity_id    = query.entity_id;
     if (query.performed_by) where.performed_by = query.performed_by;
     if (query.action)       where.action       = query.action as AuditAction;
@@ -76,6 +97,10 @@ export class AuditReadService {
   async facets(associationId: string | null, role: string) {
     const where: Prisma.AuditLogWhereInput =
       role === UserRole.SUPER_USER && !associationId ? {} : { association_id: associationId };
+
+    if (role === UserRole.SUPER_USER) {
+      where.entity_type = { notIn: TENANT_FINANCIAL_ENTITY_TYPES };
+    }
 
     const types = await prisma.auditLog.findMany({
       where,
