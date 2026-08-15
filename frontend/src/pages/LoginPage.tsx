@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useDispatch } from 'react-redux';
 import { IS_NATIVE } from '../hooks/usePlatform';
@@ -69,17 +69,42 @@ const infoBox = (color: 'yellow' | 'green' | 'red'): React.CSSProperties => {
 };
 
 // ── PinInput — defined OUTSIDE component to prevent unmount/remount ───────────
-const PinInput = ({ value, onChange, placeholder = '● ● ● ●', autoFocus = false }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean;
+//
+// There used to be a focus trap here:
+//
+//   onBlur={(e) => { if (e.target.value.length < 4) setTimeout(() => e.target.focus(), 10); }}
+//
+// It was presumably meant to keep the on-screen keyboard up while a PIN was
+// half-entered. On the M-PIN setup screen, which has TWO of these, it turned
+// into a loop: tapping Confirm blurred New, New was empty so it stole focus
+// back, which blurred Confirm, which was also empty, and so on. The cursor
+// bounced between the fields and the screen could not be used at all.
+//
+// It is gone rather than conditioned. An input that refuses to be left is
+// hostile even when it works — it stops someone correcting the field above,
+// scrolling, or reaching a Cancel button. Auto-advance below gives the
+// intended convenience without taking control away.
+const PinInput = ({
+  value, onChange, placeholder = '● ● ● ●', autoFocus = false, onComplete, inputRef,
+}: {
+  value: string; onChange: (v: string) => void;
+  placeholder?: string; autoFocus?: boolean;
+  /** Called once four digits are in, so the caller can move focus on. */
+  onComplete?: () => void;
+  inputRef?: React.RefObject<HTMLInputElement>;
 }) => (
   <input
+    ref={inputRef}
     type="password"
     inputMode="numeric"
     maxLength={4}
     placeholder={placeholder}
     value={value}
-    onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
-    onBlur={(e) => { if (e.target.value.length < 4) setTimeout(() => e.target.focus(), 10); }}
+    onChange={(e) => {
+      const next = e.target.value.replace(/\D/g, '').slice(0, 4);
+      onChange(next);
+      if (next.length === 4) onComplete?.();
+    }}
     style={inputStyle}
     autoFocus={autoFocus}
   />
@@ -103,6 +128,9 @@ export default function LoginPage() {
   const [otp, setOtp] = useState('');
   const [newMpin, setNewMpin] = useState('');
   const [confirmMpin, setConfirmMpin] = useState('');
+  // Target for auto-advance from the New field. Shared by the set and reset
+  // forms — only one of them is mounted at a time.
+  const confirmRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>('phone');
   const [error, setError] = useState('');
   const [devOtp, setDevOtp] = useState<string | null>(null);
@@ -299,11 +327,15 @@ export default function LoginPage() {
               </p>
               <div style={{ marginBottom: '0.75rem' }}>
                 <label style={labelStyle}>New M-PIN</label>
-                <PinInput value={newMpin} onChange={setNewMpin} autoFocus />
+                {/* Moves to Confirm once four digits are in — the convenience
+                    the old focus trap was reaching for, without holding anyone
+                    hostage in a field they are trying to leave. */}
+                <PinInput value={newMpin} onChange={setNewMpin} autoFocus
+                          onComplete={() => confirmRef.current?.focus()} />
               </div>
               <div style={{ marginBottom: '1rem' }}>
                 <label style={labelStyle}>Confirm M-PIN</label>
-                <PinInput value={confirmMpin} onChange={setConfirmMpin} />
+                <PinInput value={confirmMpin} onChange={setConfirmMpin} inputRef={confirmRef} />
               </div>
               <button type="submit" style={btn()}
                 disabled={settingMpin || newMpin.length < 4 || confirmMpin.length < 4}>
@@ -339,11 +371,12 @@ export default function LoginPage() {
               </div>
               <div style={{ marginBottom: '0.75rem' }}>
                 <label style={labelStyle}>New M-PIN</label>
-                <PinInput value={newMpin} onChange={setNewMpin} />
+                <PinInput value={newMpin} onChange={setNewMpin}
+                          onComplete={() => confirmRef.current?.focus()} />
               </div>
               <div style={{ marginBottom: '1rem' }}>
                 <label style={labelStyle}>Confirm M-PIN</label>
-                <PinInput value={confirmMpin} onChange={setConfirmMpin} />
+                <PinInput value={confirmMpin} onChange={setConfirmMpin} inputRef={confirmRef} />
               </div>
               <button type="submit" style={btn()}
                 disabled={resettingMpin || !otp || newMpin.length < 4 || confirmMpin.length < 4}>
