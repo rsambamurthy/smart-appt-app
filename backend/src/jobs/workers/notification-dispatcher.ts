@@ -21,13 +21,21 @@ const NOTIFICATION_MESSAGES: Record<string, { title: string; body: string }> = {
   VISITOR_WALKIN: { title: 'Visitor at Gate', body: 'Someone is requesting entry to your flat.' },
   VISITOR_ENTRY: { title: 'Visitor Entered', body: 'Your visitor has entered the premises.' },
   EMERGENCY_ALERT: { title: '🚨 EMERGENCY', body: 'An emergency has been reported at the gate.' },
+  CHAT_MESSAGE: { title: 'New message', body: 'You have a new message.' },
 };
 
 export const processNotificationJob = async (job: Job<NotificationJob>): Promise<void> => {
   const { type, channels, recipients, data } = job.data;
   logger.info('Processing notification', { type, recipients: recipients.length });
 
-  const msg = NOTIFICATION_MESSAGES[type] ?? { title: 'Notification', body: 'You have a new notification.' };
+  // Every other notification type is one fixed title/body for the whole
+  // batch. A chat message is about who sent what, which is different for
+  // every recipient's inbox preview but identical for everyone receiving
+  // this one job — so it's read off the job's own data rather than added
+  // as a second templating system.
+  const msg = type === 'CHAT_MESSAGE' && typeof data.sender_name === 'string'
+    ? { title: data.sender_name, body: typeof data.preview === 'string' ? data.preview : 'sent you a message.' }
+    : NOTIFICATION_MESSAGES[type] ?? { title: 'Notification', body: 'You have a new notification.' };
 
   const users = await prisma.user.findMany({
     where: { id: { in: recipients }, is_active: true, deleted_at: null },

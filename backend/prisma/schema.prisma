@@ -242,6 +242,7 @@ model Association {
   memberships         Membership[]
   elections           Election[]
   compliance_items    ComplianceItem[]
+  chat_channels       ChatChannel[]
 
   @@map("associations")
 }
@@ -393,6 +394,9 @@ model User {
   vendors_created       Vendor[]
   one_time_dues_created OneTimeDue[] @relation("OneTimeDueCreator")
   other_receipts        OtherReceipt[]
+  chat_channels_created    ChatChannel[]       @relation("ChatChannelCreatedBy")
+  chat_channel_memberships ChatChannelMember[] @relation("ChatChannelMemberUser")
+  chat_messages_sent       ChatMessage[]       @relation("ChatMessageSender")
 
   @@unique([association_id, phone])
   @@index([phone])
@@ -1218,6 +1222,74 @@ model AssistantMessage {
 
   @@index([conversation_id, created_at])
   @@map("assistant_messages")
+}
+
+enum ChatChannelType {
+  DIRECT
+  GROUP
+}
+
+/// A conversation between association members — a direct 1:1 thread or a
+/// named group. SUPER_USER and GATE_STAFF never appear here: a platform
+/// administrator has no reason to read residents' private messages (the same
+/// reasoning as the audit trail's payment redaction), and gate staff share a
+/// handset, where anyone's inbox turning up on screen is a leak by design,
+/// not an accident.
+model ChatChannel {
+  id             String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String          @db.Uuid
+  association    Association     @relation(fields: [association_id], references: [id], onDelete: Cascade)
+  type           ChatChannelType
+  /// Group channels only. A direct channel's label is always the other
+  /// member, resolved client-side — storing a name here would go stale the
+  /// moment either person's own name changed.
+  name           String?         @db.VarChar(120)
+  created_by     String          @db.Uuid
+  creator        User            @relation("ChatChannelCreatedBy", fields: [created_by], references: [id])
+
+  members  ChatChannelMember[]
+  messages ChatMessage[]
+
+  last_message_at DateTime @default(now()) @db.Timestamptz
+  created_at      DateTime @default(now()) @db.Timestamptz
+  updated_at      DateTime @updatedAt @db.Timestamptz
+
+  @@index([association_id, last_message_at])
+  @@map("chat_channels")
+}
+
+/// One row per person in a channel. `last_read_at` is what turns "messages
+/// since I last looked" into an unread badge without a per-message receipts
+/// table growing without bound.
+model ChatChannelMember {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channel_id   String      @db.Uuid
+  channel      ChatChannel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  user_id      String      @db.Uuid
+  user         User        @relation("ChatChannelMemberUser", fields: [user_id], references: [id], onDelete: Cascade)
+  last_read_at DateTime    @default(now()) @db.Timestamptz
+  joined_at    DateTime    @default(now()) @db.Timestamptz
+
+  @@unique([channel_id, user_id])
+  @@index([user_id])
+  @@map("chat_channel_members")
+}
+
+/// A single message. Soft-deleted rather than removed — "this message was
+/// deleted" is what the other person sees, the same convention every
+/// mainstream chat app uses once a message has already been delivered.
+model ChatMessage {
+  id         String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channel_id String      @db.Uuid
+  channel    ChatChannel @relation(fields: [channel_id], references: [id], onDelete: Cascade)
+  sender_id  String      @db.Uuid
+  sender     User        @relation("ChatMessageSender", fields: [sender_id], references: [id])
+  content    String      @db.Text
+  deleted_at DateTime?   @db.Timestamptz
+  created_at DateTime    @default(now()) @db.Timestamptz
+
+  @@index([channel_id, created_at])
+  @@map("chat_messages")
 }
 
 enum BPCategory {

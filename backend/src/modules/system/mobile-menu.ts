@@ -69,6 +69,19 @@ const COMMITTEE_AND_UP: UserRole[] = [
 ];
 
 /**
+ * Association members only — no SUPER_USER. Every other group above
+ * includes SUPER_USER because a platform administrator can always reach a
+ * screen if a genuine support case needs it. Chat is the one screen that
+ * reasoning does not apply to: it is a conversation between residents, not
+ * a report, and a platform administrator has no legitimate reason to read
+ * one. The backend enforces this independently (chat.routes.ts), so even
+ * a stale or hand-edited config here cannot reopen it.
+ */
+const ASSOCIATION_MEMBERS_ONLY: UserRole[] = [
+  UserRole.RESIDENT, UserRole.COMMITTEE, UserRole.TREASURER, UserRole.MANAGER,
+];
+
+/**
  * Note what is deliberately absent: GATE_STAFF appears on nothing except the
  * gate items. Gate staff are usually contracted, share a handset, and have no
  * reason to see anyone's dues — so they start with the narrowest menu in the
@@ -84,6 +97,10 @@ export const MOBILE_MENU: MobileMenuItem[] = [
   { id: 'maintenance_list',      label: 'Service Requests',    group: 'community', mobilePath: '/maintenance',                 icon: '🔧', hint: 'Raise and track maintenance requests', supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: OFFICERS },
   { id: 'maintenance_new',       label: 'Raise Request',       group: 'community', mobilePath: '/maintenance/new',             icon: '➕', hint: 'Report something that needs fixing',   supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },
   { id: 'expenses_transparency', label: 'Transparency',        group: 'community',                                                                                                        supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
+  // supportsPost: false — unlike Maintenance, there is no read-only mode for
+  // chat to distinguish from. Anyone who can open it can send in it; the
+  // matrix would otherwise offer a "Can act" toggle that nothing enforces.
+  { id: 'chat',                  label: 'Chat',                 group: 'community', mobilePath: '/mobile/chat',                 icon: '💬', hint: 'Message other residents and the office', supportsPost: false, defaultRoles: ASSOCIATION_MEMBERS_ONLY },
 
   // ── Visitors and gate ──────────────────────────────────────────────────────
   { id: 'visitors_preapprove',   label: 'Pre-Approve Visitor', group: 'gate',      mobilePath: '/mobile/visitors/preapprove',   icon: '🚪', hint: 'Tell the gate someone is coming',      supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },

@@ -148,6 +148,12 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: 'dues_my_bills',        label: 'My Bills',          path: '/dues/my-bills',         roles: ['SUPER_USER', 'RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER'],                      dot: '#f59e0b', end: true },
       { id: 'dues_my_statement',    label: 'My Statement',      path: '/dues/my-statement',     roles: ['SUPER_USER', 'RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER'],                      dot: '#0ea5e9', end: true },
+      // No SUPER_USER, no GATE_STAFF — chat is between association members
+      // only. SUPER_USER is additionally excluded server-side even if this
+      // list is ever edited, the same posture as the audit trail's payment
+      // redaction: a platform administrator has no reason to read residents'
+      // conversations.
+      { id: 'chat',                 label: 'Chat',              path: '/chat',                  roles: ['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER'],                                    dot: '#8b5cf6', end: true },
       { id: 'maintenance_list',     label: 'Service Requests',  path: '/maintenance',           roles: ALL_ROLES,                                                                            dot: '#ef4444', end: true },
       // 'maintenance_new' (Raise Request) intentionally omitted — raising a
       // request is done from within Service Requests. The /maintenance/new

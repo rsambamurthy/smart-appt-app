@@ -10,6 +10,8 @@ import MobileHomePage from './pages/mobile/MobileHomePage';
 import MobileMorePage from './pages/mobile/MobileMorePage';
 import MobileBillsPage from './pages/mobile/MobileBillsPage';
 import MobileStatementPage from './pages/mobile/MobileStatementPage';
+import MobileChatPage from './pages/mobile/MobileChatPage';
+import MobileChatThreadPage from './pages/mobile/MobileChatThreadPage';
 import MobileVisitorsPage from './pages/mobile/MobileVisitorsPage';
 
 // Pages
@@ -52,6 +54,7 @@ import MyMeetingsPage from './pages/governance/MyMeetingsPage';
 import OneTimeDuesPage from './pages/dues/OneTimeDuesPage';
 import ArrearsPage from './pages/dues/ArrearsPage';
 import StatementPage, { MyStatementPage } from './pages/dues/StatementPage';
+import ChatPage from './pages/chat/ChatPage';
 import PenaltyRunPage from './pages/dues/PenaltyRunPage';
 import UpiClaimsPage from './pages/dues/UpiClaimsPage';
 import OtherReceiptsPage from './pages/receipts/OtherReceiptsPage';
@@ -103,6 +106,8 @@ export default function App() {
             <Route path="/mobile/home" element={<MobileHomePage />} />
             <Route path="/mobile/bills" element={<ProtectedRoute><MobileBillsPage /></ProtectedRoute>} />
             <Route path="/mobile/statement" element={<ProtectedRoute><MobileStatementPage /></ProtectedRoute>} />
+            <Route path="/mobile/chat" element={<ProtectedRoute><MobileChatPage /></ProtectedRoute>} />
+            <Route path="/mobile/chat/:id" element={<ProtectedRoute><MobileChatThreadPage /></ProtectedRoute>} />
             <Route path="/mobile/visitors" element={<ProtectedRoute><MobileVisitorsPage /></ProtectedRoute>} />
             <Route path="/mobile/visitors/log" element={<ProtectedRoute><VisitorLogPage /></ProtectedRoute>} />
             <Route path="/mobile/visitors/preapprove" element={<ProtectedRoute><PreApproveVisitorPage /></ProtectedRoute>} />
@@ -139,6 +144,7 @@ export default function App() {
         {!IS_NATIVE && <Route path="/dues/my-bills" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><MyBillsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/my-statement" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><MyStatementPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/pay/:billId" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><PaymentPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/chat" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><ChatPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/one-time-dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OneTimeDuesPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/arrears" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ArrearsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/statement" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><StatementPage /></RoleRoute>} />}

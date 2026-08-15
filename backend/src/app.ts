@@ -11,6 +11,8 @@ import { ipLimiter } from './middleware/rateLimiter';
 import { requestId } from './middleware/auth';
 import { requestContext } from './utils/request-context';
 import logger from './utils/logger';
+import { verifyToken } from './config/jwt';
+import prisma from './config/database';
 
 // Module routers
 import authRouter from './modules/auth/auth.routes';
@@ -29,6 +31,7 @@ import subscriptionsRouter from './modules/subscriptions/subscriptions.routes';
 import governanceRouter from './modules/governance/governance.routes';
 import analyticsRouter from './modules/analytics/analytics.routes';
 import assistantRouter from './modules/assistant/assistant.routes';
+import chatRouter from './modules/chat/chat.routes';
 import { associationsController } from './modules/associations/associations.controller';
 import { validate } from './middleware/validate';
 import { registerAssociationSchema } from './modules/associations/associations.schema';
@@ -40,7 +43,7 @@ const httpServer = createServer(app);
 // Railway healthchecker hits this; it must respond even if DB/Redis are down.
 app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
-// ── Socket.io (visitor approval real-time) ────────────────────────────────────
+// ── Socket.io (visitor approval, announcements, chat real-time) ───────────────
 export const io = new SocketServer(httpServer, {
   cors: {
     origin: process.env.FRONTEND_URL,
@@ -48,11 +51,68 @@ export const io = new SocketServer(httpServer, {
   },
 });
 
+interface SocketUser {
+  id: string;
+  association_id: string;
+  role: string;
+}
+
+/**
+ * Every socket must authenticate before it can join anything.
+ *
+ * This used not to be true: any client could connect and join
+ * `unit:<any id>` or `association:<any id>` by simply supplying the id, no
+ * token required. That was tolerable while the only things flowing over it
+ * were visitor pings and "an announcement changed, go refetch" — nothing a
+ * stranger joining a room could actually read. Chat messages are not that;
+ * the payload itself travels over the socket, so an unauthenticated join
+ * would mean a stranger could listen to residents' conversations. The
+ * frontend has sent `auth: { token }` on every connection since the
+ * announcements feature shipped — this middleware is what finally checks it.
+ */
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token as string | undefined;
+    if (!token) return next(new Error('unauthorized'));
+
+    const payload = verifyToken(token);
+    const user = await prisma.user.findUnique({
+      where: { id: payload.sub, deleted_at: null },
+      select: { id: true, association_id: true, role: true, is_active: true },
+    });
+    if (!user || !user.is_active) return next(new Error('unauthorized'));
+
+    (socket.data as { user: SocketUser }).user = {
+      id: user.id, association_id: user.association_id, role: user.role,
+    };
+    next();
+  } catch {
+    next(new Error('unauthorized'));
+  }
+});
+
 io.on('connection', (socket) => {
-  logger.info('Socket connected', { id: socket.id });
+  const me = (socket.data as { user: SocketUser }).user;
+  logger.info('Socket connected', { id: socket.id, userId: me.id });
+
+  // Existing rooms — behaviour unchanged, now simply gated behind a real
+  // login instead of an unauthenticated handshake.
   socket.on('join:unit', (unitId: string) => socket.join(`unit:${unitId}`));
   socket.on('join:gate', (associationId: string) => socket.join(`gate:${associationId}`));
   socket.on('join:association', (associationId: string) => socket.join(`association:${associationId}`));
+
+  // Chat rooms — unlike the rooms above, membership is checked against the
+  // database rather than trusted from the client, because the thing being
+  // protected is the message content itself, not just a refetch signal.
+  socket.on('join:chat:channel', async (channelId: string) => {
+    const member = await prisma.chatChannelMember.findUnique({
+      where: { channel_id_user_id: { channel_id: channelId, user_id: me.id } },
+      select: { id: true },
+    });
+    if (member) socket.join(`chat:channel:${channelId}`);
+  });
+  socket.on('leave:chat:channel', (channelId: string) => socket.leave(`chat:channel:${channelId}`));
+
   socket.on('disconnect', () => logger.info('Socket disconnected', { id: socket.id }));
 });
 
@@ -117,6 +177,7 @@ app.use(`${API}/accounting`, accountingRouter);
 app.use(`${API}/subscriptions`, subscriptionsRouter);
 app.use(`${API}/governance`, governanceRouter);
 app.use(`${API}/assistant`, assistantRouter);
+app.use(`${API}/chat`, chatRouter);
 
 // ── Error handling ────────────────────────────────────────────────────────────
 app.use(notFoundHandler);
