@@ -9,6 +9,7 @@ import MobileLayout from './components/organisms/MobileLayout';
 import MobileHomePage from './pages/mobile/MobileHomePage';
 import MobileMorePage from './pages/mobile/MobileMorePage';
 import MobileBillsPage from './pages/mobile/MobileBillsPage';
+import MobileStatementPage from './pages/mobile/MobileStatementPage';
 import MobileVisitorsPage from './pages/mobile/MobileVisitorsPage';
 
 // Pages
@@ -101,6 +102,7 @@ export default function App() {
             <Route index element={<Navigate to="/mobile/home" replace />} />
             <Route path="/mobile/home" element={<MobileHomePage />} />
             <Route path="/mobile/bills" element={<ProtectedRoute><MobileBillsPage /></ProtectedRoute>} />
+            <Route path="/mobile/statement" element={<ProtectedRoute><MobileStatementPage /></ProtectedRoute>} />
             <Route path="/mobile/visitors" element={<ProtectedRoute><MobileVisitorsPage /></ProtectedRoute>} />
             <Route path="/mobile/visitors/log" element={<ProtectedRoute><VisitorLogPage /></ProtectedRoute>} />
             <Route path="/mobile/visitors/preapprove" element={<ProtectedRoute><PreApproveVisitorPage /></ProtectedRoute>} />

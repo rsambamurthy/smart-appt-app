@@ -77,7 +77,7 @@ const COMMITTEE_AND_UP: UserRole[] = [
 export const MOBILE_MENU: MobileMenuItem[] = [
   // ── Community ──────────────────────────────────────────────────────────────
   { id: 'dues_my_bills',         label: 'My Bills',            group: 'community', mobilePath: '/mobile/bills',                icon: '🧾', hint: 'View and pay dues',                    supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
-  { id: 'dues_my_statement',     label: 'My Statement',        group: 'community',                                                                                                        supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
+  { id: 'dues_my_statement',     label: 'My Statement',        group: 'community', mobilePath: '/mobile/statement',            icon: '📄', hint: 'Every charge and payment on your flat',supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
   { id: 'dues_pay_upi',          label: 'Pay by UPI',          group: 'community',                                                                                                        supportsPost: true,  defaultRoles: RESIDENTS_AND_UP, defaultPostRoles: RESIDENTS_AND_UP },
   { id: 'announcements_feed',    label: 'Announcements',       group: 'community', mobilePath: '/announcements',               icon: '📢', hint: 'Community notices and updates',        supportsPost: false, defaultRoles: [...RESIDENTS_AND_UP, UserRole.GATE_STAFF] },
   { id: 'announcements_docs',    label: 'Documents',           group: 'community', mobilePath: '/documents',                   icon: '📁', hint: 'Bye-laws, circulars and minutes',      supportsPost: false, defaultRoles: RESIDENTS_AND_UP },
