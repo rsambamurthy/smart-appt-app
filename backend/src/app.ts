@@ -13,6 +13,7 @@ import { requestContext } from './utils/request-context';
 import logger from './utils/logger';
 import { verifyToken } from './config/jwt';
 import prisma from './config/database';
+import { fcmDiagnostics } from './services/fcm.service';
 
 // Module routers
 import authRouter from './modules/auth/auth.routes';
@@ -42,6 +43,19 @@ const httpServer = createServer(app);
 // ── Health check — MUST be registered before all middleware ───────────────────
 // Railway healthchecker hits this; it must respond even if DB/Redis are down.
 app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
+// ── Push notification diagnostics ──────────────────────────────────────────────
+// No secrets in this response — booleans, an error message, and a Firebase
+// project id, nothing that isn't already implied by the app working at all.
+// Added specifically because the Railway log viewer got stuck mid-diagnosis
+// and stopped rendering anything past server boot; this answers the same
+// question over plain HTTP instead of waiting on that to be fixed.
+app.get('/health/push', (_req, res) => {
+  res.json({
+    redis_url_set: !!process.env.REDIS_URL,
+    fcm: fcmDiagnostics(),
+  });
+});
 
 // ── Socket.io (visitor approval, announcements, chat real-time) ───────────────
 export const io = new SocketServer(httpServer, {
