@@ -22,8 +22,12 @@ const PinInput = ({ label, value, onChange, autoFocus = false }: {
       maxLength={4}
       placeholder="● ● ● ●"
       value={value}
+      // The refocus-on-blur trap that was here is gone. Three PIN fields on
+      // this screen, each refusing to be left until it held four digits, meant
+      // tapping any of them out of order locked the cursor in a loop between
+      // two of them. Same defect as the login screen, three fields instead of
+      // two, so if anything easier to hit.
       onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
-      onBlur={(e) => { if (e.target.value.length < 4) setTimeout(() => e.target.focus(), 10); }}
       style={inputStyle}
       autoFocus={autoFocus}
     />
