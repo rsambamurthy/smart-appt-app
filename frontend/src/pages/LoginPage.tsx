@@ -17,6 +17,28 @@ type Step =
   | 'set_mpin'
   | 'reset_mpin';
 
+// ── Remembered device number ──────────────────────────────────────────────────
+//
+// Native only. On web this login screen may be a shared office computer, so
+// the phone step stays untouched there — nothing here changes web behaviour.
+//
+// The number is written ONLY at the moment an M-PIN login actually succeeds
+// (a fresh set, a reset, or a normal verify) — never on "Skip for now", which
+// leaves the account without an M-PIN at all. Remembering a number with no
+// M-PIN would land the next app open on a form that can only ever fail.
+const REMEMBERED_PHONE_KEY = 'sa_remembered_phone';
+
+const getRememberedPhone = (): string | null =>
+  IS_NATIVE ? localStorage.getItem(REMEMBERED_PHONE_KEY) : null;
+
+const rememberPhone = (phone: string) => {
+  if (IS_NATIVE) localStorage.setItem(REMEMBERED_PHONE_KEY, phone);
+};
+
+const forgetPhone = () => {
+  if (IS_NATIVE) localStorage.removeItem(REMEMBERED_PHONE_KEY);
+};
+
 // ── Theme colours ─────────────────────────────────────────────────────────────
 const T = {
   primary:     '#C4572B',
@@ -123,7 +145,10 @@ const LogoHeader = () => (
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function LoginPage() {
-  const [phone, setPhone] = useState('');
+  // A device that has already completed an M-PIN login once starts here
+  // directly, rather than making a returning resident retype their number
+  // every time they open the app.
+  const [phone, setPhone] = useState(() => getRememberedPhone() ?? '');
   const [mpin, setMpin] = useState('');
   const [otp, setOtp] = useState('');
   const [newMpin, setNewMpin] = useState('');
@@ -131,7 +156,7 @@ export default function LoginPage() {
   // Target for auto-advance from the New field. Shared by the set and reset
   // forms — only one of them is mounted at a time.
   const confirmRef = useRef<HTMLInputElement>(null);
-  const [step, setStep] = useState<Step>('phone');
+  const [step, setStep] = useState<Step>(() => (getRememberedPhone() ? 'mpin' : 'phone'));
   const [error, setError] = useState('');
   const [devOtp, setDevOtp] = useState<string | null>(null);
   const [waStatus, setWaStatus] = useState<{ sent: boolean; error?: string } | null>(null);
@@ -172,6 +197,7 @@ export default function LoginPage() {
     e.preventDefault(); clearErr();
     try {
       const result = await verifyMpin({ phone, mpin }).unwrap();
+      rememberPhone(phone);
       loginSuccess(result.data as never);
     } catch (err: unknown) {
       setError(extractError(err, 'Incorrect M-PIN.')); setMpin('');
@@ -200,6 +226,7 @@ export default function LoginPage() {
       dispatch(baseApi.util.resetApiState());
       dispatch(setCredentials(pendingTokens as never));
       await setMpinMutation({ mpin: newMpin }).unwrap();
+      rememberPhone(phone);
       navigate(IS_NATIVE ? '/mobile/home' : '/dashboard');
     } catch (err: unknown) { setError(extractError(err, 'Failed to set M-PIN.')); }
   };
@@ -210,6 +237,7 @@ export default function LoginPage() {
     try {
       await resetMpin({ phone, otp, new_mpin: newMpin }).unwrap();
       const result = await verifyMpin({ phone, mpin: newMpin }).unwrap();
+      rememberPhone(phone);
       loginSuccess(result.data as never);
     } catch (err: unknown) { setError(extractError(err, 'Reset failed.')); }
   };
@@ -281,7 +309,7 @@ export default function LoginPage() {
                   {sendingOtp ? 'Sending OTP...' : 'Forgot M-PIN?'}
                 </span>
                 <span style={{ fontSize: 13, color: T.primary, cursor: 'pointer', fontWeight: 600 }}
-                  onClick={() => { setMpin(''); setStep('phone'); }}>
+                  onClick={() => { forgetPhone(); setMpin(''); setPhone(''); setStep('phone'); }}>
                   Change number
                 </span>
               </div>
