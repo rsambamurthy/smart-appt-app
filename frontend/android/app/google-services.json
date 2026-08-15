@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "296721443277",
+    "project_id": "smartapptgold-24b50",
+    "storage_bucket": "smartapptgold-24b50.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:296721443277:android:58cd1bef59c7a21fafbc84",
+        "android_client_info": {
+          "package_name": "com.smartappt.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAoMj8y9tWUuZVWa8ffWOyDTm1snC5bNMA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

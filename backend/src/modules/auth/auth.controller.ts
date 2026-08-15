@@ -50,6 +50,13 @@ export class AuthController {
     } catch (err) { next(err); }
   }
 
+  async updateFcmToken(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await authService.updateFcmToken(req.user!.id, req.body.fcm_token);
+      res.json({ data: { ok: true } });
+    } catch (err) { next(err); }
+  }
+
   async getMpinStatus(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const result = await authService.getMpinStatus(req.query.phone as string);

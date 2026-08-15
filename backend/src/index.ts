@@ -13,8 +13,30 @@ import prisma from './config/database';
 import redis from './config/redis';
 import logger from './utils/logger';
 import { initScheduler } from './services/scheduler.service';
+import { notificationQueue } from './jobs/queue';
+import { processNotificationJob } from './jobs/workers/notification-dispatcher';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
+
+// ── Notification queue consumer ────────────────────────────────────────────
+//
+// This used to run ONLY in a separate `npm run worker` process
+// (jobs/worker-entry.ts) — a process that Railway never actually had a
+// service for. Every notification (bills, payments, announcements, and now
+// chat) has been enqueuing into Redis since the day that file was written,
+// with nothing ever consuming the queue: the job just sat there. A user
+// would only ever see a message by opening the app and fetching it directly,
+// never as a push, which is exactly the symptom that surfaced this.
+//
+// Bull queues support multiple concurrent consumers safely — a job is
+// claimed by whichever consumer picks it up first, never processed twice —
+// so this is harmless to run alongside a dedicated worker service if one is
+// ever added later. Deliberately NOT duplicating worker-entry.ts's cron
+// schedules here: unlike a queue consumer, two independent cron schedules
+// both firing would genuinely double-send things like bill generation.
+notificationQueue.process('dispatch', 5, processNotificationJob);
+notificationQueue.on('failed', (job, err) =>
+  logger.error('Notification job failed', { job_id: job?.id, error: err.message }));
 
 const start = async () => {
   // Start listening FIRST — health check must respond immediately

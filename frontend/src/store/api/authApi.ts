@@ -39,6 +39,10 @@ export const authApi = baseApi.injectEndpoints({
     changeMpin: builder.mutation<void, { current_mpin: string; new_mpin: string }>({
       query: (body) => ({ url: '/auth/mpin/change', method: 'POST', body }),
     }),
+    // Self-service: register (or, with null, clear) this device's push token.
+    updateFcmToken: builder.mutation<void, { fcm_token: string | null }>({
+      query: (body) => ({ url: '/auth/fcm-token', method: 'POST', body }),
+    }),
   }),
 });
 
@@ -52,4 +56,5 @@ export const {
   useSetMpinMutation,
   useResetMpinMutation,
   useChangeMpinMutation,
+  useUpdateFcmTokenMutation,
 } = authApi;

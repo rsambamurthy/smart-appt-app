@@ -34,11 +34,34 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!--
+          FCM's own status-bar icon when the app has no activity to hand it
+          one (app closed / backgrounded). Reusing the launcher icon here
+          works but renders as a plain white square in the status bar on
+          Android 5+, which draws icons as a silhouette — a dedicated
+          transparent/white notification icon would look better. Left as a
+          follow-up rather than blocking push on having one ready.
+
+          default_notification_channel_id is deliberately NOT set here: FCM
+          silently drops a notification that names a channel the app never
+          created, which is a much worse failure than the "Miscellaneous"
+          channel Android falls back to without this meta-data.
+        -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher" />
     </application>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Android 13+ (API 33) requires this to even show the runtime
+         permission prompt for notifications; without it, PushNotifications
+         .requestPermissions() resolves as though the user had denied it,
+         on every device newer than two years old at time of writing. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Gate console photo capture.
          The camera is optional: a tablet without one must still install. -->

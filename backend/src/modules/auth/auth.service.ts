@@ -355,6 +355,20 @@ export class AuthService {
       },
     };
   }
+
+  /**
+   * Save (or clear) the FCM token for the device the signed-in user is
+   * currently on. Self-service and deliberately narrow — this is the only
+   * field on the user row a resident can write without going through a
+   * manager, because it describes their own device, not the association's
+   * data about them.
+   */
+  async updateFcmToken(userId: string, token: string | null): Promise<void> {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { fcm_token: token },
+    });
+  }
 }
 
 export const authService = new AuthService();

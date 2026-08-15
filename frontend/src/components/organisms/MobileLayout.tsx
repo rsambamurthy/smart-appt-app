@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import { useMobileConfig } from '../../contexts/MobileConfigContext';
 import AssistantLauncher from './AssistantLauncher';
+import { usePushNotifications } from '../../hooks/usePushNotifications';
 
 // ── Tab definitions ────────────────────────────────────────────────────────────
 
@@ -73,6 +74,10 @@ function BottomTabBar() {
 
 export default function MobileLayout() {
   const token = useSelector((s: RootState) => s.auth.access_token);
+  // Registers this device for push once signed in. Kept above the early
+  // return below so it still runs on the render where `token` first becomes
+  // truthy, rather than being skipped by the redirect on that same pass.
+  usePushNotifications();
   if (!token) return <Navigate to="/login" replace />;
 
   return (

@@ -39,6 +39,12 @@ export const mpinStatusSchema = z.object({
   phone: z.string().min(10).max(15),
 });
 
+// null clears it — used on logout so a stale token on a shared or
+// re-registered device doesn't keep receiving another person's pushes.
+export const fcmTokenSchema = z.object({
+  fcm_token: z.string().min(10).max(4096).nullable(),
+});
+
 export type OtpRequestBody = z.infer<typeof otpRequestSchema>;
 export type OtpVerifyBody = z.infer<typeof otpVerifySchema>;
 export type RefreshTokenBody = z.infer<typeof refreshTokenSchema>;

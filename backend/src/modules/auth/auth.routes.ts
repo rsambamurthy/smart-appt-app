@@ -7,6 +7,7 @@ import { authenticate } from '../../middleware/auth';
 import {
   otpRequestSchema, otpVerifySchema, refreshTokenSchema,
   mpinVerifySchema, mpinSetSchema, mpinResetSchema, mpinChangeSchema,
+  fcmTokenSchema,
 } from './auth.schema';
 
 const router = Router();
@@ -67,6 +68,11 @@ router.post('/logout', authenticate, (req, res, next) =>
 // GET /auth/me
 router.get('/me', authenticate, (req, res, next) =>
   authController.me(req as never, res, next),
+);
+
+// POST /auth/fcm-token  (self-service — a device registering or clearing its own token)
+router.post('/fcm-token', authenticate, validate(fcmTokenSchema), (req, res, next) =>
+  authController.updateFcmToken(req as never, res, next),
 );
 
 // GET /auth/mpin/status?phone=...

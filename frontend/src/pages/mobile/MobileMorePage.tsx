@@ -7,6 +7,8 @@ import { useLogoutMutation } from '../../store/api/authApi';
 import { baseApi } from '../../store/api/baseApi';
 import { useMobileConfig } from '../../contexts/MobileConfigContext';
 import LogoutIcon from '../../components/atoms/LogoutIcon';
+import { useUpdateFcmTokenMutation } from '../../store/api/authApi';
+import { clearFcmToken } from '../../hooks/usePushNotifications';
 
 // icon is a ReactNode rather than a string: most rows use an emoji, but
 // Logout uses the shared LogoutIcon so it matches the one in the tab headers
@@ -44,10 +46,16 @@ export default function MobileMorePage() {
   const user = useSelector((s: RootState) => s.auth.user);
   const config = useMobileConfig();
   const [logout] = useLogoutMutation();
+  const [updateFcmToken] = useUpdateFcmTokenMutation();
 
   const accentColor = config.theme_color ?? '#0095db';
 
   const handleLogout = async () => {
+    // Clear the push token before the token that authorizes clearing it is
+    // itself thrown away — a device that stays behind (shared handset,
+    // resident's old phone) must not keep receiving the next person's chat
+    // and dues notifications.
+    await clearFcmToken(updateFcmToken);
     try { await logout(undefined).unwrap(); } catch { /* ignore */ }
     dispatch(clearCredentials());
     dispatch(baseApi.util.resetApiState());
