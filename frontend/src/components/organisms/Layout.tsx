@@ -362,6 +362,16 @@ function WebLayout({ children }: { children: React.ReactNode }) {
           )}
         </div>
 
+        {/* Chat — same roles chat itself is restricted to (see NAV_GROUPS'
+            'chat' item and chat.routes.ts): no SUPER_USER, no GATE_STAFF. */}
+        {['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER'].includes(role) && (
+          <button className="sa-hbtn" onClick={() => navigate('/chat')} title="Chat">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="17" height="17">
+              <path fillRule="evenodd" d="M10 3c-4.31 0-8 3.033-8 7 0 2.024.978 3.825 2.499 5.085a3.478 3.478 0 01-.522 1.756.75.75 0 00.584 1.143 5.976 5.976 0 003.936-1.108c.487.082.99.124 1.503.124 4.31 0 8-3.033 8-7s-3.69-7-8-7z" clipRule="evenodd" />
+            </svg>
+          </button>
+        )}
+
         {/* Change M-PIN */}
         <button className="sa-hbtn" onClick={() => navigate('/change-mpin')} title="Change M-PIN">
           <svg viewBox="0 0 20 20" fill="currentColor" width="17" height="17">

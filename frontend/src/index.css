@@ -190,6 +190,9 @@ label.inline-check {
 .sa-theme-wrap { position: relative; }
 .sa-theme-pop {
   position: absolute; top: calc(100% + 8px); right: 0;
+  /* 12 presets now instead of the original 4 — scrolls rather than
+     potentially running off the bottom of a shorter screen. */
+  max-height: 60vh; overflow-y: auto;
   background: #fff; border: 1px solid var(--color-border);
   border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);
   padding: 8px; min-width: 165px; z-index: 200;

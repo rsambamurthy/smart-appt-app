@@ -172,6 +172,12 @@ export default function MobileHomePage() {
           {config.feature_bills && config.can('dues_my_bills') && (
             <ActionCard icon="💳" label="Bills" sublabel={pendingBills.length ? `${pendingBills.length} pending` : 'All clear'} color="#1d4ed8" bg="#eff6ff" onClick={() => navigate('/mobile/bills')} />
           )}
+          {/* No feature_ flag for this one — Statement isn't an association-level
+              on/off switch like Bills or Announcements, only a per-role menu
+              item, so config.can() alone is the right gate. */}
+          {config.can('dues_my_statement') && (
+            <ActionCard icon="📄" label="Statement" sublabel="Charges & payments" color="#0ea5e9" bg="#f0f9ff" onClick={() => navigate('/mobile/statement')} />
+          )}
           {config.feature_complaints && config.can('maintenance_list') && (
             <ActionCard
               icon="🔧"
@@ -187,6 +193,9 @@ export default function MobileHomePage() {
           )}
           {config.feature_visitors && config.can('visitors_preapprove') && (
             <ActionCard icon="🚪" label="Visitors" sublabel="Gate & pre-approvals" color="#15803d" bg="#f0fdf4" onClick={() => navigate('/mobile/visitors')} />
+          )}
+          {config.can('chat') && (
+            <ActionCard icon="💬" label="Chat" sublabel="Message residents" color="#4f46e5" bg="#eef2ff" onClick={() => navigate('/mobile/chat')} />
           )}
         </div>
 
