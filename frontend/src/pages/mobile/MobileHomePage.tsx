@@ -98,7 +98,7 @@ export default function MobileHomePage() {
   const accentColor = config.theme_color ?? '#0095db';
 
   return (
-    <div style={{ minHeight: '100%', background: '#f1f5f9' }}>
+    <div style={{ minHeight: '100%', background: 'transparent' }}>
       {/* Header */}
       <div style={{
         background: `linear-gradient(135deg, ${accentColor} 0%, ${accentColor}cc 100%)`,
@@ -107,9 +107,9 @@ export default function MobileHomePage() {
         position: 'relative',
       }}>
         <MobileLogoutButton />
-        {config.logo_url && (
-          <img src={config.logo_url} alt="Logo" style={{ height: 36, objectFit: 'contain', marginBottom: 10, display: 'block' }} />
-        )}
+        {/* The logo used to sit here as a small header image — it's now the
+            faint full-screen watermark behind every mobile page instead
+            (see MobileLayout.tsx). */}
         <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.85)', marginBottom: 2 }}>{greeting},</div>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#fff' }}>{user?.name ?? 'Resident'}</div>
         {/* Association name + unit */}

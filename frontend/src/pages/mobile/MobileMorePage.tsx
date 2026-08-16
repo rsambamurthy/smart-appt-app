@@ -63,7 +63,7 @@ export default function MobileMorePage() {
   };
 
   return (
-    <div style={{ minHeight: '100%', background: '#f1f5f9' }}>
+    <div style={{ minHeight: '100%', background: 'transparent' }}>
       {/* Profile header */}
       <div style={{
         background: `linear-gradient(135deg, ${accentColor} 0%, ${accentColor}cc 100%)`,

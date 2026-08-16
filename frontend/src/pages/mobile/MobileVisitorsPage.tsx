@@ -52,7 +52,7 @@ export default function MobileVisitorsPage() {
   const isGate = role === 'GATE_STAFF';
 
   return (
-    <div style={{ minHeight: '100%', background: '#f1f5f9' }}>
+    <div style={{ minHeight: '100%', background: 'transparent' }}>
       {/* Header */}
       <div style={{
         background: `linear-gradient(135deg, ${accentColor} 0%, ${accentColor}cc 100%)`,

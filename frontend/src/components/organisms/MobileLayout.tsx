@@ -78,12 +78,38 @@ export default function MobileLayout() {
   // return below so it still runs on the render where `token` first becomes
   // truthy, rather than being skipped by the redirect on that same pass.
   usePushNotifications();
+  // Same reasoning applies to the config read that drives the watermark
+  // below: called unconditionally, before the early return, so hook order
+  // never depends on whether a token happens to be present yet.
+  const config = useMobileConfig();
   if (!token) return <Navigate to="/login" replace />;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', overflow: 'hidden', background: 'var(--color-bg, #f1f5f9)' }}>
+    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', height: '100dvh', overflow: 'hidden', background: 'var(--color-bg, #f1f5f9)' }}>
+      {/* Watermark — a single large, very faint copy of the association's
+          logo, centred behind everything. Replaces the small logo that used
+          to sit at the top of the Home screen only; this shows on every
+          mobile screen instead. Sits behind the scroll area (z-index 0 vs 1)
+          and is unclickable, so it never intercepts a tap. Individual mobile
+          pages that used to paint their own opaque background (Home, More,
+          Visitors, Chat) were changed to transparent so this shows through —
+          everything else already had no opaque root background and needed
+          no change. */}
+      {config.logo_url && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          overflow: 'hidden', pointerEvents: 'none',
+        }}>
+          <img
+            src={config.logo_url}
+            alt=""
+            style={{ width: '65vw', maxWidth: 380, height: 'auto', objectFit: 'contain', opacity: 0.06 }}
+          />
+        </div>
+      )}
       {/* Scrollable content area — leaves room for the bottom tab bar */}
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 72 }}>
+      <div style={{ position: 'relative', zIndex: 1, flex: 1, overflowY: 'auto', paddingBottom: 72 }}>
         <Outlet />
       </div>
       {/* Sits above the tab bar rather than behind it. */}

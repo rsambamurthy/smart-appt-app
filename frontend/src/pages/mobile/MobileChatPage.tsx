@@ -29,7 +29,7 @@ export default function MobileChatPage() {
   const channels = data?.data ?? [];
 
   return (
-    <div style={{ minHeight: '100%', background: '#fff' }}>
+    <div style={{ minHeight: '100%', background: 'transparent' }}>
       <div style={{ padding: '14px 16px 10px' }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 10 }}>Chat</div>
         <button onClick={() => setPickerOpen(true)} style={{
