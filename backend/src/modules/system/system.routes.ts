@@ -30,11 +30,17 @@ router.put('/menu-config/:associationId', requireRoles(UserRole.SUPER_USER, User
 router.get('/mobile-config', (req, res, next) =>
   systemController.getMyMobileConfig(req as never, res, next));
 
-// SUPER_USER can read/write any association's mobile config (admin)
-router.get('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER), (req, res, next) =>
+// SUPER_USER can read/write any association's mobile config (admin).
+// MANAGER can read/write their own — scoped in the controller via
+// scopeAssociation, same as menu-config and mobile-menu above. A manager's
+// write is further narrowed to branding fields only (see saveMobileConfig):
+// this route is how the Branding screen reaches the API, and a manager only
+// gets to use it at all once a super user grants that screen via Web Menu by
+// Role — the menu item defaults to SUPER_USER-only.
+router.get('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER, UserRole.MANAGER), (req, res, next) =>
   systemController.getMobileConfigById(req as never, res, next));
 
-router.put('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER), (req, res, next) =>
+router.put('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER, UserRole.MANAGER), (req, res, next) =>
   systemController.saveMobileConfig(req as never, res, next));
 
 // Role-by-role mobile menu. Kept on its own path rather than folded into

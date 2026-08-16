@@ -73,17 +73,41 @@ export class SystemController {
     } catch (err) { next(err); }
   }
 
-  /** GET /system/mobile-config/:associationId — SUPER_USER admin: get config for any association */
+  /**
+   * GET /system/mobile-config/:associationId — SUPER_USER: any association.
+   * MANAGER: their own only, enforced by scopeAssociation rather than trusting
+   * the id in the URL.
+   */
   async getMobileConfigById(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      res.json(await systemService.getMobileConfig(req.params['associationId']));
+      const associationId = scopeAssociation(req.user!, req.params['associationId']);
+      res.json(await systemService.getMobileConfig(associationId));
     } catch (err) { next(err); }
   }
 
-  /** PUT /system/mobile-config/:associationId — SUPER_USER admin: upsert config */
+  /** Fields a MANAGER's Branding access right may touch — nothing else on
+   *  this config, which also covers feature flags, push/login settings and
+   *  the mobile menu matrix. SUPER_USER keeps unrestricted access. */
+  private static readonly MANAGER_BRANDING_FIELDS = ['app_name', 'logo_url', 'theme_color'] as const;
+
+  /**
+   * PUT /system/mobile-config/:associationId — SUPER_USER: upsert any field,
+   * any association. MANAGER: their own association, branding fields only —
+   * anything else in the body is silently dropped rather than 400ing, since a
+   * generic client (or a future version of this screen) sending the full
+   * object back should not become an error.
+   */
   async saveMobileConfig(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      res.json(await systemService.saveMobileConfig(req.params['associationId'], req.body));
+      const associationId = scopeAssociation(req.user!, req.params['associationId']);
+      const body = req.user!.role === 'MANAGER'
+        ? Object.fromEntries(
+            Object.entries(req.body ?? {}).filter(
+              ([k]) => (SystemController.MANAGER_BRANDING_FIELDS as readonly string[]).includes(k),
+            ),
+          )
+        : req.body;
+      res.json(await systemService.saveMobileConfig(associationId, body));
     } catch (err) { next(err); }
   }
 

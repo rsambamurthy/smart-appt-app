@@ -60,6 +60,7 @@ import UpiClaimsPage from './pages/dues/UpiClaimsPage';
 import OtherReceiptsPage from './pages/receipts/OtherReceiptsPage';
 import WebMenuPage from './pages/admin/WebMenuPage';
 import MobileMenuPage from './pages/admin/MobileMenuPage';
+import BrandingPage from './pages/admin/BrandingPage';
 import AuditLogPage from './pages/admin/AuditLogPage';
 import InsightsPage from './pages/reports/InsightsPage';
 import ChangeMpinPage from './pages/ChangeMpinPage';
@@ -195,6 +196,10 @@ export default function App() {
             had no role dimension, so leaving it reachable meant one screen could
             silently undo the other. Same page now. */}
         {!IS_NATIVE && <Route path="/admin/mobile-config" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><MobileMenuPage /></RoleRoute>} />}
+        {/* Reachable by both roles; the sidebar link is what's actually gated
+            — off for Manager by default, grantable per association via Web
+            Menu by Role (see Layout.tsx's system_branding item). */}
+        {!IS_NATIVE && <Route path="/admin/branding" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><BrandingPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/admin/audit-log" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><AuditLogPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/reports/insights" element={<RoleRoute roles={['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE']}><InsightsPage /></RoleRoute>} />}
 

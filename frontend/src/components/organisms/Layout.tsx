@@ -77,6 +77,12 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'system_web_menu',      label: 'Web Menu by Role',      path: '/admin/web-menu',       roles: ['SUPER_USER', 'MANAGER'], dot: '#0095db', end: true },
       { id: 'system_mobile_menu',   label: 'Mobile Menu by Role',   path: '/admin/mobile-menu',    roles: ['SUPER_USER', 'MANAGER'], dot: '#7c3aed', end: true },
       { id: 'system_audit_log',     label: 'Audit Trail',           path: '/admin/audit-log',      roles: ['SUPER_USER', 'MANAGER'], dot: '#dc2626', end: true },
+      // SUPER_USER only by default — deliberately, unlike the three items
+      // above. Branding is an access right a super user grants to a manager
+      // per association (via Web Menu by Role), not something every manager
+      // has out of the box. The backend enforces the same split independently
+      // (system.routes.ts / system.controller.ts).
+      { id: 'system_branding',      label: 'Branding',              path: '/admin/branding',       roles: ['SUPER_USER'], dot: '#f59e0b', end: true },
     ],
   },
   {
