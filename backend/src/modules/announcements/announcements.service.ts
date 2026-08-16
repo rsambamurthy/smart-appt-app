@@ -88,7 +88,7 @@ export class AnnouncementsService {
 
   /** Count of published announcements this user has not opened yet — for a
    *  home-screen badge, not the feed itself, so it doesn't need pagination. */
-  async unreadCount(associationId: string, userId: string): Promise<{ count: number }> {
+  async unreadCount(associationId: string, userId: string): Promise<{ data: { count: number } }> {
     const count = await prisma.announcement.count({
       where: {
         association_id: associationId,
@@ -96,7 +96,12 @@ export class AnnouncementsService {
         reads: { none: { user_id: userId } },
       },
     });
-    return { count };
+    // Every other method in this service wraps its payload in { data: ... }
+    // (see getOne, markRead, getReadReceipts above) and the frontend type for
+    // this endpoint reads result.data.count — returning the bare object here
+    // was the actual bug: the field existed, just one level too shallow, so
+    // `data?.count` was always undefined and the badge always rendered as 0.
+    return { data: { count } };
   }
 
   async getOne(associationId: string, id: string) {
