@@ -87,6 +87,12 @@ router.get('/', async (req: AuthRequest, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Must come before the /:id wildcard below, or "unread-count" gets parsed as an id.
+router.get('/unread-count', async (req: AuthRequest, res, next) => {
+  try { res.json(await announcementsService.unreadCount(req.user!.association_id, req.user!.id)); }
+  catch (err) { next(err); }
+});
+
 // ── Wildcard /:id routes last ─────────────────────────────────────────────────
 router.get('/:id', async (req: AuthRequest, res, next) => {
   try { res.json(await announcementsService.getOne(req.user!.association_id, req.params['id'])); }

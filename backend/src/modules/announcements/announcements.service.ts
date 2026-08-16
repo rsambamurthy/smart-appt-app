@@ -86,6 +86,19 @@ export class AnnouncementsService {
     return paginatedResponse(withRead as (typeof withRead[0] & { id: string })[], query.limit);
   }
 
+  /** Count of published announcements this user has not opened yet — for a
+   *  home-screen badge, not the feed itself, so it doesn't need pagination. */
+  async unreadCount(associationId: string, userId: string): Promise<{ count: number }> {
+    const count = await prisma.announcement.count({
+      where: {
+        association_id: associationId,
+        published_at: { not: null },
+        reads: { none: { user_id: userId } },
+      },
+    });
+    return { count };
+  }
+
   async getOne(associationId: string, id: string) {
     const ann = await prisma.announcement.findFirst({ where: { id, association_id: associationId } });
     if (!ann) throw new NotFoundError('Announcement');

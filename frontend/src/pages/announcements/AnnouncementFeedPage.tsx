@@ -404,7 +404,15 @@ export default function AnnouncementFeedPage() {
   const [showCompose, setShowCompose] = useState(false);
 
   const queryParams = activeCategory === 'ALL' ? {} : { category: activeCategory };
-  const { data, isFetching, refetch } = useListAnnouncementsQuery(queryParams);
+  // isLoading (no cached data yet), not isFetching (any refetch, including
+  // background ones). Marking an item read invalidates the 'Announcement' tag
+  // and triggers exactly that kind of background refetch — gating on
+  // isFetching swapped the whole card list out for skeletons mid-click,
+  // unmounting the card that had just been expanded and resetting its local
+  // state back to collapsed. The user would open a card, watch it flash
+  // closed, and only see it stay open on a second click once it was already
+  // marked read (and so no refetch fired).
+  const { data, isLoading, refetch } = useListAnnouncementsQuery(queryParams);
   const [markRead] = useMarkReadMutation();
   const [vote] = useVoteMutation();
   const [deleteAnnouncement] = useDeleteAnnouncementMutation();
@@ -477,7 +485,7 @@ export default function AnnouncementFeedPage() {
       </div>
 
       {/* Feed */}
-      {isFetching ? (
+      {isLoading ? (
         <div style={{ display: 'grid', gap: '0.75rem' }}>
           {[1, 2, 3].map((i) => (
             <div key={i} className="skeleton" style={{ height: 110, borderRadius: 12 }} />

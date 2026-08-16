@@ -4,6 +4,12 @@ export const announcementsApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     listAnnouncements: builder.query<{ data: unknown[]; meta: object }, object>({ query: (params) => ({ url: '/announcements', params }), providesTags: ['Announcement'] }),
     getAnnouncement: builder.query<{ data: unknown }, string>({ query: (id) => `/announcements/${id}` }),
+    // Home-screen badge — separate from listAnnouncements so it stays cheap
+    // and accurate regardless of how many items the feed itself has fetched.
+    // Shares the 'Announcement' tag so posting or marking one read updates it.
+    getUnreadAnnouncementCount: builder.query<{ data: { count: number } }, void>({
+      query: () => '/announcements/unread-count', providesTags: ['Announcement'],
+    }),
     postAnnouncement: builder.mutation<{ data: unknown }, FormData>({ query: (body) => ({ url: '/announcements', method: 'POST', body }), invalidatesTags: ['Announcement'] }),
     markRead: builder.mutation<void, string>({ query: (id) => ({ url: `/announcements/${id}/read`, method: 'POST' }), invalidatesTags: ['Announcement'] }),
     createPoll: builder.mutation<{ data: unknown }, object>({ query: (body) => ({ url: '/announcements/polls', method: 'POST', body }) }),
@@ -18,7 +24,7 @@ export const announcementsApi = baseApi.injectEndpoints({
 });
 
 export const {
-  useListAnnouncementsQuery, useGetAnnouncementQuery, usePostAnnouncementMutation,
+  useListAnnouncementsQuery, useGetAnnouncementQuery, useGetUnreadAnnouncementCountQuery, usePostAnnouncementMutation,
   useMarkReadMutation, useCreatePollMutation, useVoteMutation, useGetPollResultsQuery,
   useListDocumentsQuery, useGetDocumentUrlQuery, useUploadDocumentMutation, useDeactivateDocumentMutation,
   useDeleteAnnouncementMutation,
