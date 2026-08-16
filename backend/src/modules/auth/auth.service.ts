@@ -15,17 +15,42 @@ function hashMpin(mpin: string): string {
   return crypto.createHash('sha256').update(mpin).digest('hex');
 }
 
+// ── OTP verification switch ─────────────────────────────────────────────────
+//
+// TRUE (or unset — this is the safe default): OTP generation and verification
+// work exactly as they always have — a code is sent, and login/M-PIN-set/
+// M-PIN-reset all require it to match.
+//
+// FALSE: the OTP route is bypassed entirely. requestOtp() sends nothing and
+// verifyOtp()/resetMpin() accept any code, so a phone number alone is enough
+// to reach "set your M-PIN". This trades away proof of phone ownership, so it
+// is meant for non-production environments (demos, staging, local dev) —
+// never leave it off on an association's live environment.
+function otpVerificationEnabled(): boolean {
+  return process.env.OTP_VERIFICATION_ENABLED !== 'false';
+}
+
 export class AuthService {
   // ── OTP Request ─────────────────────────────────────────────────────────────
   async requestOtp(rawPhone: string): Promise<{
     delivery: { channel: string; sent: boolean };
     dev_otp?: string;
+    otp_required: boolean;
   }> {
     const phone = normalisePhone(rawPhone);
 
     // Rate limit: 3 OTP requests per phone per 10 minutes
     const limited = await checkOtpRequestLimit(phone);
     if (limited) throw new RateLimitError('Too many OTP requests. Please wait before retrying.');
+
+    if (!otpVerificationEnabled()) {
+      logger.warn(
+        'SECURITY: OTP_VERIFICATION_ENABLED=false — no code was sent and phone ownership will not ' +
+        'be checked when this number verifies. Non-production use only.',
+        { phone },
+      );
+      return { delivery: { channel: 'none', sent: true }, otp_required: false };
+    }
 
     // Config lookup (use defaults if no association found — multi-tenant lookup by phone)
     const user = await prisma.user.findFirst({ where: { phone, deleted_at: null } });
@@ -48,7 +73,7 @@ export class AuthService {
       // The code itself is never logged. It is a live credential for the next
       // five minutes, and anyone with log access should not be able to use it.
       logger.info('OTP dispatched', { phone, channel: delivery.channel });
-      return { delivery: { channel: delivery.channel, sent: true } };
+      return { delivery: { channel: delivery.channel, sent: true }, otp_required: true };
     }
 
     logger.error('OTP could not be delivered', { phone, error: delivery.error });
@@ -64,7 +89,7 @@ export class AuthService {
         'Anyone can obtain any user\'s code. Unset this as soon as OTP delivery works.',
         { phone },
       );
-      return { delivery: { channel: 'none', sent: false }, dev_otp: otp };
+      return { delivery: { channel: 'none', sent: false }, dev_otp: otp, otp_required: true };
     }
 
     throw new UnprocessableError(
@@ -80,7 +105,17 @@ export class AuthService {
     // MUST be checked BEFORE rate-limit gates so a locked account can still be bypassed.
     const isDevBypass = process.env.NODE_ENV === 'development' && (otp === '000000' || otp === '123456');
 
-    if (!isDevBypass) {
+    // OTP_VERIFICATION_ENABLED=false is a separate, deliberate switch (unlike
+    // the dev bypass above, it works in any environment) — when it's off,
+    // requestOtp() never stored a code to check against, so there is nothing
+    // to compare here even if we wanted to.
+    const verificationOff = !otpVerificationEnabled();
+    if (verificationOff) {
+      logger.warn('SECURITY: OTP_VERIFICATION_ENABLED=false — login accepted without checking the code.', { phone });
+    }
+    const skipOtpCheck = isDevBypass || verificationOff;
+
+    if (!skipOtpCheck) {
       const locked = await isOtpLocked(phone);
       if (locked) throw new RateLimitError('Account is temporarily locked due to too many failed attempts.');
       const storedOtp = await getOtp(phone);
@@ -122,12 +157,14 @@ export class AuthService {
       throw new NotFoundError('User');
     }
 
-    if (!isDevBypass) await deleteOtp(phone);
+    if (!skipOtpCheck) await deleteOtp(phone);
 
     await auditService.record({
       entity_type: 'auth', action: AuditAction.LOGIN,
       actor_label: phone, performed_by: user.id, association_id: user.association_id,
-      summary: isDevBypass ? 'Signed in with OTP (dev bypass)' : 'Signed in with OTP',
+      summary: verificationOff
+        ? 'Signed in with OTP (verification disabled)'
+        : isDevBypass ? 'Signed in with OTP (dev bypass)' : 'Signed in with OTP',
     });
 
     return this.issueTokenPair(user);
@@ -263,17 +300,24 @@ export class AuthService {
   // ── M-PIN: reset via OTP ──────────────────────────────────────────────────────
   async resetMpin(rawPhone: string, otp: string, newMpin: string): Promise<void> {
     const phone = normalisePhone(rawPhone);
-    const storedOtp = await getOtp(phone);
-    if (!storedOtp || storedOtp !== otp) throw new UnauthorizedError('Invalid or expired OTP.');
+    const verificationOff = !otpVerificationEnabled();
+
+    if (verificationOff) {
+      logger.warn('SECURITY: OTP_VERIFICATION_ENABLED=false — M-PIN reset accepted without checking the code.', { phone });
+    } else {
+      const storedOtp = await getOtp(phone);
+      if (!storedOtp || storedOtp !== otp) throw new UnauthorizedError('Invalid or expired OTP.');
+    }
+
     const user = await prisma.user.findFirst({ where: { phone, deleted_at: null, is_active: true } });
     if (!user) throw new NotFoundError('User');
     await prisma.user.update({ where: { id: user.id }, data: { mpin_hash: hashMpin(newMpin) } });
-    await deleteOtp(phone);
+    if (!verificationOff) await deleteOtp(phone);
 
     await auditService.record({
       entity_type: 'auth', action: AuditAction.MPIN_RESET,
       actor_label: phone, performed_by: user.id, association_id: user.association_id,
-      summary: 'M-PIN reset via OTP',
+      summary: verificationOff ? 'M-PIN reset (OTP verification disabled)' : 'M-PIN reset via OTP',
     });
   }
 

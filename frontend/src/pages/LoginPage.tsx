@@ -39,6 +39,11 @@ const forgetPhone = () => {
   if (IS_NATIVE) localStorage.removeItem(REMEMBERED_PHONE_KEY);
 };
 
+// Submitted in place of a real code when the server has OTP verification
+// switched off (OTP_VERIFICATION_ENABLED=false) — the backend does not check
+// it in that case, it just needs something that satisfies the "otp" field.
+const OTP_BYPASS_PLACEHOLDER = '0000';
+
 // ── Theme colours ─────────────────────────────────────────────────────────────
 const T = {
   primary:     '#C4572B',
@@ -161,6 +166,10 @@ export default function LoginPage() {
   const [devOtp, setDevOtp] = useState<string | null>(null);
   const [waStatus, setWaStatus] = useState<{ sent: boolean; error?: string } | null>(null);
   const [pendingTokens, setPendingTokens] = useState<{ access_token: string; refresh_token: string; user: object } | null>(null);
+  // Reflects the server's OTP_VERIFICATION_ENABLED setting for the last
+  // request/reset attempt. True until told otherwise — the OTP step only
+  // gets skipped once the server has actually said it's not required.
+  const [otpRequired, setOtpRequired] = useState(true);
 
   const [requestOtp, { isLoading: sendingOtp }] = useRequestOtpMutation();
   const [verifyOtp, { isLoading: verifyingOtp }] = useVerifyOtpMutation();
@@ -179,11 +188,19 @@ export default function LoginPage() {
       const res = await fetch(`${API_BASE}/auth/mpin/status?phone=${encodeURIComponent(phone)}`);
       const json = await res.json();
       if (json?.data?.has_mpin) { setStep('mpin'); }
-      else { await sendOtp(); setStep('otp'); }
+      else {
+        const required = await sendOtp();
+        if (required) { setStep('otp'); }
+        // Server has OTP verification switched off — go straight to setting
+        // an M-PIN instead of showing a code-entry step for a code that was
+        // never sent.
+        else { await proceedWithoutOtp(); }
+      }
     } catch { setError('Failed to connect to server.'); }
   };
 
-  const sendOtp = async () => {
+  /** Returns whether the server actually requires an OTP for this phone. */
+  const sendOtp = async (): Promise<boolean> => {
     const result = await requestOtp({ phone }).unwrap();
     const d = result?.data?.delivery;
     if (d) setWaStatus({ sent: d.sent, error: d.sent ? undefined : 'Could not send the code.' });
@@ -191,6 +208,20 @@ export default function LoginPage() {
     // deliberately switched the unsafe echo on. In normal production this is
     // absent and the box never renders.
     if (result?.data?.dev_otp) setDevOtp(result.data.dev_otp as string);
+    const required = result?.data?.otp_required !== false;
+    setOtpRequired(required);
+    return required;
+  };
+
+  /** OTP_VERIFICATION_ENABLED=false path — verify with a placeholder (the
+   *  server isn't checking it) to get tokens, then land on set_mpin exactly
+   *  like a real OTP verification would. */
+  const proceedWithoutOtp = async () => {
+    try {
+      const result = await verifyOtp({ phone, otp: OTP_BYPASS_PLACEHOLDER }).unwrap();
+      const tokens = result.data as { access_token: string; refresh_token: string; user: object };
+      setPendingTokens(tokens); setStep('set_mpin');
+    } catch (err: unknown) { setError(extractError(err, 'Could not continue. Please try again.')); }
   };
 
   const handleMpinLogin = async (e: React.FormEvent) => {
@@ -206,8 +237,13 @@ export default function LoginPage() {
 
   const handleForgotMpin = async () => {
     clearErr(); setDevOtp(null); setWaStatus(null);
-    try { await sendOtp(); setStep('reset_mpin'); }
-    catch (err: unknown) { setError(extractError(err, 'Failed to send OTP.')); }
+    try {
+      const required = await sendOtp();
+      // Nothing was sent, so there's no code for the user to type — fill the
+      // placeholder the server accepts and let the reset form skip that field.
+      setOtp(required ? '' : OTP_BYPASS_PLACEHOLDER);
+      setStep('reset_mpin');
+    } catch (err: unknown) { setError(extractError(err, 'Failed to send OTP.')); }
   };
 
   const handleOtpVerify = async (e: React.FormEvent) => {
@@ -380,7 +416,9 @@ export default function LoginPage() {
           {step === 'reset_mpin' && (
             <form onSubmit={handleResetMpin}>
               <p style={{ color: T.mutedText, fontSize: '0.875rem', marginBottom: '0.75rem' }}>
-                Enter the OTP sent to {phone}, then set your new M-PIN.
+                {otpRequired
+                  ? `Enter the OTP sent to ${phone}, then set your new M-PIN.`
+                  : `Set a new M-PIN for ${phone}.`}
               </p>
               {waStatus && (
                 <div style={infoBox(waStatus.sent ? 'green' : 'red')}>
@@ -392,14 +430,16 @@ export default function LoginPage() {
                   OTP: <strong>{devOtp}</strong>
                 </div>
               )}
-              <div style={{ marginBottom: '0.75rem' }}>
-                <label style={labelStyle}>OTP</label>
-                <input type="text" inputMode="numeric" maxLength={8} placeholder="123456"
-                  value={otp} onChange={(e) => setOtp(e.target.value)} required style={inputStyle} autoFocus />
-              </div>
+              {otpRequired && (
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <label style={labelStyle}>OTP</label>
+                  <input type="text" inputMode="numeric" maxLength={8} placeholder="123456"
+                    value={otp} onChange={(e) => setOtp(e.target.value)} required style={inputStyle} autoFocus />
+                </div>
+              )}
               <div style={{ marginBottom: '0.75rem' }}>
                 <label style={labelStyle}>New M-PIN</label>
-                <PinInput value={newMpin} onChange={setNewMpin}
+                <PinInput value={newMpin} onChange={setNewMpin} autoFocus={!otpRequired}
                           onComplete={() => confirmRef.current?.focus()} />
               </div>
               <div style={{ marginBottom: '1rem' }}>

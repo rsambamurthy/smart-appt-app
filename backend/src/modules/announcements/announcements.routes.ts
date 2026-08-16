@@ -78,7 +78,7 @@ router.post('/', requireRoles(UserRole.MANAGER, UserRole.COMMITTEE), upload.arra
 router.get('/', async (req: AuthRequest, res, next) => {
   try {
     const { cursor, limit } = parsePagination(req.query as never);
-    res.json(await announcementsService.list(req.user!.association_id, {
+    res.json(await announcementsService.list(req.user!.association_id, req.user!.id, {
       cursor, limit,
       category: req.query['category'] as string,
       date_from: req.query['date_from'] as string,
@@ -93,7 +93,12 @@ router.get('/:id', async (req: AuthRequest, res, next) => {
   catch (err) { next(err); }
 });
 
-router.post('/:id/read', requireRoles(UserRole.RESIDENT, UserRole.COMMITTEE), async (req: AuthRequest, res, next) => {
+// Any signed-in association member who can see the feed (RESIDENT up through
+// MANAGER/SUPER_USER, plus GATE_STAFF) may mark an item as read for
+// themselves — it's a personal read receipt, not a privileged action.
+// Previously restricted to RESIDENT/COMMITTEE only, so every other role got
+// a silent 403 here and their unread dot never cleared.
+router.post('/:id/read', async (req: AuthRequest, res, next) => {
   try { res.json(await announcementsService.markRead(req.user!.association_id, req.params['id'], req.user!.id)); }
   catch (err) { next(err); }
 });

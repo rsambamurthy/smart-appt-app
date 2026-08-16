@@ -51,7 +51,7 @@ export class AnnouncementsService {
     }
   }
 
-  async list(associationId: string, query: { cursor?: string; limit: number; category?: string; date_from?: string; date_to?: string }) {
+  async list(associationId: string, userId: string, query: { cursor?: string; limit: number; category?: string; date_from?: string; date_to?: string }) {
     const where: Record<string, unknown> = { association_id: associationId, published_at: { not: null } };
     if (query.category) where['category'] = query.category;
     if (query.date_from || query.date_to) {
@@ -67,7 +67,23 @@ export class AnnouncementsService {
       include: { poster: { select: { name: true, role: true } } },
       orderBy: { published_at: 'desc' },
     });
-    return paginatedResponse(items as (typeof items[0] & { id: string })[], query.limit);
+
+    // The list itself never carries per-user read state — it's the same rows
+    // for everyone. Whether *this* user has opened each one lives in
+    // AnnouncementRead, so it has to be joined in here explicitly. Without
+    // this, `read` is always undefined for every item on every load, which
+    // means the unread dot and bold title never clear no matter how many
+    // times someone opens the announcement.
+    const reads = items.length
+      ? await prisma.announcementRead.findMany({
+          where: { user_id: userId, announcement_id: { in: items.map((i) => i.id) } },
+          select: { announcement_id: true },
+        })
+      : [];
+    const readIds = new Set(reads.map((r) => r.announcement_id));
+    const withRead = items.map((i) => ({ ...i, read: readIds.has(i.id) }));
+
+    return paginatedResponse(withRead as (typeof withRead[0] & { id: string })[], query.limit);
   }
 
   async getOne(associationId: string, id: string) {

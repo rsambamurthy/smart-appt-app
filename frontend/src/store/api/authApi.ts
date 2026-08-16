@@ -7,6 +7,9 @@ export const authApi = baseApi.injectEndpoints({
         delivery: { channel: string; sent: boolean };
         /** Development only, or when OTP_ECHO_UNSAFE is deliberately set. */
         dev_otp?: string;
+        /** False when OTP_VERIFICATION_ENABLED=false on the server — no code
+         *  was sent, and verify will accept anything for this phone. */
+        otp_required: boolean;
       };
     }, { phone: string }>({
       query: (body) => ({ url: '/auth/otp/request', method: 'POST', body }),
