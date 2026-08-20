@@ -56,6 +56,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'admin_units',         label: 'Manage Units',       path: '/admin/units',                   roles: ['SUPER_USER', 'MANAGER'],                                dot: '#0095db', end: true },
       { id: 'chart_of_accounts',   label: 'Chart of Accounts',  path: '/accounting/chart-of-accounts',  roles: ['SUPER_USER', 'MANAGER', 'TREASURER'],                   dot: '#2563eb', end: true },
       { id: 'business_partners',   label: 'Business Partners',  path: '/accounting/business-partners',  roles: ['SUPER_USER', 'MANAGER', 'TREASURER'],                   dot: '#0891b2', end: true },
+      { id: 'recurring_expenses',  label: 'Recurring Expenses', path: '/expenses/recurring',             roles: ['SUPER_USER', 'TREASURER'],                              dot: '#0095db', end: true },
     ],
   },
   {
@@ -132,7 +133,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'receipts_payments', label: 'Receipts & Payments', path: '/accounting/receipts-payments', roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#15803d', end: true },
       { id: 'income_expenditure', label: 'Income & Expenditure', path: '/accounting/income-expenditure', roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#c2410c', end: true },
       { id: 'fy_closure',      label: 'FY Closure',      path: '/accounting/fy-closure',       roles: ['SUPER_USER', 'MANAGER', 'TREASURER'], dot: '#dc2626', end: true },
-      { id: 'recurring_expenses', label: 'Recurring Expenses', path: '/expenses/recurring', roles: ['SUPER_USER', 'TREASURER'], dot: '#0095db', end: true },
     ],
   },
   {
