@@ -1,0 +1,1512 @@
+From dc27600fb7360f3bb4be03ff8685ef6e4d1cea26 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 20 Aug 2026 07:11:28 +0000
+Subject: [PATCH 1/2] feat(accounting): month-end accrual for recurring
+ expenses via Accounts Payable
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Recurring expenses can now opt into month-end provisioning: on the last day
+of the month, a nightly job books an accrual (DR Expense / CR 2004 Accounts
+Payable) for any active monthly recurring expense that hasn't actually been
+recorded yet that period. Once the real bill is approved, the accrual is
+automatically reversed against the same vendor's payable card instead of
+double-booking the expense, with any variance between the estimated and
+actual amount adjusted through the expense account.
+
+2004 posts against the specific vendor's own sub-ledger, finishing the
+Vendor business-partner control-account wiring that already existed for
+Dues Receivable but was never linked up — auto_provision now requires a
+vendor for exactly this reason. Also fixes a latent gap where approved
+recurring expenses were never posted to the ledger at all.
+
+Adds a Recurring Expenses page (vendor picker, provisioning toggle,
+accrual review list) and a GET /expenses/provisions endpoint.
+---
+ .../migration.sql                             |  76 +++++
+ .../migration.sql                             |  16 +
+ backend/prisma/schema.prisma                  |  70 +++-
+ backend/src/jobs/worker-entry.ts              |   5 +
+ .../src/jobs/workers/expense-provisioner.ts   | 118 +++++++
+ .../jobs/workers/notification-dispatcher.ts   |   2 +
+ .../modules/accounting/accounting.service.ts  |  10 +-
+ .../src/modules/accounting/bp-type.seed.ts    |  97 ++++++
+ .../src/modules/accounting/journal.service.ts | 162 +++++++--
+ .../modules/expenses/expenses.controller.ts   |   5 +
+ .../src/modules/expenses/expenses.routes.ts   |   3 +
+ .../src/modules/expenses/expenses.schema.ts   |  20 ++
+ .../src/modules/expenses/expenses.service.ts  | 110 ++++++
+ frontend/src/App.tsx                          |   2 +
+ frontend/src/components/organisms/Layout.tsx  |   1 +
+ .../pages/expenses/RecurringExpensesPage.tsx  | 323 ++++++++++++++++++
+ frontend/src/store/api/expensesApi.ts         |  77 ++++-
+ 17 files changed, 1070 insertions(+), 27 deletions(-)
+ create mode 100644 backend/prisma/migrations/20260820000001_recurring_expense_provisioning/migration.sql
+ create mode 100644 backend/prisma/migrations/20260820000002_vendor_accounts_payable_link/migration.sql
+ create mode 100644 backend/src/jobs/workers/expense-provisioner.ts
+ create mode 100644 frontend/src/pages/expenses/RecurringExpensesPage.tsx
+
+diff --git a/backend/prisma/migrations/20260820000001_recurring_expense_provisioning/migration.sql b/backend/prisma/migrations/20260820000001_recurring_expense_provisioning/migration.sql
+new file mode 100644
+index 0000000..cf489f0
+--- /dev/null
++++ b/backend/prisma/migrations/20260820000001_recurring_expense_provisioning/migration.sql
+@@ -0,0 +1,76 @@
++-- CreateEnum: ProvisionStatus
++CREATE TYPE "ProvisionStatus" AS ENUM ('OPEN', 'SETTLED', 'REVERSED');
++
++-- AddColumn: opt-in month-end accrual flag on recurring_expenses
++ALTER TABLE "recurring_expenses"
++    ADD COLUMN "auto_provision" BOOLEAN NOT NULL DEFAULT false;
++
++-- CreateTable: expense_provisions — one row per (recurring expense, month)
++-- that was accrued at month-end instead of waiting for the real invoice.
++CREATE TABLE "expense_provisions" (
++    "id"                            UUID NOT NULL DEFAULT gen_random_uuid(),
++    "association_id"                UUID NOT NULL,
++    "recurring_expense_id"          UUID NOT NULL,
++    "period_year"                   SMALLINT NOT NULL,
++    "period_month"                  SMALLINT NOT NULL,
++    "amount"                        DECIMAL(10,2) NOT NULL,
++    "status"                        "ProvisionStatus" NOT NULL DEFAULT 'OPEN',
++    "provisioning_journal_entry_id" UUID,
++    "settled_expense_id"            UUID,
++    "settlement_journal_entry_id"   UUID,
++    "settled_at"                    TIMESTAMPTZ,
++    "created_at"                    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    "updated_at"                    TIMESTAMPTZ NOT NULL,
++
++    CONSTRAINT "expense_provisions_pkey" PRIMARY KEY ("id")
++);
++
++-- UniqueIndex: at most one provision per recurring expense per calendar month
++CREATE UNIQUE INDEX "expense_provisions_recurring_expense_id_period_year_period_mo"
++    ON "expense_provisions"("recurring_expense_id", "period_year", "period_month");
++
++-- UniqueIndex: an Expense can settle at most one provision
++CREATE UNIQUE INDEX "expense_provisions_settled_expense_id_key"
++    ON "expense_provisions"("settled_expense_id");
++
++-- Index: review screen — open/settled provisions per association
++CREATE INDEX "expense_provisions_association_id_status_idx"
++    ON "expense_provisions"("association_id", "status");
++
++-- FK: expense_provisions → associations
++ALTER TABLE "expense_provisions"
++    ADD CONSTRAINT "expense_provisions_association_id_fkey"
++    FOREIGN KEY ("association_id")
++    REFERENCES "associations"("id")
++    ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- FK: expense_provisions → recurring_expenses
++ALTER TABLE "expense_provisions"
++    ADD CONSTRAINT "expense_provisions_recurring_expense_id_fkey"
++    FOREIGN KEY ("recurring_expense_id")
++    REFERENCES "recurring_expenses"("id")
++    ON DELETE CASCADE ON UPDATE CASCADE;
++
++-- FK: expense_provisions.settled_expense_id → expenses (soft link elsewhere
++-- in this schema, e.g. journal_entries.reference_id, is intentionally left
++-- without a DB constraint; this one gets a real FK since it drives the
++-- one-provision-per-expense uniqueness above).
++ALTER TABLE "expense_provisions"
++    ADD CONSTRAINT "expense_provisions_settled_expense_id_fkey"
++    FOREIGN KEY ("settled_expense_id")
++    REFERENCES "expenses"("id")
++    ON DELETE SET NULL ON UPDATE CASCADE;
++
++-- FK: expense_provisions.provisioning_journal_entry_id → journal_entries
++ALTER TABLE "expense_provisions"
++    ADD CONSTRAINT "expense_provisions_provisioning_journal_entry_id_fkey"
++    FOREIGN KEY ("provisioning_journal_entry_id")
++    REFERENCES "journal_entries"("id")
++    ON DELETE SET NULL ON UPDATE CASCADE;
++
++-- FK: expense_provisions.settlement_journal_entry_id → journal_entries
++ALTER TABLE "expense_provisions"
++    ADD CONSTRAINT "expense_provisions_settlement_journal_entry_id_fkey"
++    FOREIGN KEY ("settlement_journal_entry_id")
++    REFERENCES "journal_entries"("id")
++    ON DELETE SET NULL ON UPDATE CASCADE;
+diff --git a/backend/prisma/migrations/20260820000002_vendor_accounts_payable_link/migration.sql b/backend/prisma/migrations/20260820000002_vendor_accounts_payable_link/migration.sql
+new file mode 100644
+index 0000000..b9cc0d5
+--- /dev/null
++++ b/backend/prisma/migrations/20260820000002_vendor_accounts_payable_link/migration.sql
+@@ -0,0 +1,16 @@
++-- AddColumn: lazy link from a vendor to its Accounts Payable sub-ledger card
++-- (business_partners row, bp_category = 'VENDOR'). Nullable and created on
++-- first use by ensureVendorBP — most vendors never need one.
++ALTER TABLE "vendors"
++    ADD COLUMN "business_partner_id" UUID;
++
++-- UniqueIndex: a vendor has at most one ledger card
++CREATE UNIQUE INDEX "vendors_business_partner_id_key"
++    ON "vendors"("business_partner_id");
++
++-- FK: vendors.business_partner_id → business_partners
++ALTER TABLE "vendors"
++    ADD CONSTRAINT "vendors_business_partner_id_fkey"
++    FOREIGN KEY ("business_partner_id")
++    REFERENCES "business_partners"("id")
++    ON DELETE SET NULL ON UPDATE CASCADE;
+diff --git a/backend/prisma/schema.prisma b/backend/prisma/schema.prisma
+index a7502be..cb14dee 100644
+--- a/backend/prisma/schema.prisma
++++ b/backend/prisma/schema.prisma
+@@ -106,6 +106,18 @@ enum ExpenseFrequency {
+   ANNUAL
+ }
+ 
++// Lifecycle of a month-end accrual booked against a RecurringExpense that
++// hasn't actually been invoiced/recorded yet.
++//   OPEN     — provisioned, waiting for the real expense to be recorded.
++//   SETTLED  — the real expense arrived and was matched; provision reversed.
++//   REVERSED — cancelled without a matching expense (e.g. the recurring item
++//              was deactivated before the real bill ever showed up).
++enum ProvisionStatus {
++  OPEN
++  SETTLED
++  REVERSED
++}
++
+ enum AnnouncementCategory {
+   GENERAL
+   URGENT
+@@ -216,6 +228,7 @@ model Association {
+   expense_categories ExpenseCategoryConfig[]
+   vendors            Vendor[]
+   recurring_expenses RecurringExpense[]
++  expense_provisions ExpenseProvision[]
+   announcements      Announcement[]
+   announcement_reads AnnouncementRead[]
+   documents          Document[]
+@@ -715,6 +728,13 @@ model Vendor {
+   creator        User        @relation(fields: [created_by], references: [id])
+   created_at     DateTime    @default(now()) @db.Timestamptz
+ 
++  // Lazily created the first time this vendor needs a real ledger card —
++  // e.g. when a recurring expense against it turns on month-end accrual.
++  // Nothing else requires it: most vendors are just a name on an Expense row
++  // and never need a sub-ledger presence at all.
++  business_partner_id String?          @unique @db.Uuid
++  business_partner    BusinessPartner? @relation(fields: [business_partner_id], references: [id])
++
+   expenses           Expense[]
+   recurring_expenses RecurringExpense[]
+ 
+@@ -804,18 +824,64 @@ model RecurringExpense {
+   next_due_date  DateTime         @db.Date
+   reminder_days  Int              @default(3) @db.SmallInt
+   is_active      Boolean          @default(true)
++  // Opt-in: when true, the month-end job books an accrual (DR Expense / CR
++  // 2004 "Accounts Payable", against this item's vendor) if it hasn't
++  // actually been recorded yet that month, instead of letting the P&L
++  // understate the month just because the vendor's invoice hasn't shown up.
++  // Requires vendor_id — this is a confirmed, contracted amount owed to a
++  // specific vendor, not an anonymous estimate (see expenses.schema.ts).
++  // Only meaningful for MONTHLY items — quarterly/half-yearly/annual
++  // amortisation is a different problem and isn't handled by this flag.
++  auto_provision Boolean          @default(false)
+   created_by     String           @db.Uuid
+   creator        User             @relation(fields: [created_by], references: [id])
+   created_at     DateTime         @default(now()) @db.Timestamptz
+   updated_at     DateTime         @updatedAt @db.Timestamptz
+ 
+-  expenses Expense[]
++  expenses   Expense[]
++  provisions ExpenseProvision[]
+ 
+   @@index([next_due_date])
+   @@index([is_active])
+   @@map("recurring_expenses")
+ }
+ 
++// One row per (recurring expense, calendar month) that got accrued instead of
++// waiting for the real invoice. Matched against the eventual real Expense by
++// recurring_expense_id + period so the accrual can be reversed rather than
++// double-booked once the actual bill is recorded.
++model ExpenseProvision {
++  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
++  association_id      String           @db.Uuid
++  association         Association      @relation(fields: [association_id], references: [id])
++  recurring_expense_id String          @db.Uuid
++  recurring_expense   RecurringExpense @relation(fields: [recurring_expense_id], references: [id])
++
++  period_year         Int              @db.SmallInt
++  period_month        Int              @db.SmallInt // 1-12
++  amount              Decimal          @db.Decimal(10, 2) // amount actually provisioned (the recurring item's amount at the time)
++  status              ProvisionStatus  @default(OPEN)
++
++  // The JV that booked DR Expense / CR 2004 Accounts Payable (against the
++  // vendor's own sub-ledger card) at month-end. Plain scalar, not a Prisma
++  // relation — same soft-link convention as JournalEntry.reference_id
++  // elsewhere (a FK constraint still exists at the DB level; see the migration).
++  provisioning_journal_entry_id String?  @db.Uuid
++
++  // Set once the real expense is recorded against the same recurring item in
++  // the same period and this provision is reversed/settled.
++  settled_expense_id            String?  @unique @db.Uuid
++  settlement_journal_entry_id   String?  @db.Uuid
++  settled_at                    DateTime? @db.Timestamptz
++
++  created_at DateTime @default(now()) @db.Timestamptz
++  updated_at DateTime @updatedAt @db.Timestamptz
++
++  @@unique([recurring_expense_id, period_year, period_month])
++  @@index([association_id, status])
++  @@map("expense_provisions")
++}
++
+ // ─── Communication Tables ─────────────────────────────────────────────────────
+ 
+ model Announcement {
+@@ -1406,6 +1472,8 @@ model BusinessPartner {
+ 
+   journal_lines  JournalLine[]
+   upi_for_dues   DuesConfig[]  @relation("UpiCollectionAccount")
++  // Opposite side of Vendor.business_partner_id — the FK lives on Vendor.
++  vendor_link    Vendor?
+ 
+   @@unique([association_id, code])
+   @@index([association_id])
+diff --git a/backend/src/jobs/worker-entry.ts b/backend/src/jobs/worker-entry.ts
+index a8ab670..308e726 100644
+--- a/backend/src/jobs/worker-entry.ts
++++ b/backend/src/jobs/worker-entry.ts
+@@ -6,6 +6,7 @@ import { runBillGenerator } from './workers/bill-generator';
+ import { runSlaBreachChecker } from './workers/sla-breach-checker';
+ import { runDuesReminder } from './workers/dues-reminder';
+ import { runRecurringExpensePoller } from './workers/recurring-expense-poller';
++import { runExpenseProvisioner } from './workers/expense-provisioner';
+ import { runVisitorQrExpiry } from './workers/visitor-qr-expiry';
+ import prisma from '../config/database';
+ import redis from '../config/redis';
+@@ -21,6 +22,10 @@ cron.schedule('0 7 * * *', () => runBillGenerator().catch((e) => logger.error('B
+ cron.schedule('0 9 * * *', () => runDuesReminder().catch((e) => logger.error('Dues reminder error', { error: e.message })));
+ cron.schedule('*/15 * * * *', () => runSlaBreachChecker().catch((e) => logger.error('SLA checker error', { error: e.message })));
+ cron.schedule('0 6 * * *', () => runRecurringExpensePoller().catch((e) => logger.error('Recurring expense error', { error: e.message })));
++// 23:30 daily — the job itself is a no-op on every day except the last of
++// the month, same shape as runRecurringExpensePoller's daily "is anything
++// due" query.
++cron.schedule('30 23 * * *', () => runExpenseProvisioner().catch((e) => logger.error('Expense provisioner error', { error: e.message })));
+ cron.schedule('0 * * * *', () => runVisitorQrExpiry().catch((e) => logger.error('Visitor QR expiry error', { error: e.message })));
+ 
+ logger.info('All cron jobs scheduled');
+diff --git a/backend/src/jobs/workers/expense-provisioner.ts b/backend/src/jobs/workers/expense-provisioner.ts
+new file mode 100644
+index 0000000..2f4e945
+--- /dev/null
++++ b/backend/src/jobs/workers/expense-provisioner.ts
+@@ -0,0 +1,118 @@
++import prisma from '../../config/database';
++import { notificationService } from '../../services/notification.service';
++import { journalService } from '../../modules/accounting/journal.service';
++import { ensureVendorBP } from '../../modules/accounting/bp-type.seed';
++import { ExpenseStatus, ExpenseFrequency, UserRole } from '@prisma/client';
++import logger from '../../utils/logger';
++
++const isLastDayOfMonth = (date: Date): boolean => {
++  const tomorrow = new Date(date);
++  tomorrow.setDate(tomorrow.getDate() + 1);
++  return tomorrow.getDate() === 1;
++};
++
++// Month-end accrual for recurring expenses that opted into provisioning
++// (RecurringExpense.auto_provision) and haven't actually been recorded yet
++// this month. Runs nightly but only does anything on the last calendar day
++// of the month — matches the existing recurring-expense-poller's "run daily,
++// let the query decide if there's work" shape rather than trying to compute
++// "the 28th/30th/31st" up front.
++//
++// Scoped to MONTHLY items only: quarterly/half-yearly/annual accruals are an
++// amortisation problem (spreading 1/3rd, 1/6th, 1/12th of the amount across
++// months), not a "did this month's bill show up yet" problem, and aren't
++// handled here.
++export const runExpenseProvisioner = async (): Promise<void> => {
++  const today = new Date();
++  today.setHours(0, 0, 0, 0);
++  if (!isLastDayOfMonth(today)) return;
++
++  const periodYear = today.getFullYear();
++  const periodMonth = today.getMonth() + 1;
++  const monthStart = new Date(periodYear, periodMonth - 1, 1);
++  const monthEnd = new Date(periodYear, periodMonth, 1);
++
++  const candidates = await prisma.recurringExpense.findMany({
++    where: { is_active: true, auto_provision: true, frequency: ExpenseFrequency.MONTHLY },
++    include: { vendor: true },
++  });
++
++  for (const rec of candidates) {
++    try {
++      // auto_provision requires a vendor at write time (expenses.service.ts),
++      // but guard here too rather than trust that invariant blindly — a
++      // vendor could in principle be deleted out from under an existing
++      // recurring item.
++      if (!rec.vendor) {
++        logger.error('Recurring expense has auto_provision on but no vendor — skipping', { recurring_id: rec.id });
++        continue;
++      }
++
++      // Idempotency: a provision already exists for this recurring item this
++      // month (e.g. the job ran twice, or was fired manually for a retry).
++      const existingProvision = await prisma.expenseProvision.findUnique({
++        where: {
++          recurring_expense_id_period_year_period_month: {
++            recurring_expense_id: rec.id,
++            period_year: periodYear,
++            period_month: periodMonth,
++          },
++        },
++      });
++      if (existingProvision) continue;
++
++      // Already actually posted this period through the normal channel —
++      // nothing to accrue for, the books are already correct.
++      const alreadyRecorded = await prisma.expense.findFirst({
++        where: {
++          recurring_id: rec.id,
++          expense_date: { gte: monthStart, lt: monthEnd },
++          status: { in: [ExpenseStatus.APPROVED, ExpenseStatus.RECORDED] },
++        },
++      });
++      if (alreadyRecorded) continue;
++
++      const businessPartnerId = await ensureVendorBP(rec.association_id, rec.vendor);
++
++      const provision = await prisma.expenseProvision.create({
++        data: {
++          association_id: rec.association_id,
++          recurring_expense_id: rec.id,
++          period_year: periodYear,
++          period_month: periodMonth,
++          amount: rec.amount,
++        },
++      });
++
++      const journalEntryId = await journalService.postExpenseProvision(
++        rec.association_id,
++        provision.id,
++        rec.category,
++        Number(rec.amount),
++        businessPartnerId,
++        `${rec.description} — month-end accrual (${rec.vendor.name})`,
++        today,
++      );
++
++      await prisma.expenseProvision.update({
++        where: { id: provision.id },
++        data: { provisioning_journal_entry_id: journalEntryId },
++      });
++
++      const treasurers = await prisma.user.findMany({
++        where: { association_id: rec.association_id, role: UserRole.TREASURER, is_active: true, deleted_at: null },
++        select: { id: true },
++      });
++      await notificationService.dispatch({
++        type: 'EXPENSE_PROVISIONED',
++        channels: ['PUSH'],
++        recipients: treasurers.map((t) => t.id),
++        data: { description: rec.description, amount: String(rec.amount) },
++      });
++
++      logger.info('Recurring expense provisioned', { recurring_id: rec.id, provision_id: provision.id });
++    } catch (err) {
++      logger.error('Recurring expense provisioning failed', { recurring_id: rec.id, error: err });
++    }
++  }
++};
+diff --git a/backend/src/jobs/workers/notification-dispatcher.ts b/backend/src/jobs/workers/notification-dispatcher.ts
+index f9cad4e..414b8a1 100644
+--- a/backend/src/jobs/workers/notification-dispatcher.ts
++++ b/backend/src/jobs/workers/notification-dispatcher.ts
+@@ -16,6 +16,8 @@ const NOTIFICATION_MESSAGES: Record<string, { title: string; body: string }> = {
+   DUES_REMINDER: { title: 'Dues Reminder', body: 'Your maintenance dues are pending.' },
+   EXPENSE_PENDING_APPROVAL: { title: 'Expense Needs Approval', body: 'An expense is awaiting your approval.' },
+   EXPENSE_DECISION: { title: 'Expense Update', body: 'An expense has been reviewed.' },
++  RECURRING_EXPENSE_DUE: { title: 'Recurring Expense Due', body: 'A recurring expense is due and needs approval.' },
++  EXPENSE_PROVISIONED: { title: 'Month-End Provision Posted', body: 'A recurring expense was provisioned for this month pending the actual bill.' },
+   ANNOUNCEMENT_POSTED: { title: 'New Announcement', body: 'A new announcement has been posted.' },
+   URGENT_ANNOUNCEMENT: { title: '🚨 Urgent Notice', body: 'An urgent announcement has been posted.' },
+   VISITOR_WALKIN: { title: 'Visitor at Gate', body: 'Someone is requesting entry to your flat.' },
+diff --git a/backend/src/modules/accounting/accounting.service.ts b/backend/src/modules/accounting/accounting.service.ts
+index e7a15a4..edc6823 100644
+--- a/backend/src/modules/accounting/accounting.service.ts
++++ b/backend/src/modules/accounting/accounting.service.ts
+@@ -4,7 +4,7 @@ import { ConflictError, NotFoundError } from '../../utils/errors';
+ import { CreateAccountBody, UpdateAccountBody } from './accounting.schema';
+ import { auditService } from '../../services/audit.service';
+ import logger from '../../utils/logger';
+-import { seedBPTypes, linkDuesReceivable, ensureUnitBP } from './bp-type.seed';
++import { seedBPTypes, linkDuesReceivable, ensureUnitBP, linkAccountsPayable } from './bp-type.seed';
+ 
+ // ── Standard housing-society chart of accounts ───────────────────────────────
+ type SeedAccount = {
+@@ -28,6 +28,9 @@ const DEFAULT_ACCOUNTS: SeedAccount[] = [
+   { code: '2001', name: 'Advance Deposits',      type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false, is_group: false, is_control_account: false },
+   { code: '2002', name: 'Loans Payable',         type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false, is_group: false, is_control_account: false },
+   { code: '2003', name: 'Other Payables',        type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false, is_group: false, is_control_account: false },
++  // Control account for the Vendor BP type — see linkAccountsPayable(), same
++  // pattern as Dues Receivable (1004) being linked to the Unit BP type.
++  { code: '2004', name: 'Accounts Payable',      type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: true,  is_group: false, is_control_account: false },
+   // INCOME
+   { code: '3001', name: 'Maintenance Income',    type: AccountType.INCOME,    sub_type: 'Operating Income',  is_system: true,  is_group: false, is_control_account: false },
+   { code: '3002', name: 'Other Receipts',        type: AccountType.INCOME,    sub_type: 'Other Income',      is_system: true,  is_group: false, is_control_account: false },
+@@ -83,6 +86,11 @@ class AccountingService {
+     // to perform.
+     await seedBPTypes(associationId);
+     const linkedTo = await linkDuesReceivable(associationId);
++    // Accounts Payable (2004) → Vendor BP type. Unlike units, vendor cards
++    // aren't backfilled here — most vendors never need one, so they're
++    // created lazily by ensureVendorBP the first time something actually
++    // posts against a specific vendor's payable balance.
++    await linkAccountsPayable(associationId);
+ 
+     // Backfill any unit that has no partner card yet, or has one with no type.
+     // A control account with no members is indistinguishable from a broken one.
+diff --git a/backend/src/modules/accounting/bp-type.seed.ts b/backend/src/modules/accounting/bp-type.seed.ts
+index 2e5e551..d7f92bc 100644
+--- a/backend/src/modules/accounting/bp-type.seed.ts
++++ b/backend/src/modules/accounting/bp-type.seed.ts
+@@ -104,6 +104,43 @@ export async function duesReceivableBPTypeId(associationId: string, db: Db = pri
+   return account?.is_control_account ? account.bp_type_id : null;
+ }
+ 
++/**
++ * Point Accounts Payable at the vendor type. Same idempotent, gap-filling
++ * shape as linkDuesReceivable — an association that already has 2004 linked
++ * to something else keeps it.
++ */
++export async function linkAccountsPayable(associationId: string, db: Db = prisma) {
++  const types = await seedBPTypes(associationId, db);
++  const vendorTypeId = types.get(BP_TYPE_VENDOR);
++  if (!vendorTypeId) return null;
++
++  const account = await db.account.findUnique({
++    where:  { association_id_code: { association_id: associationId, code: '2004' } },
++    select: { id: true, bp_type_id: true, is_control_account: true },
++  });
++  if (!account) return null;
++  if (account.bp_type_id) return account.bp_type_id;
++
++  await db.account.update({
++    where: { id: account.id },
++    data:  { is_control_account: true, bp_type_id: vendorTypeId },
++  });
++  return vendorTypeId;
++}
++
++/**
++ * The BP type that Accounts Payable is using, or null if it is not a control
++ * account. Used when creating a vendor partner so it lands in the right
++ * ledger.
++ */
++export async function accountsPayableBPTypeId(associationId: string, db: Db = prisma) {
++  const account = await db.account.findUnique({
++    where:  { association_id_code: { association_id: associationId, code: '2004' } },
++    select: { bp_type_id: true, is_control_account: true },
++  });
++  return account?.is_control_account ? account.bp_type_id : null;
++}
++
+ /** `UNIT-A101`, capped at the column's 20 characters. */
+ export function unitBPCode(unit: { flat_number: string; block: string | null }) {
+   const raw = `UNIT-${unit.block ?? ''}${unit.flat_number}`.replace(/[^A-Za-z0-9-]/g, '');
+@@ -114,6 +151,17 @@ export function unitBPName(unit: { flat_number: string; block: string | null })
+   return `Unit ${unit.flat_number}${unit.block ? ` ${unit.block}` : ''}`;
+ }
+ 
++/** `VEND-<id prefix>`, capped at the column's 20 characters. Vendor names are
++ * free text (not unique, unlike a flat number), so the code is derived from
++ * the id rather than the name to guarantee it never collides. */
++export function vendorBPCode(vendor: { id: string }) {
++  return `VEND-${vendor.id.replace(/-/g, '').slice(0, 14)}`.toUpperCase().slice(0, 20);
++}
++
++export function vendorBPName(vendor: { name: string }) {
++  return vendor.name;
++}
++
+ /**
+  * Ensure one business partner exists for a unit, correctly typed.
+  *
+@@ -160,3 +208,52 @@ export async function ensureUnitBP(
+   });
+   return created.id;
+ }
++
++/**
++ * Ensure one business partner exists for a vendor, correctly typed as an
++ * Accounts Payable sub-ledger card, and link it back onto the Vendor row.
++ *
++ * Unlike units (wired on every flat, since Dues Receivable assumes all of
++ * them exist), most vendors never need this — a vendor only gets a ledger
++ * card the first time something requires posting against its payable
++ * balance specifically, e.g. turning on month-end accrual for a recurring
++ * expense against it. Idempotent: a vendor that already has a card just gets
++ * its bp_type repaired if it was created before Accounts Payable was linked.
++ */
++export async function ensureVendorBP(
++  associationId: string,
++  vendor: { id: string; name: string; business_partner_id: string | null },
++  db: Db = prisma,
++) {
++  const bpTypeId = await accountsPayableBPTypeId(associationId, db);
++
++  if (vendor.business_partner_id) {
++    const existing = await db.businessPartner.findUnique({
++      where: { id: vendor.business_partner_id },
++      select: { id: true, bp_type_id: true },
++    });
++    if (existing) {
++      if (!existing.bp_type_id && bpTypeId) {
++        await db.businessPartner.update({ where: { id: existing.id }, data: { bp_type_id: bpTypeId } });
++      }
++      return existing.id;
++    }
++    // The linked BP was deleted out from under the vendor — fall through and
++    // create a fresh one rather than leaving the vendor permanently broken.
++  }
++
++  const created = await db.businessPartner.create({
++    data: {
++      association_id: associationId,
++      code:           vendorBPCode(vendor),
++      name:           vendorBPName(vendor),
++      bp_category:    BPCategory.VENDOR,
++      bp_type_id:     bpTypeId,
++      is_active:      true,
++    },
++    select: { id: true },
++  });
++
++  await db.vendor.update({ where: { id: vendor.id }, data: { business_partner_id: created.id } });
++  return created.id;
++}
+diff --git a/backend/src/modules/accounting/journal.service.ts b/backend/src/modules/accounting/journal.service.ts
+index 6db1f78..d9db2c6 100644
+--- a/backend/src/modules/accounting/journal.service.ts
++++ b/backend/src/modules/accounting/journal.service.ts
+@@ -5,6 +5,7 @@ import { CreateJournalEntryBody } from './journal.schema';
+ import logger from '../../utils/logger';
+ import { auditService } from '../../services/audit.service';
+ import { fyClosureService, getFinancialYear } from './fy-closure.service';
++import { accountingService } from './accounting.service';
+ 
+ // Account types whose normal balance is DEBIT (DR increases balance)
+ const DEBIT_NORMAL = new Set<string>(['ASSET', 'EXPENSE']);
+@@ -476,29 +477,7 @@ class JournalService {
+     narration:     string,
+   ) {
+     try {
+-      // Try to find a matching expense account by name
+-      let expenseAccount = await prisma.account.findFirst({
+-        where: {
+-          association_id: associationId,
+-          type:           AccountType.EXPENSE,
+-          is_active:      true,
+-          name:           { contains: category, mode: 'insensitive' },
+-        },
+-      });
+-      // Fall back to account 4008 (Administrative), then first EXPENSE account
+-      if (!expenseAccount) {
+-        expenseAccount = await prisma.account.findUnique({
+-          where: { association_id_code: { association_id: associationId, code: '4008' } },
+-        });
+-      }
+-      if (!expenseAccount) {
+-        expenseAccount = await prisma.account.findFirst({
+-          where: { association_id: associationId, type: AccountType.EXPENSE, is_active: true },
+-          orderBy: { sort_order: 'asc' },
+-        });
+-      }
+-      if (!expenseAccount) throw new Error('No expense account found.');
+-
++      const expenseAccount = await this.resolveExpenseAccount(associationId, category);
+       const cashOrBank = await this.getAccount(associationId, cashOrBankCode(paymentMode));
+ 
+       await this.post(associationId, {
+@@ -518,6 +497,143 @@ class JournalService {
+     }
+   }
+ 
++  // ── Resolve the expense account to hit for a given category ───────────────
++  // Match by name, fall back to 4008 (Administrative), then any EXPENSE
++  // account. Shared by postExpense and the provisioning postings below so
++  // both land on the same account for the same category.
++  private async resolveExpenseAccount(associationId: string, category: string) {
++    let expenseAccount = await prisma.account.findFirst({
++      where: {
++        association_id: associationId,
++        type:           AccountType.EXPENSE,
++        is_active:      true,
++        name:           { contains: category, mode: 'insensitive' },
++      },
++    });
++    if (!expenseAccount) {
++      expenseAccount = await prisma.account.findUnique({
++        where: { association_id_code: { association_id: associationId, code: '4008' } },
++      });
++    }
++    if (!expenseAccount) {
++      expenseAccount = await prisma.account.findFirst({
++        where: { association_id: associationId, type: AccountType.EXPENSE, is_active: true },
++        orderBy: { sort_order: 'asc' },
++      });
++    }
++    if (!expenseAccount) throw new Error('No expense account found.');
++    return expenseAccount;
++  }
++
++  // ── Get an account, self-healing if the association predates it ──────────
++  // Chart of Accounts evolves (4009/4010 were added after launch the same
++  // way); seedDefaults() is idempotent and safe to re-run, so a missing
++  // system account is backfilled on first use rather than requiring every
++  // existing association to be migrated by hand.
++  private async getOrSeedAccount(associationId: string, code: string) {
++    const account = await prisma.account.findUnique({
++      where: { association_id_code: { association_id: associationId, code } },
++    });
++    if (account) return account;
++
++    await accountingService.seedDefaults(associationId);
++    return this.getAccount(associationId, code);
++  }
++
++  // ── AUTO-POST: Recurring expense provisioned at month-end ─────────────────
++  // DR Expense account (by category) / CR 2004 Accounts Payable, against the
++  // specific vendor's sub-ledger card. Books the accrual on the P&L in the
++  // correct month even though the vendor hasn't actually been paid — reversed
++  // later by reverseExpenseProvision once the real expense is recorded.
++  // Voucher type JV: this is an adjustment, not money moving.
++  //
++  // businessPartnerId is required: 2004 is a control account (linked to the
++  // Vendor BP type via linkAccountsPayable), and every line against a control
++  // account must carry the sub-ledger card it belongs to — same rule Dues
++  // Receivable enforces per-flat. Recurring expenses with auto_provision on
++  // are required to have a vendor for exactly this reason (see
++  // expenses.schema.ts) — this is a confirmed, contracted amount owed to a
++  // specific vendor, not an anonymous estimate.
++  async postExpenseProvision(
++    associationId:     string,
++    provisionId:       string,
++    category:          string,
++    amount:            number,
++    businessPartnerId: string,
++    narration:         string,
++    entryDate:         Date,
++  ): Promise<string> {
++    const [expenseAccount, payableAccount] = await Promise.all([
++      this.resolveExpenseAccount(associationId, category),
++      this.getOrSeedAccount(associationId, '2004'),
++    ]);
++
++    const entry = await this.post(associationId, {
++      entry_date:     entryDate,
++      narration,
++      reference_type: 'EXPENSE_PROVISION',
++      reference_id:   provisionId,
++      voucher_type:   VoucherType.JV,
++      source:         JournalEntrySource.AUTO,
++      lines: [
++        { account_id: expenseAccount.id,  debit: amount, credit: 0,      narration: `${category} (accrued)` },
++        { account_id: payableAccount.id,  business_partner_id: businessPartnerId, debit: 0, credit: amount, narration: 'Accounts Payable — accrued' },
++      ],
++    });
++    return entry.id;
++  }
++
++  // ── AUTO-POST: Accrual settled by the real expense ────────────────────────
++  // DR 2004 Accounts Payable, same vendor card (the amount originally
++  // accrued) / CR Cash/Bank (what was actually paid).
++  // If the real bill differs from the accrued amount, the difference hits the
++  // expense account too, so the P&L ends up showing the actual amount rather
++  // than the contracted estimate:
++  //   actual > accrued  → extra DR to the expense account
++  //   actual < accrued  → extra CR to the expense account
++  // Voucher type JV, same reasoning as the accrual entry itself.
++  async reverseExpenseProvision(
++    associationId:     string,
++    provisionId:       string,
++    provisionedAmount: number,
++    actualAmount:      number,
++    category:          string,
++    businessPartnerId: string,
++    paymentMode:        string,
++    narration:         string,
++    entryDate:         Date,
++  ): Promise<string> {
++    const [payableAccount, cashOrBank, expenseAccount] = await Promise.all([
++      this.getOrSeedAccount(associationId, '2004'),
++      this.getAccount(associationId, cashOrBankCode(paymentMode)),
++      this.resolveExpenseAccount(associationId, category),
++    ]);
++
++    const variance = actualAmount - provisionedAmount;
++    const lines: { account_id: string; business_partner_id?: string; debit: number; credit: number; narration?: string }[] = [
++      { account_id: payableAccount.id, business_partner_id: businessPartnerId, debit: provisionedAmount, credit: 0, narration: 'Accounts Payable — accrual reversed' },
++      { account_id: cashOrBank.id,     debit: 0, credit: actualAmount,     narration: 'Actual payment made' },
++    ];
++    if (variance > 0) {
++      // Actual bill was higher than the contracted/estimated amount — book the extra expense.
++      lines.push({ account_id: expenseAccount.id, debit: variance, credit: 0, narration: `${category} (variance over estimate)` });
++    } else if (variance < 0) {
++      // Actual bill was lower — claw back the over-accrued expense.
++      lines.push({ account_id: expenseAccount.id, debit: 0, credit: -variance, narration: `${category} (variance under estimate)` });
++    }
++
++    const entry = await this.post(associationId, {
++      entry_date:     entryDate,
++      narration,
++      reference_type: 'EXPENSE_PROVISION_SETTLEMENT',
++      reference_id:   provisionId,
++      voucher_type:   VoucherType.JV,
++      source:         JournalEntrySource.AUTO,
++      lines,
++    });
++    return entry.id;
++  }
++
+   // ── AUTO-POST: Other Receipt ──────────────────────────────────────────────
+   // DR 1001/1002 (Cash/Bank) / CR 3002 Other Receipts
+   async postOtherReceipt(
+diff --git a/backend/src/modules/expenses/expenses.controller.ts b/backend/src/modules/expenses/expenses.controller.ts
+index a237a09..c87cfb8 100644
+--- a/backend/src/modules/expenses/expenses.controller.ts
++++ b/backend/src/modules/expenses/expenses.controller.ts
+@@ -81,6 +81,11 @@ export class ExpensesController {
+     catch (err) { next(err); }
+   }
+ 
++  async listProvisions(req: AuthRequest, res: Response, next: NextFunction) {
++    try { res.json(await expensesService.listProvisions(req.user!.association_id, req.query['status'] as string | undefined)); }
++    catch (err) { next(err); }
++  }
++
+   // ── Category Config ──────────────────────────────────────────────────────────
+   async listCategories(req: AuthRequest, res: Response, next: NextFunction) {
+     try { res.json(await expensesService.listCategories(req.user!.association_id)); }
+diff --git a/backend/src/modules/expenses/expenses.routes.ts b/backend/src/modules/expenses/expenses.routes.ts
+index 89a50e3..51cd920 100644
+--- a/backend/src/modules/expenses/expenses.routes.ts
++++ b/backend/src/modules/expenses/expenses.routes.ts
+@@ -50,6 +50,9 @@ router.post('/recurring', requireRoles(UserRole.TREASURER), validate(recurringEx
+ router.patch('/recurring/:id', requireRoles(UserRole.TREASURER), (req, res, next) =>
+   expensesController.updateRecurring(req as never, res, next));
+ 
++router.get('/provisions', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE), (req, res, next) =>
++  expensesController.listProvisions(req as never, res, next));
++
+ router.put('/budgets/:category', requireRoles(UserRole.TREASURER), validate(setBudgetSchema), (req, res, next) =>
+   expensesController.setBudget(req as never, res, next));
+ 
+diff --git a/backend/src/modules/expenses/expenses.schema.ts b/backend/src/modules/expenses/expenses.schema.ts
+index a6c123d..4166805 100644
+--- a/backend/src/modules/expenses/expenses.schema.ts
++++ b/backend/src/modules/expenses/expenses.schema.ts
+@@ -31,6 +31,25 @@ export const recurringExpenseSchema = z.object({
+   frequency: z.nativeEnum(ExpenseFrequency),
+   next_due_date: z.string().datetime(),
+   reminder_days: z.number().int().min(0).max(30).optional().default(3),
++  // Opt-in month-end accrual. Only meaningful for MONTHLY items; the service
++  // layer ignores it for other frequencies rather than rejecting the request,
++  // so flipping frequency later doesn't require also clearing the flag.
++  // Requires a vendor: the accrual posts to Accounts Payable against that
++  // vendor's own sub-ledger card, so there's no such thing as an anonymous
++  // accrual — see journal.service.ts's postExpenseProvision.
++  auto_provision: z.boolean().optional().default(false),
++}).superRefine((data, ctx) => {
++  if (data.auto_provision && !data.vendor_id) {
++    ctx.addIssue({
++      code: z.ZodIssueCode.custom,
++      path: ['vendor_id'],
++      message: 'A vendor is required to turn on month-end provisioning — the accrual posts against the vendor\'s Accounts Payable card.',
++    });
++  }
++});
++
++export const listProvisionsQuerySchema = z.object({
++  status: z.enum(['OPEN', 'SETTLED', 'REVERSED']).optional(),
+ });
+ 
+ export const listExpensesQuerySchema = z.object({
+@@ -59,5 +78,6 @@ export type UpdateExpenseBody = z.infer<typeof updateExpenseSchema>;
+ export type ApproveExpenseBody = z.infer<typeof approveExpenseSchema>;
+ export type SetBudgetBody = z.infer<typeof setBudgetSchema>;
+ export type RecurringExpenseBody = z.infer<typeof recurringExpenseSchema>;
++export type ListProvisionsQuery = z.infer<typeof listProvisionsQuerySchema>;
+ export type CategoryConfigBody = z.infer<typeof categoryConfigSchema>;
+ export type UpdateCategoryConfigBody = z.infer<typeof updateCategoryConfigSchema>;
+diff --git a/backend/src/modules/expenses/expenses.service.ts b/backend/src/modules/expenses/expenses.service.ts
+index b6397fc..ff84a54 100644
+--- a/backend/src/modules/expenses/expenses.service.ts
++++ b/backend/src/modules/expenses/expenses.service.ts
+@@ -8,6 +8,8 @@ import {
+ } from './expenses.schema';
+ import { ExpenseStatus, UserRole } from '@prisma/client';
+ import { journalService } from '../accounting/journal.service';
++import { ensureVendorBP } from '../accounting/bp-type.seed';
++import logger from '../../utils/logger';
+ 
+ // Default categories seeded for every new association
+ const DEFAULT_CATEGORIES = [
+@@ -162,6 +164,73 @@ export class ExpensesService {
+       data: { status: newStatus, approved_by: approvedBy, approved_at: new Date(), approval_note: body.note },
+     });
+ 
++    // Recurring expenses always come in as PENDING_APPROVAL (see the
++    // recurring-expense poller), so this is the first moment a recurring
++    // item is confirmed real. If it was already provisioned at month-end,
++    // reverse that accrual instead of booking the expense a second time.
++    // Scoped to is_recurring only — this doesn't touch the (separate,
++    // pre-existing) approval path for one-off expenses over the threshold.
++    if (newStatus === ExpenseStatus.APPROVED && expense.is_recurring && expense.recurring_id) {
++      const expenseDate = expense.expense_date;
++      const openProvision = await prisma.expenseProvision.findFirst({
++        where: {
++          recurring_expense_id: expense.recurring_id,
++          period_year:  expenseDate.getFullYear(),
++          period_month: expenseDate.getMonth() + 1,
++          status: 'OPEN',
++        },
++      });
++
++      try {
++        if (openProvision) {
++          // The recurring item is the authoritative source of which vendor
++          // this accrual belongs to (auto_provision requires one — see
++          // ensureVendorForProvisioning) — not expense.vendor_id, which is a
++          // separately-editable field on the individual expense.
++          const recurring = await prisma.recurringExpense.findUnique({
++            where: { id: expense.recurring_id },
++            include: { vendor: true },
++          });
++          if (!recurring?.vendor) {
++            throw new UnprocessableError('This recurring expense was provisioned but no longer has a vendor linked — cannot settle the accrual.');
++          }
++          const businessPartnerId = await ensureVendorBP(associationId, recurring.vendor);
++
++          const settlementEntryId = await journalService.reverseExpenseProvision(
++            associationId,
++            openProvision.id,
++            Number(openProvision.amount),
++            Number(expense.amount),
++            expense.category,
++            businessPartnerId,
++            expense.payment_mode,
++            expense.description ?? expense.category,
++            expenseDate,
++          );
++          await prisma.expenseProvision.update({
++            where: { id: openProvision.id },
++            data: {
++              status: 'SETTLED',
++              settled_expense_id: expenseId,
++              settlement_journal_entry_id: settlementEntryId,
++              settled_at: new Date(),
++            },
++          });
++        } else {
++          await journalService.postExpense(
++            associationId,
++            expenseId,
++            Number(expense.amount),
++            expense.payment_mode,
++            expense.category,
++            expense.description ?? expense.category,
++          );
++        }
++      } catch (err) {
++        logger.error('Auto-post failed (recurring expense approval)', { expenseId, error: err });
++      }
++    }
++
+     await notificationService.dispatch({
+       type: 'EXPENSE_DECISION',
+       channels: ['PUSH'],
+@@ -259,6 +328,12 @@ export class ExpensesService {
+   }
+ 
+   async createRecurring(associationId: string, body: RecurringExpenseBody, createdBy: string) {
++    if (body.auto_provision) {
++      // Defense in depth beyond the zod schema — also makes sure the vendor
++      // actually belongs to this association before we wire a ledger card to it.
++      await this.ensureVendorForProvisioning(associationId, body.vendor_id);
++    }
++
+     const recurring = await prisma.recurringExpense.create({
+       data: { association_id: associationId, ...body, next_due_date: new Date(body.next_due_date), created_by: createdBy },
+     });
+@@ -277,10 +352,45 @@ export class ExpensesService {
+   async updateRecurring(associationId: string, recurringId: string, body: Partial<RecurringExpenseBody>) {
+     const item = await prisma.recurringExpense.findFirst({ where: { id: recurringId, association_id: associationId } });
+     if (!item) throw new NotFoundError('Recurring expense');
++
++    const willProvision = body.auto_provision ?? item.auto_provision;
++    const vendorId = body.vendor_id ?? item.vendor_id ?? undefined;
++    if (willProvision) {
++      await this.ensureVendorForProvisioning(associationId, vendorId ?? undefined);
++    }
++
+     const updated = await prisma.recurringExpense.update({ where: { id: recurringId }, data: body as never });
+     return { data: updated };
+   }
+ 
++  // ── Guard + ledger-card wiring for month-end provisioning ─────────────────
++  // A recurring expense can only accrue against a specific vendor's Accounts
++  // Payable card — there's no such thing as an anonymous accrual (see
++  // journal.service.ts's postExpenseProvision). Ensures that vendor actually
++  // has a business-partner card, creating one on first use.
++  private async ensureVendorForProvisioning(associationId: string, vendorId: string | undefined) {
++    if (!vendorId) {
++      throw new UnprocessableError(
++        'A vendor is required to turn on month-end provisioning — the accrual posts against the vendor\'s Accounts Payable card.'
++      );
++    }
++    const vendor = await prisma.vendor.findFirst({ where: { id: vendorId, association_id: associationId } });
++    if (!vendor) throw new NotFoundError('Vendor');
++    await ensureVendorBP(associationId, vendor);
++  }
++
++  // ── Month-end provisions — review screen for treasurers ──────────────────
++  async listProvisions(associationId: string, status?: string) {
++    const items = await prisma.expenseProvision.findMany({
++      where: { association_id: associationId, ...(status ? { status: status as never } : {}) },
++      include: {
++        recurring_expense: { select: { description: true, category: true, frequency: true } },
++      },
++      orderBy: [{ period_year: 'desc' }, { period_month: 'desc' }],
++    });
++    return { data: items };
++  }
++
+   // ── Expense Category Config ──────────────────────────────────────────────────
+   async listCategories(associationId: string) {
+     let categories = await prisma.expenseCategoryConfig.findMany({
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index aafd0b4..44ef16b 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -30,6 +30,7 @@ import ExpenseListPage from './pages/expenses/ExpenseListPage';
+ import ExpenseDashboardPage from './pages/expenses/ExpenseDashboardPage';
+ import TransparencyPage from './pages/expenses/TransparencyPage';
+ import ExpenseCategoriesPage from './pages/expenses/ExpenseCategoriesPage';
++import RecurringExpensesPage from './pages/expenses/RecurringExpensesPage';
+ import AnnouncementFeedPage from './pages/announcements/AnnouncementFeedPage';
+ import DocumentRepositoryPage from './pages/announcements/DocumentRepositoryPage';
+ import VisitorLogPage from './pages/visitors/VisitorLogPage';
+@@ -157,6 +158,7 @@ export default function App() {
+         {!IS_NATIVE && <Route path="/expenses" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseListPage /></RoleRoute>} />}
+         {!IS_NATIVE && <Route path="/expenses/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseDashboardPage /></RoleRoute>} />}
+         {!IS_NATIVE && <Route path="/expenses/categories" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><ExpenseCategoriesPage /></RoleRoute>} />}
++        {!IS_NATIVE && <Route path="/expenses/recurring" element={<RoleRoute roles={['TREASURER']}><RecurringExpensesPage /></RoleRoute>} />}
+         {!IS_NATIVE && <Route path="/expenses/transparency" element={<ProtectedRoute><TransparencyPage /></ProtectedRoute>} />}
+ 
+         {/* Announcements */}
+diff --git a/frontend/src/components/organisms/Layout.tsx b/frontend/src/components/organisms/Layout.tsx
+index a7af9e8..9773254 100644
+--- a/frontend/src/components/organisms/Layout.tsx
++++ b/frontend/src/components/organisms/Layout.tsx
+@@ -132,6 +132,7 @@ export const NAV_GROUPS: NavGroup[] = [
+       { id: 'receipts_payments', label: 'Receipts & Payments', path: '/accounting/receipts-payments', roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#15803d', end: true },
+       { id: 'income_expenditure', label: 'Income & Expenditure', path: '/accounting/income-expenditure', roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#c2410c', end: true },
+       { id: 'fy_closure',      label: 'FY Closure',      path: '/accounting/fy-closure',       roles: ['SUPER_USER', 'MANAGER', 'TREASURER'], dot: '#dc2626', end: true },
++      { id: 'recurring_expenses', label: 'Recurring Expenses', path: '/expenses/recurring', roles: ['SUPER_USER', 'TREASURER'], dot: '#0095db', end: true },
+     ],
+   },
+   {
+diff --git a/frontend/src/pages/expenses/RecurringExpensesPage.tsx b/frontend/src/pages/expenses/RecurringExpensesPage.tsx
+new file mode 100644
+index 0000000..4651475
+--- /dev/null
++++ b/frontend/src/pages/expenses/RecurringExpensesPage.tsx
+@@ -0,0 +1,323 @@
++import { useState } from 'react';
++import Layout from '../../components/organisms/Layout';
++import PageSubHeader from '../../components/molecules/PageSubHeader';
++import {
++  useListRecurringQuery,
++  useCreateRecurringMutation,
++  useUpdateRecurringMutation,
++  useListProvisionsQuery,
++  useListExpenseCategoriesQuery,
++  useListVendorsQuery,
++  useCreateVendorMutation,
++  RecurringExpense,
++  RecurringExpenseFrequency,
++  ProvisionStatus,
++} from '../../store/api/expensesApi';
++
++interface RecForm {
++  description: string;
++  category: string;
++  vendor_id: string;
++  amount: string;
++  frequency: RecurringExpenseFrequency;
++  next_due_date: string;
++  reminder_days: string;
++  auto_provision: boolean;
++}
++
++const emptyForm = (): RecForm => ({
++  description: '', category: '', vendor_id: '', amount: '', frequency: 'MONTHLY',
++  next_due_date: '', reminder_days: '3', auto_provision: false,
++});
++
++const FREQUENCY_LABEL: Record<RecurringExpenseFrequency, string> = {
++  MONTHLY: 'Monthly', QUARTERLY: 'Quarterly', HALF_YEARLY: 'Half-Yearly', ANNUAL: 'Annual',
++};
++
++const STATUS_STYLE: Record<ProvisionStatus, { bg: string; fg: string; label: string }> = {
++  OPEN:     { bg: '#fffbeb', fg: '#b45309', label: 'Open — awaiting actual bill' },
++  SETTLED:  { bg: '#f0fdf4', fg: '#16a34a', label: 'Settled' },
++  REVERSED: { bg: '#f1f5f9', fg: '#64748b', label: 'Reversed' },
++};
++
++const MONTH_NAME = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
++
++export default function RecurringExpensesPage() {
++  const { data, isLoading } = useListRecurringQuery();
++  const items = data?.data ?? [];
++
++  const { data: catData } = useListExpenseCategoriesQuery();
++  const activeCats = ((catData?.data ?? []) as { name: string; display_name: string; is_active: boolean }[])
++    .filter((c) => c.is_active);
++
++  const { data: vendorData } = useListVendorsQuery();
++  const vendors = (vendorData?.data ?? []).filter((v) => v.is_active);
++  const [createVendor, { isLoading: isCreatingVendor }] = useCreateVendorMutation();
++
++  const { data: provData, isLoading: provLoading } = useListProvisionsQuery();
++  const provisions = provData?.data ?? [];
++
++  const [createRecurring, { isLoading: isCreating }] = useCreateRecurringMutation();
++  const [updateRecurring] = useUpdateRecurringMutation();
++
++  const [showAdd, setShowAdd] = useState(false);
++  const [form, setForm] = useState<RecForm>(emptyForm());
++  const [formError, setFormError] = useState('');
++
++  const [showNewVendor, setShowNewVendor] = useState(false);
++  const [newVendorName, setNewVendorName] = useState('');
++
++  const setF = <K extends keyof RecForm>(key: K, value: RecForm[K]) => setForm((f) => ({ ...f, [key]: value }));
++
++  const handleAddVendor = async () => {
++    if (!newVendorName.trim()) return;
++    const created = await createVendor({ name: newVendorName.trim() }).unwrap();
++    setF('vendor_id', created.data.id);
++    setNewVendorName('');
++    setShowNewVendor(false);
++  };
++
++  const handleAdd = async () => {
++    setFormError('');
++    if (!form.description.trim()) { setFormError('Description is required.'); return; }
++    if (!form.category) { setFormError('Category is required.'); return; }
++    const amount = parseFloat(form.amount);
++    if (!amount || amount <= 0) { setFormError('Enter a positive amount.'); return; }
++    if (!form.next_due_date) { setFormError('Next due date is required.'); return; }
++    if (form.auto_provision && !form.vendor_id) {
++      setFormError('A vendor is required to turn on month-end accrual — it posts against the vendor\'s Accounts Payable card.');
++      return;
++    }
++
++    try {
++      await createRecurring({
++        description: form.description.trim(),
++        category: form.category,
++        vendor_id: form.vendor_id || undefined,
++        amount,
++        frequency: form.frequency,
++        next_due_date: new Date(form.next_due_date).toISOString(),
++        reminder_days: parseInt(form.reminder_days, 10) || 0,
++        auto_provision: form.frequency === 'MONTHLY' ? form.auto_provision : false,
++      }).unwrap();
++      setForm(emptyForm());
++      setShowAdd(false);
++    } catch (e: unknown) {
++      const err = e as { data?: { message?: string } };
++      setFormError(err?.data?.message ?? 'Failed to create recurring expense.');
++    }
++  };
++
++  const toggleActive = async (item: RecurringExpense) => {
++    await updateRecurring({ id: item.id, body: { is_active: !item.is_active } }).unwrap();
++  };
++
++  const toggleProvision = async (item: RecurringExpense) => {
++    if (!item.vendor_id && !item.auto_provision) return; // guarded by disabled state below
++    await updateRecurring({ id: item.id, body: { auto_provision: !item.auto_provision } }).unwrap();
++  };
++
++  return (
++    <Layout>
++      <PageSubHeader crumbs={[{ label: 'Accounting', path: '/accounting/journal' }, { label: 'Recurring Expenses' }]} />
++
++      <div style={{ padding: '1.5rem 2rem', maxWidth: 960 }}>
++
++        <div style={{ padding: '0.7rem 1rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: '0.85rem', color: '#1d4ed8', marginBottom: '1.25rem' }}>
++          Recurring expenses are created as a draft expense (needing approval) on each due date. For a fixed, contracted monthly cost —
++          a security agency, an AMC — turn on <strong>month-end accrual</strong> to also book it to <strong>Accounts Payable</strong> against
++          that vendor's own ledger card on the last day of the month, even if the formal bill hasn't arrived yet. The accrual is automatically
++          reversed once you approve the real expense, so it's never counted twice.
++        </div>
++
++        {/* ── Recurring expenses list ─────────────────────────────────────── */}
++        <div className="ent-section" style={{ marginBottom: '1.5rem' }}>
++          <div className="ent-section-hdr" style={{ justifyContent: 'space-between' }}>
++            <span className="ent-section-title">Recurring Expenses ({items.filter((i) => i.is_active).length} active)</span>
++            <button className="ent-btn-submit" style={{ padding: '4px 14px', fontSize: '0.8rem' }}
++              onClick={() => { setShowAdd(true); setFormError(''); setForm(emptyForm()); }}>
++              + Add Recurring Expense
++            </button>
++          </div>
++
++          {isLoading ? (
++            <div style={{ padding: '2rem', color: 'var(--color-muted)', textAlign: 'center' }}>Loading…</div>
++          ) : (
++            <div>
++              {items.map((item) => (
++                <div key={item.id} style={{
++                  display: 'flex', alignItems: 'center', gap: '0.75rem',
++                  padding: '0.75rem 1.25rem', borderBottom: '1px solid var(--color-border)',
++                  opacity: item.is_active ? 1 : 0.5, flexWrap: 'wrap',
++                }}>
++                  <div style={{ flex: '1 1 220px' }}>
++                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{item.description}</div>
++                    <div style={{ fontSize: '0.78rem', color: 'var(--color-muted)' }}>
++                      {item.category} · ₹{Number(item.amount).toLocaleString()} · {FREQUENCY_LABEL[item.frequency]} · next due {new Date(item.next_due_date).toLocaleDateString()}
++                      {item.vendor?.name && <> · {item.vendor.name}</>}
++                    </div>
++                  </div>
++
++                  {item.frequency === 'MONTHLY' && (
++                    <label
++                      title={item.vendor_id ? undefined : 'Link a vendor to this recurring expense to enable month-end accrual'}
++                      style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--color-muted)', cursor: item.vendor_id ? 'pointer' : 'not-allowed' }}
++                    >
++                      <input type="checkbox" checked={item.auto_provision} disabled={!item.vendor_id} onChange={() => toggleProvision(item)} />
++                      Month-end accrual (Accounts Payable)
++                    </label>
++                  )}
++
++                  <span style={{
++                    fontSize: '0.75rem', fontWeight: 600, padding: '1px 7px', borderRadius: 4,
++                    background: item.is_active ? '#f0fdf4' : '#f1f5f9',
++                    color: item.is_active ? '#16a34a' : '#64748b',
++                  }}>
++                    {item.is_active ? 'Active' : 'Inactive'}
++                  </span>
++
++                  <button
++                    title={item.is_active ? 'Deactivate' : 'Activate'}
++                    onClick={() => toggleActive(item)}
++                    style={{ padding: '3px 8px', fontSize: '0.75rem', borderRadius: 4, cursor: 'pointer', border: '1px solid var(--color-border)', background: '#f9fafb', color: 'var(--color-muted)', fontWeight: 600 }}
++                  >
++                    {item.is_active ? 'Deactivate' : 'Activate'}
++                  </button>
++                </div>
++              ))}
++              {items.length === 0 && (
++                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-muted)', fontSize: '0.875rem' }}>No recurring expenses yet.</div>
++              )}
++            </div>
++          )}
++        </div>
++
++        {/* ── Add form ─────────────────────────────────────────────────────── */}
++        {showAdd && (
++          <div className="ent-section" style={{ marginBottom: '1.5rem' }}>
++            <div className="ent-section-hdr"><span className="ent-section-title">New Recurring Expense</span></div>
++            <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
++              <div className="ent-form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
++                <div className="ent-fg">
++                  <label className="ent-fl">Description *</label>
++                  <input className="ent-fc" type="text" placeholder="e.g. Security Agency Contract" value={form.description}
++                    onChange={(e) => setF('description', e.target.value)} />
++                </div>
++                <div className="ent-fg">
++                  <label className="ent-fl">Category *</label>
++                  <select className="ent-fc" value={form.category} onChange={(e) => setF('category', e.target.value)}>
++                    <option value="">— Select —</option>
++                    {activeCats.map((c) => <option key={c.name} value={c.name}>{c.display_name}</option>)}
++                  </select>
++                </div>
++              </div>
++
++              <div className="ent-fg">
++                <label className="ent-fl">
++                  Vendor {form.auto_provision && '*'}
++                  <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}> (required for month-end accrual)</span>
++                </label>
++                {!showNewVendor ? (
++                  <div style={{ display: 'flex', gap: 8 }}>
++                    <select className="ent-fc" style={{ flex: 1 }} value={form.vendor_id} onChange={(e) => setF('vendor_id', e.target.value)}>
++                      <option value="">— None —</option>
++                      {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
++                    </select>
++                    <button className="ent-btn-cancel" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => setShowNewVendor(true)}>+ New</button>
++                  </div>
++                ) : (
++                  <div style={{ display: 'flex', gap: 8 }}>
++                    <input className="ent-fc" style={{ flex: 1 }} type="text" placeholder="Vendor name" value={newVendorName}
++                      onChange={(e) => setNewVendorName(e.target.value)} />
++                    <button className="ent-btn-submit" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={handleAddVendor} disabled={isCreatingVendor}>Save</button>
++                    <button className="ent-btn-cancel" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => { setShowNewVendor(false); setNewVendorName(''); }}>Cancel</button>
++                  </div>
++                )}
++              </div>
++
++              <div className="ent-form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
++                <div className="ent-fg">
++                  <label className="ent-fl">Amount (₹) *</label>
++                  <input className="ent-fc" type="number" min="0.01" step="0.01" placeholder="0.00" value={form.amount}
++                    onChange={(e) => setF('amount', e.target.value)} />
++                </div>
++                <div className="ent-fg">
++                  <label className="ent-fl">Frequency *</label>
++                  <select className="ent-fc" value={form.frequency}
++                    onChange={(e) => setF('frequency', e.target.value as RecurringExpenseFrequency)}>
++                    {(Object.keys(FREQUENCY_LABEL) as RecurringExpenseFrequency[]).map((f) => (
++                      <option key={f} value={f}>{FREQUENCY_LABEL[f]}</option>
++                    ))}
++                  </select>
++                </div>
++              </div>
++
++              <div className="ent-form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
++                <div className="ent-fg">
++                  <label className="ent-fl">Next Due Date *</label>
++                  <input className="ent-fc" type="date" value={form.next_due_date}
++                    onChange={(e) => setF('next_due_date', e.target.value)} />
++                </div>
++                <div className="ent-fg">
++                  <label className="ent-fl">Reminder (days before)</label>
++                  <input className="ent-fc" type="number" min="0" max="30" value={form.reminder_days}
++                    onChange={(e) => setF('reminder_days', e.target.value)} />
++                </div>
++              </div>
++
++              {form.frequency === 'MONTHLY' && (
++                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
++                  <input type="checkbox" checked={form.auto_provision} onChange={(e) => setF('auto_provision', e.target.checked)} />
++                  Accrue this to Accounts Payable at month-end if the real bill hasn't been recorded yet — this is a confirmed,
++                  contracted amount owed to the vendor above, not an estimate.
++                </label>
++              )}
++
++              {formError && (
++                <div style={{ padding: '0.6rem 0.9rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#dc2626', fontSize: '0.85rem' }}>{formError}</div>
++              )}
++
++              <div style={{ display: 'flex', gap: '0.6rem' }}>
++                <button className="ent-btn-submit" onClick={handleAdd} disabled={isCreating}>{isCreating ? 'Adding…' : 'Add Recurring Expense'}</button>
++                <button className="ent-btn-cancel" onClick={() => { setShowAdd(false); setFormError(''); }}>Cancel</button>
++              </div>
++            </div>
++          </div>
++        )}
++
++        {/* ── Accruals review ──────────────────────────────────────────────── */}
++        <div className="ent-section">
++          <div className="ent-section-hdr"><span className="ent-section-title">Month-End Accruals (Accounts Payable)</span></div>
++          {provLoading ? (
++            <div style={{ padding: '2rem', color: 'var(--color-muted)', textAlign: 'center' }}>Loading…</div>
++          ) : (
++            <div>
++              {provisions.map((p) => {
++                const style = STATUS_STYLE[p.status];
++                return (
++                  <div key={p.id} style={{
++                    display: 'flex', alignItems: 'center', gap: '0.75rem',
++                    padding: '0.75rem 1.25rem', borderBottom: '1px solid var(--color-border)', flexWrap: 'wrap',
++                  }}>
++                    <div style={{ flex: '1 1 220px' }}>
++                      <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{p.recurring_expense.description}</div>
++                      <div style={{ fontSize: '0.78rem', color: 'var(--color-muted)' }}>
++                        {MONTH_NAME[p.period_month]} {p.period_year} · ₹{Number(p.amount).toLocaleString()}
++                      </div>
++                    </div>
++                    <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '1px 7px', borderRadius: 4, background: style.bg, color: style.fg }}>
++                      {style.label}
++                    </span>
++                  </div>
++                );
++              })}
++              {provisions.length === 0 && (
++                <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-muted)', fontSize: '0.875rem' }}>No accruals posted yet.</div>
++              )}
++            </div>
++          )}
++        </div>
++      </div>
++    </Layout>
++  );
++}
+diff --git a/frontend/src/store/api/expensesApi.ts b/frontend/src/store/api/expensesApi.ts
+index 34b3389..5aea437 100644
+--- a/frontend/src/store/api/expensesApi.ts
++++ b/frontend/src/store/api/expensesApi.ts
+@@ -1,5 +1,53 @@
+ import { baseApi } from './baseApi';
+ 
++export type RecurringExpenseFrequency = 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'ANNUAL';
++
++export interface RecurringExpense {
++  id: string;
++  description: string;
++  category: string;
++  vendor_id?: string | null;
++  amount: number;
++  frequency: RecurringExpenseFrequency;
++  next_due_date: string;
++  reminder_days: number;
++  is_active: boolean;
++  auto_provision: boolean;
++  vendor?: { name: string } | null;
++}
++
++export interface RecurringExpenseInput {
++  description: string;
++  category: string;
++  vendor_id?: string;
++  amount: number;
++  frequency: RecurringExpenseFrequency;
++  next_due_date: string;
++  reminder_days?: number;
++  auto_provision?: boolean;
++}
++
++export type ProvisionStatus = 'OPEN' | 'SETTLED' | 'REVERSED';
++
++export interface ExpenseProvision {
++  id: string;
++  period_year: number;
++  period_month: number;
++  amount: number;
++  status: ProvisionStatus;
++  settled_at?: string | null;
++  recurring_expense: { description: string; category: string; frequency: RecurringExpenseFrequency };
++}
++
++export interface Vendor {
++  id: string;
++  name: string;
++  service_type?: string | null;
++  phone?: string | null;
++  email?: string | null;
++  is_active: boolean;
++}
++
+ export const expensesApi = baseApi.injectEndpoints({
+   endpoints: (builder) => ({
+     // ── Category Config ──────────────────────────────────────────────────────
+@@ -62,13 +110,34 @@ export const expensesApi = baseApi.injectEndpoints({
+       query: ({ category, body }) => ({ url: `/expenses/budgets/${category}`, method: 'PUT', body }),
+       invalidatesTags: ['Expense'],
+     }),
+-    listRecurring: builder.query<{ data: unknown[] }, void>({
++    listRecurring: builder.query<{ data: RecurringExpense[] }, void>({
+       query: () => '/expenses/recurring',
++      providesTags: ['Expense'],
+     }),
+-    createRecurring: builder.mutation<{ data: unknown }, object>({
++    createRecurring: builder.mutation<{ data: RecurringExpense }, RecurringExpenseInput>({
+       query: (body) => ({ url: '/expenses/recurring', method: 'POST', body }),
+       invalidatesTags: ['Expense'],
+     }),
++    updateRecurring: builder.mutation<{ data: RecurringExpense }, { id: string; body: Partial<RecurringExpenseInput> & { is_active?: boolean } }>({
++      query: ({ id, body }) => ({ url: `/expenses/recurring/${id}`, method: 'PATCH', body }),
++      invalidatesTags: ['Expense'],
++    }),
++
++    // ── Month-end provisions ────────────────────────────────────────────────
++    listProvisions: builder.query<{ data: ExpenseProvision[] }, { status?: ProvisionStatus } | void>({
++      query: (params) => ({ url: '/expenses/provisions', params: params ?? {} }),
++      providesTags: ['Expense'],
++    }),
++
++    // ── Vendors (used to link a recurring expense for Accounts Payable) ─────
++    listVendors: builder.query<{ data: Vendor[] }, void>({
++      query: () => '/admin/vendors',
++      providesTags: ['Expense'],
++    }),
++    createVendor: builder.mutation<{ data: Vendor }, { name: string; service_type?: string; phone?: string; email?: string }>({
++      query: (body) => ({ url: '/admin/vendors', method: 'POST', body }),
++      invalidatesTags: ['Expense'],
++    }),
+   }),
+ });
+ 
+@@ -89,4 +158,8 @@ export const {
+   useSetBudgetMutation,
+   useListRecurringQuery,
+   useCreateRecurringMutation,
++  useUpdateRecurringMutation,
++  useListProvisionsQuery,
++  useListVendorsQuery,
++  useCreateVendorMutation,
+ } = expensesApi;
+-- 
+2.43.0
+
+
+From 875a9ff8ebca10041f5bf977c95e014dd0803f5b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 20 Aug 2026 07:28:21 +0000
+Subject: [PATCH 2/2] chore: add push script for recurring expense provisioning
+ changes
+
+---
+ push-recurring-expense-provisioning.bat | 36 +++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+ create mode 100644 push-recurring-expense-provisioning.bat
+
+diff --git a/push-recurring-expense-provisioning.bat b/push-recurring-expense-provisioning.bat
+new file mode 100644
+index 0000000..89337d8
+--- /dev/null
++++ b/push-recurring-expense-provisioning.bat
+@@ -0,0 +1,36 @@
++@echo off
++echo Staging recurring expense provisioning changes...
++
++git add backend/prisma/schema.prisma
++git add backend/prisma/migrations/20260820000001_recurring_expense_provisioning
++git add backend/prisma/migrations/20260820000002_vendor_accounts_payable_link
++git add backend/src/jobs/worker-entry.ts
++git add backend/src/jobs/workers/notification-dispatcher.ts
++git add backend/src/jobs/workers/expense-provisioner.ts
++git add backend/src/modules/accounting/accounting.service.ts
++git add backend/src/modules/accounting/bp-type.seed.ts
++git add backend/src/modules/accounting/journal.service.ts
++git add backend/src/modules/expenses/expenses.controller.ts
++git add backend/src/modules/expenses/expenses.routes.ts
++git add backend/src/modules/expenses/expenses.schema.ts
++git add backend/src/modules/expenses/expenses.service.ts
++git add frontend/src/App.tsx
++git add frontend/src/components/organisms/Layout.tsx
++git add frontend/src/store/api/expensesApi.ts
++git add frontend/src/pages/expenses/RecurringExpensesPage.tsx
++
++git commit -m "feat(accounting): month-end accrual for recurring expenses via Accounts Payable"
++git push origin feature/accounting-v2
++
++echo.
++echo ============================================================
++echo IMPORTANT: After deployment, run on Railway (smart-appt-app, Development env):
++echo   npx prisma migrate deploy
++echo.
++echo This picks up the two new migrations:
++echo   20260820000001_recurring_expense_provisioning
++echo   20260820000002_vendor_accounts_payable_link
++echo ============================================================
++echo.
++echo Done. Check Railway for the smart-appt-app Development deployment.
++pause
+-- 
+2.43.0
+
