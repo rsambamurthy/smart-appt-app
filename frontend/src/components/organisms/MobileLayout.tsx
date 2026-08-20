@@ -86,27 +86,28 @@ export default function MobileLayout() {
 
   return (
     <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', height: '100dvh', overflow: 'hidden', background: 'var(--color-bg, #f1f5f9)' }}>
-      {/* Watermark — a single large, very faint copy of the association's
-          logo, centred behind everything. Replaces the small logo that used
-          to sit at the top of the Home screen only; this shows on every
-          mobile screen instead. Sits behind the scroll area (z-index 0 vs 1)
-          and is unclickable, so it never intercepts a tap. Individual mobile
-          pages that used to paint their own opaque background (Home, More,
-          Visitors, Chat) were changed to transparent so this shows through —
-          everything else already had no opaque root background and needed
-          no change. */}
+      {/* Watermark — a single copy of the association's logo, scaled to
+          cover the full screen, behind everything. Replaces the small logo
+          that used to sit at the top of the Home screen only; this shows on
+          every mobile screen instead. `cover` scales it up to fill edge to
+          edge (cropping whatever overflows the screen's aspect ratio, same
+          as any full-bleed background image) rather than repeating it as a
+          tiled pattern. Sits behind the scroll area (z-index 0 vs 1) and is
+          unclickable, so it never intercepts a tap. Individual mobile pages
+          that used to paint their own opaque background (Home, More,
+          Visitors, Chat) were changed to transparent so this shows through
+          — everything else already had no opaque root background and
+          needed no change. */}
       {config.logo_url && (
         <div style={{
           position: 'absolute', inset: 0, zIndex: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          overflow: 'hidden', pointerEvents: 'none',
-        }}>
-          <img
-            src={config.logo_url}
-            alt=""
-            style={{ width: '65vw', maxWidth: 380, height: 'auto', objectFit: 'contain', opacity: 0.06 }}
-          />
-        </div>
+          pointerEvents: 'none',
+          backgroundImage: `url(${config.logo_url})`,
+          backgroundRepeat: 'no-repeat',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+          opacity: 0.14,
+        }} />
       )}
       {/* Scrollable content area — leaves room for the bottom tab bar */}
       <div style={{ position: 'relative', zIndex: 1, flex: 1, overflowY: 'auto', paddingBottom: 72 }}>
