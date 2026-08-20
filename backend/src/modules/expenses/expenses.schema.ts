@@ -26,7 +26,12 @@ export const setBudgetSchema = z.object({
 export const recurringExpenseSchema = z.object({
   description: z.string().min(1).max(255),
   category: z.string().min(1).max(100),
-  vendor_id: z.string().uuid().optional(),
+  // The vendor picked from the Business Partners (VENDOR category) list —
+  // the one vendor list associations actually maintain. The service layer
+  // resolves this to the internal, lightweight Vendor row the schema's FK
+  // actually points at (see ensureVendorFromBusinessPartner); callers never
+  // deal with that row directly.
+  business_partner_id: z.string().uuid().optional(),
   amount: z.number().positive(),
   frequency: z.nativeEnum(ExpenseFrequency),
   next_due_date: z.string().datetime(),
@@ -39,10 +44,10 @@ export const recurringExpenseSchema = z.object({
   // accrual — see journal.service.ts's postExpenseProvision.
   auto_provision: z.boolean().optional().default(false),
 }).superRefine((data, ctx) => {
-  if (data.auto_provision && !data.vendor_id) {
+  if (data.auto_provision && !data.business_partner_id) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['vendor_id'],
+      path: ['business_partner_id'],
       message: 'A vendor is required to turn on month-end provisioning — the accrual posts against the vendor\'s Accounts Payable card.',
     });
   }

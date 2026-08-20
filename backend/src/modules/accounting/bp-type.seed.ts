@@ -257,3 +257,50 @@ export async function ensureVendorBP(
   await db.vendor.update({ where: { id: vendor.id }, data: { business_partner_id: created.id } });
   return created.id;
 }
+
+/**
+ * The other direction of the same bridge: given a Business Partner the user
+ * picked from the (already-populated) Business Partners screen — the single
+ * vendor list associations actually maintain, e.g. via bulk upload — find or
+ * create the lightweight Vendor row that RecurringExpense/Expense actually
+ * point to.
+ *
+ * Vendor stays a separate, minimal table (see its schema comment) purely
+ * because RecurringExpense.vendor_id and Expense.vendor_id are hard FKs to
+ * it, not to BusinessPartner. This keeps that plumbing invisible: the user
+ * only ever sees and picks Business Partners; a Vendor row is an
+ * implementation detail created transparently the first time a given partner
+ * is chosen here, then reused via the unique business_partner_id link.
+ */
+export async function ensureVendorFromBusinessPartner(
+  associationId: string,
+  businessPartnerId: string,
+  createdBy: string,
+  db: Db = prisma,
+) {
+  const existing = await db.vendor.findUnique({
+    where:  { business_partner_id: businessPartnerId },
+    select: { id: true, association_id: true },
+  });
+  if (existing) {
+    if (existing.association_id !== associationId) return null;
+    return existing.id;
+  }
+
+  const bp = await db.businessPartner.findFirst({
+    where:  { id: businessPartnerId, association_id: associationId, bp_category: BPCategory.VENDOR },
+    select: { id: true, name: true },
+  });
+  if (!bp) return null;
+
+  const created = await db.vendor.create({
+    data: {
+      association_id: associationId,
+      name: bp.name,
+      business_partner_id: bp.id,
+      created_by: createdBy,
+    },
+    select: { id: true },
+  });
+  return created.id;
+}

@@ -77,7 +77,7 @@ export class ExpensesController {
   }
 
   async updateRecurring(req: AuthRequest, res: Response, next: NextFunction) {
-    try { res.json(await expensesService.updateRecurring(req.user!.association_id, req.params['id'], req.body)); }
+    try { res.json(await expensesService.updateRecurring(req.user!.association_id, req.params['id'], req.body, req.user!.id)); }
     catch (err) { next(err); }
   }
 

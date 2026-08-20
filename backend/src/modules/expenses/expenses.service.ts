@@ -8,7 +8,7 @@ import {
 } from './expenses.schema';
 import { ExpenseStatus, UserRole } from '@prisma/client';
 import { journalService } from '../accounting/journal.service';
-import { ensureVendorBP } from '../accounting/bp-type.seed';
+import { ensureVendorBP, ensureVendorFromBusinessPartner } from '../accounting/bp-type.seed';
 import logger from '../../utils/logger';
 
 // Default categories seeded for every new association
@@ -328,14 +328,24 @@ export class ExpensesService {
   }
 
   async createRecurring(associationId: string, body: RecurringExpenseBody, createdBy: string) {
-    if (body.auto_provision) {
-      // Defense in depth beyond the zod schema — also makes sure the vendor
-      // actually belongs to this association before we wire a ledger card to it.
-      await this.ensureVendorForProvisioning(associationId, body.vendor_id);
+    const { business_partner_id, ...rest } = body;
+    const vendorId = business_partner_id
+      ? await this.resolveVendorForProvisioning(associationId, business_partner_id, createdBy, /* required */ body.auto_provision)
+      : undefined;
+    if (body.auto_provision && !vendorId) {
+      throw new UnprocessableError(
+        'A vendor is required to turn on month-end provisioning — the accrual posts against the vendor\'s Accounts Payable card.'
+      );
     }
 
     const recurring = await prisma.recurringExpense.create({
-      data: { association_id: associationId, ...body, next_due_date: new Date(body.next_due_date), created_by: createdBy },
+      data: {
+        association_id: associationId,
+        ...rest,
+        vendor_id: vendorId,
+        next_due_date: new Date(body.next_due_date),
+        created_by: createdBy,
+      },
     });
     return { data: recurring };
   }
@@ -349,34 +359,53 @@ export class ExpensesService {
     return { data: items };
   }
 
-  async updateRecurring(associationId: string, recurringId: string, body: Partial<RecurringExpenseBody>) {
+  async updateRecurring(associationId: string, recurringId: string, body: Partial<RecurringExpenseBody>, updatedBy: string) {
     const item = await prisma.recurringExpense.findFirst({ where: { id: recurringId, association_id: associationId } });
     if (!item) throw new NotFoundError('Recurring expense');
 
+    const { business_partner_id, ...rest } = body;
     const willProvision = body.auto_provision ?? item.auto_provision;
-    const vendorId = body.vendor_id ?? item.vendor_id ?? undefined;
-    if (willProvision) {
-      await this.ensureVendorForProvisioning(associationId, vendorId ?? undefined);
+    let vendorId = item.vendor_id ?? undefined;
+    if (business_partner_id) {
+      vendorId = await this.resolveVendorForProvisioning(associationId, business_partner_id, updatedBy, /* required */ willProvision) ?? undefined;
     }
 
-    const updated = await prisma.recurringExpense.update({ where: { id: recurringId }, data: body as never });
-    return { data: updated };
-  }
-
-  // ── Guard + ledger-card wiring for month-end provisioning ─────────────────
-  // A recurring expense can only accrue against a specific vendor's Accounts
-  // Payable card — there's no such thing as an anonymous accrual (see
-  // journal.service.ts's postExpenseProvision). Ensures that vendor actually
-  // has a business-partner card, creating one on first use.
-  private async ensureVendorForProvisioning(associationId: string, vendorId: string | undefined) {
-    if (!vendorId) {
+    if (willProvision && !vendorId) {
       throw new UnprocessableError(
         'A vendor is required to turn on month-end provisioning — the accrual posts against the vendor\'s Accounts Payable card.'
       );
     }
-    const vendor = await prisma.vendor.findFirst({ where: { id: vendorId, association_id: associationId } });
-    if (!vendor) throw new NotFoundError('Vendor');
-    await ensureVendorBP(associationId, vendor);
+
+    const updated = await prisma.recurringExpense.update({
+      where: { id: recurringId },
+      data: { ...rest, ...(business_partner_id ? { vendor_id: vendorId } : {}) } as never,
+    });
+    return { data: updated };
+  }
+
+  // ── Ledger-card wiring for month-end provisioning ─────────────────────────
+  // The user picks a Business Partner (the single vendor list associations
+  // actually maintain, under Configuration → Business Partners) — this
+  // resolves it to the internal Vendor row that RecurringExpense.vendor_id
+  // actually points at, creating the bridge row transparently on first use,
+  // then makes sure that vendor has an Accounts Payable ledger card (also
+  // created on first use — see ensureVendorBP).
+  private async resolveVendorForProvisioning(
+    associationId: string,
+    businessPartnerId: string,
+    userId: string,
+    required: boolean,
+  ) {
+    const vendorId = await ensureVendorFromBusinessPartner(associationId, businessPartnerId, userId);
+    if (!vendorId) {
+      if (required) throw new NotFoundError('Business partner');
+      return undefined;
+    }
+    if (required) {
+      const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+      if (vendor) await ensureVendorBP(associationId, vendor);
+    }
+    return vendorId;
   }
 
   // ── Month-end provisions — review screen for treasurers ──────────────────

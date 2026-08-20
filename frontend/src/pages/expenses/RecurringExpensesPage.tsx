@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
@@ -7,17 +8,16 @@ import {
   useUpdateRecurringMutation,
   useListProvisionsQuery,
   useListExpenseCategoriesQuery,
-  useListVendorsQuery,
-  useCreateVendorMutation,
   RecurringExpense,
   RecurringExpenseFrequency,
   ProvisionStatus,
 } from '../../store/api/expensesApi';
+import { useListBPMastersQuery } from '../../store/api/accountingApi';
 
 interface RecForm {
   description: string;
   category: string;
-  vendor_id: string;
+  business_partner_id: string;
   amount: string;
   frequency: RecurringExpenseFrequency;
   next_due_date: string;
@@ -26,7 +26,7 @@ interface RecForm {
 }
 
 const emptyForm = (): RecForm => ({
-  description: '', category: '', vendor_id: '', amount: '', frequency: 'MONTHLY',
+  description: '', category: '', business_partner_id: '', amount: '', frequency: 'MONTHLY',
   next_due_date: '', reminder_days: '3', auto_provision: false,
 });
 
@@ -50,9 +50,11 @@ export default function RecurringExpensesPage() {
   const activeCats = ((catData?.data ?? []) as { name: string; display_name: string; is_active: boolean }[])
     .filter((c) => c.is_active);
 
-  const { data: vendorData } = useListVendorsQuery();
-  const vendors = (vendorData?.data ?? []).filter((v) => v.is_active);
-  const [createVendor, { isLoading: isCreatingVendor }] = useCreateVendorMutation();
+  // The one vendor list associations actually maintain — Business Partners
+  // (Configuration → Business Partners), category VENDOR. A recurring
+  // expense's "vendor" is always picked from here, never entered fresh.
+  const { data: bpData } = useListBPMastersQuery({ category: 'VENDOR' });
+  const vendors = (bpData?.data ?? []).filter((v) => v.is_active);
 
   const { data: provData, isLoading: provLoading } = useListProvisionsQuery();
   const provisions = provData?.data ?? [];
@@ -64,18 +66,7 @@ export default function RecurringExpensesPage() {
   const [form, setForm] = useState<RecForm>(emptyForm());
   const [formError, setFormError] = useState('');
 
-  const [showNewVendor, setShowNewVendor] = useState(false);
-  const [newVendorName, setNewVendorName] = useState('');
-
   const setF = <K extends keyof RecForm>(key: K, value: RecForm[K]) => setForm((f) => ({ ...f, [key]: value }));
-
-  const handleAddVendor = async () => {
-    if (!newVendorName.trim()) return;
-    const created = await createVendor({ name: newVendorName.trim() }).unwrap();
-    setF('vendor_id', created.data.id);
-    setNewVendorName('');
-    setShowNewVendor(false);
-  };
 
   const handleAdd = async () => {
     setFormError('');
@@ -84,7 +75,7 @@ export default function RecurringExpensesPage() {
     const amount = parseFloat(form.amount);
     if (!amount || amount <= 0) { setFormError('Enter a positive amount.'); return; }
     if (!form.next_due_date) { setFormError('Next due date is required.'); return; }
-    if (form.auto_provision && !form.vendor_id) {
+    if (form.auto_provision && !form.business_partner_id) {
       setFormError('A vendor is required to turn on month-end accrual — it posts against the vendor\'s Accounts Payable card.');
       return;
     }
@@ -93,7 +84,7 @@ export default function RecurringExpensesPage() {
       await createRecurring({
         description: form.description.trim(),
         category: form.category,
-        vendor_id: form.vendor_id || undefined,
+        business_partner_id: form.business_partner_id || undefined,
         amount,
         frequency: form.frequency,
         next_due_date: new Date(form.next_due_date).toISOString(),
@@ -113,7 +104,7 @@ export default function RecurringExpensesPage() {
   };
 
   const toggleProvision = async (item: RecurringExpense) => {
-    if (!item.vendor_id && !item.auto_provision) return; // guarded by disabled state below
+    if (!item.vendor && !item.auto_provision) return; // guarded by disabled state below
     await updateRecurring({ id: item.id, body: { auto_provision: !item.auto_provision } }).unwrap();
   };
 
@@ -160,10 +151,10 @@ export default function RecurringExpensesPage() {
 
                   {item.frequency === 'MONTHLY' && (
                     <label
-                      title={item.vendor_id ? undefined : 'Link a vendor to this recurring expense to enable month-end accrual'}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--color-muted)', cursor: item.vendor_id ? 'pointer' : 'not-allowed' }}
+                      title={item.vendor ? undefined : 'Link a vendor to this recurring expense to enable month-end accrual'}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--color-muted)', cursor: item.vendor ? 'pointer' : 'not-allowed' }}
                     >
-                      <input type="checkbox" checked={item.auto_provision} disabled={!item.vendor_id} onChange={() => toggleProvision(item)} />
+                      <input type="checkbox" checked={item.auto_provision} disabled={!item.vendor} onChange={() => toggleProvision(item)} />
                       Month-end accrual (Accounts Payable)
                     </label>
                   )}
@@ -217,22 +208,13 @@ export default function RecurringExpensesPage() {
                   Vendor {form.auto_provision && '*'}
                   <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}> (required for month-end accrual)</span>
                 </label>
-                {!showNewVendor ? (
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <select className="ent-fc" style={{ flex: 1 }} value={form.vendor_id} onChange={(e) => setF('vendor_id', e.target.value)}>
-                      <option value="">— None —</option>
-                      {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                    </select>
-                    <button className="ent-btn-cancel" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => setShowNewVendor(true)}>+ New</button>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <input className="ent-fc" style={{ flex: 1 }} type="text" placeholder="Vendor name" value={newVendorName}
-                      onChange={(e) => setNewVendorName(e.target.value)} />
-                    <button className="ent-btn-submit" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={handleAddVendor} disabled={isCreatingVendor}>Save</button>
-                    <button className="ent-btn-cancel" style={{ padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => { setShowNewVendor(false); setNewVendorName(''); }}>Cancel</button>
-                  </div>
-                )}
+                <select className="ent-fc" value={form.business_partner_id} onChange={(e) => setF('business_partner_id', e.target.value)}>
+                  <option value="">— None —</option>
+                  {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+                <div style={{ fontSize: '0.78rem', color: 'var(--color-muted)', marginTop: 4 }}>
+                  Don't see the vendor you need? <Link to="/accounting/business-partners">Add it under Business Partners</Link> first.
+                </div>
               </div>
 
               <div className="ent-form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>

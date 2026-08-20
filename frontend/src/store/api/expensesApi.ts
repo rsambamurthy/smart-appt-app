@@ -6,20 +6,24 @@ export interface RecurringExpense {
   id: string;
   description: string;
   category: string;
-  vendor_id?: string | null;
   amount: number;
   frequency: RecurringExpenseFrequency;
   next_due_date: string;
   reminder_days: number;
   is_active: boolean;
   auto_provision: boolean;
+  // Display only — the underlying Vendor bridge row's name (which mirrors the
+  // Business Partner's name at the time it was picked). Selecting a vendor
+  // always goes through `business_partner_id`, never this.
   vendor?: { name: string } | null;
 }
 
 export interface RecurringExpenseInput {
   description: string;
   category: string;
-  vendor_id?: string;
+  // The vendor, picked from Business Partners (Configuration → Business
+  // Partners, category VENDOR) — the one vendor list associations maintain.
+  business_partner_id?: string;
   amount: number;
   frequency: RecurringExpenseFrequency;
   next_due_date: string;
@@ -37,15 +41,6 @@ export interface ExpenseProvision {
   status: ProvisionStatus;
   settled_at?: string | null;
   recurring_expense: { description: string; category: string; frequency: RecurringExpenseFrequency };
-}
-
-export interface Vendor {
-  id: string;
-  name: string;
-  service_type?: string | null;
-  phone?: string | null;
-  email?: string | null;
-  is_active: boolean;
 }
 
 export const expensesApi = baseApi.injectEndpoints({
@@ -129,15 +124,6 @@ export const expensesApi = baseApi.injectEndpoints({
       providesTags: ['Expense'],
     }),
 
-    // ── Vendors (used to link a recurring expense for Accounts Payable) ─────
-    listVendors: builder.query<{ data: Vendor[] }, void>({
-      query: () => '/admin/vendors',
-      providesTags: ['Expense'],
-    }),
-    createVendor: builder.mutation<{ data: Vendor }, { name: string; service_type?: string; phone?: string; email?: string }>({
-      query: (body) => ({ url: '/admin/vendors', method: 'POST', body }),
-      invalidatesTags: ['Expense'],
-    }),
   }),
 });
 
@@ -160,6 +146,4 @@ export const {
   useCreateRecurringMutation,
   useUpdateRecurringMutation,
   useListProvisionsQuery,
-  useListVendorsQuery,
-  useCreateVendorMutation,
 } = expensesApi;
