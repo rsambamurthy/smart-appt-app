@@ -4,7 +4,7 @@ import { ConflictError, NotFoundError } from '../../utils/errors';
 import { CreateAccountBody, UpdateAccountBody } from './accounting.schema';
 import { auditService } from '../../services/audit.service';
 import logger from '../../utils/logger';
-import { seedBPTypes, linkDuesReceivable, ensureUnitBP } from './bp-type.seed';
+import { seedBPTypes, linkDuesReceivable, ensureUnitBP, linkAccountsPayable } from './bp-type.seed';
 
 // ── Standard housing-society chart of accounts ───────────────────────────────
 type SeedAccount = {
@@ -28,6 +28,9 @@ const DEFAULT_ACCOUNTS: SeedAccount[] = [
   { code: '2001', name: 'Advance Deposits',      type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false, is_group: false, is_control_account: false },
   { code: '2002', name: 'Loans Payable',         type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false, is_group: false, is_control_account: false },
   { code: '2003', name: 'Other Payables',        type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: false, is_group: false, is_control_account: false },
+  // Control account for the Vendor BP type — see linkAccountsPayable(), same
+  // pattern as Dues Receivable (1004) being linked to the Unit BP type.
+  { code: '2004', name: 'Accounts Payable',      type: AccountType.LIABILITY, sub_type: 'Current Liability', is_system: true,  is_group: false, is_control_account: false },
   // INCOME
   { code: '3001', name: 'Maintenance Income',    type: AccountType.INCOME,    sub_type: 'Operating Income',  is_system: true,  is_group: false, is_control_account: false },
   { code: '3002', name: 'Other Receipts',        type: AccountType.INCOME,    sub_type: 'Other Income',      is_system: true,  is_group: false, is_control_account: false },
@@ -83,6 +86,11 @@ class AccountingService {
     // to perform.
     await seedBPTypes(associationId);
     const linkedTo = await linkDuesReceivable(associationId);
+    // Accounts Payable (2004) → Vendor BP type. Unlike units, vendor cards
+    // aren't backfilled here — most vendors never need one, so they're
+    // created lazily by ensureVendorBP the first time something actually
+    // posts against a specific vendor's payable balance.
+    await linkAccountsPayable(associationId);
 
     // Backfill any unit that has no partner card yet, or has one with no type.
     // A control account with no members is indistinguishable from a broken one.

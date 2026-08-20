@@ -104,6 +104,43 @@ export async function duesReceivableBPTypeId(associationId: string, db: Db = pri
   return account?.is_control_account ? account.bp_type_id : null;
 }
 
+/**
+ * Point Accounts Payable at the vendor type. Same idempotent, gap-filling
+ * shape as linkDuesReceivable — an association that already has 2004 linked
+ * to something else keeps it.
+ */
+export async function linkAccountsPayable(associationId: string, db: Db = prisma) {
+  const types = await seedBPTypes(associationId, db);
+  const vendorTypeId = types.get(BP_TYPE_VENDOR);
+  if (!vendorTypeId) return null;
+
+  const account = await db.account.findUnique({
+    where:  { association_id_code: { association_id: associationId, code: '2004' } },
+    select: { id: true, bp_type_id: true, is_control_account: true },
+  });
+  if (!account) return null;
+  if (account.bp_type_id) return account.bp_type_id;
+
+  await db.account.update({
+    where: { id: account.id },
+    data:  { is_control_account: true, bp_type_id: vendorTypeId },
+  });
+  return vendorTypeId;
+}
+
+/**
+ * The BP type that Accounts Payable is using, or null if it is not a control
+ * account. Used when creating a vendor partner so it lands in the right
+ * ledger.
+ */
+export async function accountsPayableBPTypeId(associationId: string, db: Db = prisma) {
+  const account = await db.account.findUnique({
+    where:  { association_id_code: { association_id: associationId, code: '2004' } },
+    select: { bp_type_id: true, is_control_account: true },
+  });
+  return account?.is_control_account ? account.bp_type_id : null;
+}
+
 /** `UNIT-A101`, capped at the column's 20 characters. */
 export function unitBPCode(unit: { flat_number: string; block: string | null }) {
   const raw = `UNIT-${unit.block ?? ''}${unit.flat_number}`.replace(/[^A-Za-z0-9-]/g, '');
@@ -112,6 +149,17 @@ export function unitBPCode(unit: { flat_number: string; block: string | null }) 
 
 export function unitBPName(unit: { flat_number: string; block: string | null }) {
   return `Unit ${unit.flat_number}${unit.block ? ` ${unit.block}` : ''}`;
+}
+
+/** `VEND-<id prefix>`, capped at the column's 20 characters. Vendor names are
+ * free text (not unique, unlike a flat number), so the code is derived from
+ * the id rather than the name to guarantee it never collides. */
+export function vendorBPCode(vendor: { id: string }) {
+  return `VEND-${vendor.id.replace(/-/g, '').slice(0, 14)}`.toUpperCase().slice(0, 20);
+}
+
+export function vendorBPName(vendor: { name: string }) {
+  return vendor.name;
 }
 
 /**
@@ -158,5 +206,54 @@ export async function ensureUnitBP(
     },
     select: { id: true },
   });
+  return created.id;
+}
+
+/**
+ * Ensure one business partner exists for a vendor, correctly typed as an
+ * Accounts Payable sub-ledger card, and link it back onto the Vendor row.
+ *
+ * Unlike units (wired on every flat, since Dues Receivable assumes all of
+ * them exist), most vendors never need this — a vendor only gets a ledger
+ * card the first time something requires posting against its payable
+ * balance specifically, e.g. turning on month-end accrual for a recurring
+ * expense against it. Idempotent: a vendor that already has a card just gets
+ * its bp_type repaired if it was created before Accounts Payable was linked.
+ */
+export async function ensureVendorBP(
+  associationId: string,
+  vendor: { id: string; name: string; business_partner_id: string | null },
+  db: Db = prisma,
+) {
+  const bpTypeId = await accountsPayableBPTypeId(associationId, db);
+
+  if (vendor.business_partner_id) {
+    const existing = await db.businessPartner.findUnique({
+      where: { id: vendor.business_partner_id },
+      select: { id: true, bp_type_id: true },
+    });
+    if (existing) {
+      if (!existing.bp_type_id && bpTypeId) {
+        await db.businessPartner.update({ where: { id: existing.id }, data: { bp_type_id: bpTypeId } });
+      }
+      return existing.id;
+    }
+    // The linked BP was deleted out from under the vendor — fall through and
+    // create a fresh one rather than leaving the vendor permanently broken.
+  }
+
+  const created = await db.businessPartner.create({
+    data: {
+      association_id: associationId,
+      code:           vendorBPCode(vendor),
+      name:           vendorBPName(vendor),
+      bp_category:    BPCategory.VENDOR,
+      bp_type_id:     bpTypeId,
+      is_active:      true,
+    },
+    select: { id: true },
+  });
+
+  await db.vendor.update({ where: { id: vendor.id }, data: { business_partner_id: created.id } });
   return created.id;
 }

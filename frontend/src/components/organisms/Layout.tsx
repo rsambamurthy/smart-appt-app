@@ -132,6 +132,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'receipts_payments', label: 'Receipts & Payments', path: '/accounting/receipts-payments', roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#15803d', end: true },
       { id: 'income_expenditure', label: 'Income & Expenditure', path: '/accounting/income-expenditure', roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#c2410c', end: true },
       { id: 'fy_closure',      label: 'FY Closure',      path: '/accounting/fy-closure',       roles: ['SUPER_USER', 'MANAGER', 'TREASURER'], dot: '#dc2626', end: true },
+      { id: 'recurring_expenses', label: 'Recurring Expenses', path: '/expenses/recurring', roles: ['SUPER_USER', 'TREASURER'], dot: '#0095db', end: true },
     ],
   },
   {

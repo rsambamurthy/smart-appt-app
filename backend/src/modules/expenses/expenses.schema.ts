@@ -31,6 +31,25 @@ export const recurringExpenseSchema = z.object({
   frequency: z.nativeEnum(ExpenseFrequency),
   next_due_date: z.string().datetime(),
   reminder_days: z.number().int().min(0).max(30).optional().default(3),
+  // Opt-in month-end accrual. Only meaningful for MONTHLY items; the service
+  // layer ignores it for other frequencies rather than rejecting the request,
+  // so flipping frequency later doesn't require also clearing the flag.
+  // Requires a vendor: the accrual posts to Accounts Payable against that
+  // vendor's own sub-ledger card, so there's no such thing as an anonymous
+  // accrual — see journal.service.ts's postExpenseProvision.
+  auto_provision: z.boolean().optional().default(false),
+}).superRefine((data, ctx) => {
+  if (data.auto_provision && !data.vendor_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['vendor_id'],
+      message: 'A vendor is required to turn on month-end provisioning — the accrual posts against the vendor\'s Accounts Payable card.',
+    });
+  }
+});
+
+export const listProvisionsQuerySchema = z.object({
+  status: z.enum(['OPEN', 'SETTLED', 'REVERSED']).optional(),
 });
 
 export const listExpensesQuerySchema = z.object({
@@ -59,5 +78,6 @@ export type UpdateExpenseBody = z.infer<typeof updateExpenseSchema>;
 export type ApproveExpenseBody = z.infer<typeof approveExpenseSchema>;
 export type SetBudgetBody = z.infer<typeof setBudgetSchema>;
 export type RecurringExpenseBody = z.infer<typeof recurringExpenseSchema>;
+export type ListProvisionsQuery = z.infer<typeof listProvisionsQuerySchema>;
 export type CategoryConfigBody = z.infer<typeof categoryConfigSchema>;
 export type UpdateCategoryConfigBody = z.infer<typeof updateCategoryConfigSchema>;

@@ -1,5 +1,53 @@
 import { baseApi } from './baseApi';
 
+export type RecurringExpenseFrequency = 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'ANNUAL';
+
+export interface RecurringExpense {
+  id: string;
+  description: string;
+  category: string;
+  vendor_id?: string | null;
+  amount: number;
+  frequency: RecurringExpenseFrequency;
+  next_due_date: string;
+  reminder_days: number;
+  is_active: boolean;
+  auto_provision: boolean;
+  vendor?: { name: string } | null;
+}
+
+export interface RecurringExpenseInput {
+  description: string;
+  category: string;
+  vendor_id?: string;
+  amount: number;
+  frequency: RecurringExpenseFrequency;
+  next_due_date: string;
+  reminder_days?: number;
+  auto_provision?: boolean;
+}
+
+export type ProvisionStatus = 'OPEN' | 'SETTLED' | 'REVERSED';
+
+export interface ExpenseProvision {
+  id: string;
+  period_year: number;
+  period_month: number;
+  amount: number;
+  status: ProvisionStatus;
+  settled_at?: string | null;
+  recurring_expense: { description: string; category: string; frequency: RecurringExpenseFrequency };
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  service_type?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  is_active: boolean;
+}
+
 export const expensesApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     // ── Category Config ──────────────────────────────────────────────────────
@@ -62,11 +110,32 @@ export const expensesApi = baseApi.injectEndpoints({
       query: ({ category, body }) => ({ url: `/expenses/budgets/${category}`, method: 'PUT', body }),
       invalidatesTags: ['Expense'],
     }),
-    listRecurring: builder.query<{ data: unknown[] }, void>({
+    listRecurring: builder.query<{ data: RecurringExpense[] }, void>({
       query: () => '/expenses/recurring',
+      providesTags: ['Expense'],
     }),
-    createRecurring: builder.mutation<{ data: unknown }, object>({
+    createRecurring: builder.mutation<{ data: RecurringExpense }, RecurringExpenseInput>({
       query: (body) => ({ url: '/expenses/recurring', method: 'POST', body }),
+      invalidatesTags: ['Expense'],
+    }),
+    updateRecurring: builder.mutation<{ data: RecurringExpense }, { id: string; body: Partial<RecurringExpenseInput> & { is_active?: boolean } }>({
+      query: ({ id, body }) => ({ url: `/expenses/recurring/${id}`, method: 'PATCH', body }),
+      invalidatesTags: ['Expense'],
+    }),
+
+    // ── Month-end provisions ────────────────────────────────────────────────
+    listProvisions: builder.query<{ data: ExpenseProvision[] }, { status?: ProvisionStatus } | void>({
+      query: (params) => ({ url: '/expenses/provisions', params: params ?? {} }),
+      providesTags: ['Expense'],
+    }),
+
+    // ── Vendors (used to link a recurring expense for Accounts Payable) ─────
+    listVendors: builder.query<{ data: Vendor[] }, void>({
+      query: () => '/admin/vendors',
+      providesTags: ['Expense'],
+    }),
+    createVendor: builder.mutation<{ data: Vendor }, { name: string; service_type?: string; phone?: string; email?: string }>({
+      query: (body) => ({ url: '/admin/vendors', method: 'POST', body }),
       invalidatesTags: ['Expense'],
     }),
   }),
@@ -89,4 +158,8 @@ export const {
   useSetBudgetMutation,
   useListRecurringQuery,
   useCreateRecurringMutation,
+  useUpdateRecurringMutation,
+  useListProvisionsQuery,
+  useListVendorsQuery,
+  useCreateVendorMutation,
 } = expensesApi;

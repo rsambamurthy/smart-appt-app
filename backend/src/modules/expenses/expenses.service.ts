@@ -8,6 +8,8 @@ import {
 } from './expenses.schema';
 import { ExpenseStatus, UserRole } from '@prisma/client';
 import { journalService } from '../accounting/journal.service';
+import { ensureVendorBP } from '../accounting/bp-type.seed';
+import logger from '../../utils/logger';
 
 // Default categories seeded for every new association
 const DEFAULT_CATEGORIES = [
@@ -162,6 +164,73 @@ export class ExpensesService {
       data: { status: newStatus, approved_by: approvedBy, approved_at: new Date(), approval_note: body.note },
     });
 
+    // Recurring expenses always come in as PENDING_APPROVAL (see the
+    // recurring-expense poller), so this is the first moment a recurring
+    // item is confirmed real. If it was already provisioned at month-end,
+    // reverse that accrual instead of booking the expense a second time.
+    // Scoped to is_recurring only — this doesn't touch the (separate,
+    // pre-existing) approval path for one-off expenses over the threshold.
+    if (newStatus === ExpenseStatus.APPROVED && expense.is_recurring && expense.recurring_id) {
+      const expenseDate = expense.expense_date;
+      const openProvision = await prisma.expenseProvision.findFirst({
+        where: {
+          recurring_expense_id: expense.recurring_id,
+          period_year:  expenseDate.getFullYear(),
+          period_month: expenseDate.getMonth() + 1,
+          status: 'OPEN',
+        },
+      });
+
+      try {
+        if (openProvision) {
+          // The recurring item is the authoritative source of which vendor
+          // this accrual belongs to (auto_provision requires one — see
+          // ensureVendorForProvisioning) — not expense.vendor_id, which is a
+          // separately-editable field on the individual expense.
+          const recurring = await prisma.recurringExpense.findUnique({
+            where: { id: expense.recurring_id },
+            include: { vendor: true },
+          });
+          if (!recurring?.vendor) {
+            throw new UnprocessableError('This recurring expense was provisioned but no longer has a vendor linked — cannot settle the accrual.');
+          }
+          const businessPartnerId = await ensureVendorBP(associationId, recurring.vendor);
+
+          const settlementEntryId = await journalService.reverseExpenseProvision(
+            associationId,
+            openProvision.id,
+            Number(openProvision.amount),
+            Number(expense.amount),
+            expense.category,
+            businessPartnerId,
+            expense.payment_mode,
+            expense.description ?? expense.category,
+            expenseDate,
+          );
+          await prisma.expenseProvision.update({
+            where: { id: openProvision.id },
+            data: {
+              status: 'SETTLED',
+              settled_expense_id: expenseId,
+              settlement_journal_entry_id: settlementEntryId,
+              settled_at: new Date(),
+            },
+          });
+        } else {
+          await journalService.postExpense(
+            associationId,
+            expenseId,
+            Number(expense.amount),
+            expense.payment_mode,
+            expense.category,
+            expense.description ?? expense.category,
+          );
+        }
+      } catch (err) {
+        logger.error('Auto-post failed (recurring expense approval)', { expenseId, error: err });
+      }
+    }
+
     await notificationService.dispatch({
       type: 'EXPENSE_DECISION',
       channels: ['PUSH'],
@@ -259,6 +328,12 @@ export class ExpensesService {
   }
 
   async createRecurring(associationId: string, body: RecurringExpenseBody, createdBy: string) {
+    if (body.auto_provision) {
+      // Defense in depth beyond the zod schema — also makes sure the vendor
+      // actually belongs to this association before we wire a ledger card to it.
+      await this.ensureVendorForProvisioning(associationId, body.vendor_id);
+    }
+
     const recurring = await prisma.recurringExpense.create({
       data: { association_id: associationId, ...body, next_due_date: new Date(body.next_due_date), created_by: createdBy },
     });
@@ -277,8 +352,43 @@ export class ExpensesService {
   async updateRecurring(associationId: string, recurringId: string, body: Partial<RecurringExpenseBody>) {
     const item = await prisma.recurringExpense.findFirst({ where: { id: recurringId, association_id: associationId } });
     if (!item) throw new NotFoundError('Recurring expense');
+
+    const willProvision = body.auto_provision ?? item.auto_provision;
+    const vendorId = body.vendor_id ?? item.vendor_id ?? undefined;
+    if (willProvision) {
+      await this.ensureVendorForProvisioning(associationId, vendorId ?? undefined);
+    }
+
     const updated = await prisma.recurringExpense.update({ where: { id: recurringId }, data: body as never });
     return { data: updated };
+  }
+
+  // ── Guard + ledger-card wiring for month-end provisioning ─────────────────
+  // A recurring expense can only accrue against a specific vendor's Accounts
+  // Payable card — there's no such thing as an anonymous accrual (see
+  // journal.service.ts's postExpenseProvision). Ensures that vendor actually
+  // has a business-partner card, creating one on first use.
+  private async ensureVendorForProvisioning(associationId: string, vendorId: string | undefined) {
+    if (!vendorId) {
+      throw new UnprocessableError(
+        'A vendor is required to turn on month-end provisioning — the accrual posts against the vendor\'s Accounts Payable card.'
+      );
+    }
+    const vendor = await prisma.vendor.findFirst({ where: { id: vendorId, association_id: associationId } });
+    if (!vendor) throw new NotFoundError('Vendor');
+    await ensureVendorBP(associationId, vendor);
+  }
+
+  // ── Month-end provisions — review screen for treasurers ──────────────────
+  async listProvisions(associationId: string, status?: string) {
+    const items = await prisma.expenseProvision.findMany({
+      where: { association_id: associationId, ...(status ? { status: status as never } : {}) },
+      include: {
+        recurring_expense: { select: { description: true, category: true, frequency: true } },
+      },
+      orderBy: [{ period_year: 'desc' }, { period_month: 'desc' }],
+    });
+    return { data: items };
   }
 
   // ── Expense Category Config ──────────────────────────────────────────────────

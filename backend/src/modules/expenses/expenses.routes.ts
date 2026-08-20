@@ -50,6 +50,9 @@ router.post('/recurring', requireRoles(UserRole.TREASURER), validate(recurringEx
 router.patch('/recurring/:id', requireRoles(UserRole.TREASURER), (req, res, next) =>
   expensesController.updateRecurring(req as never, res, next));
 
+router.get('/provisions', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE), (req, res, next) =>
+  expensesController.listProvisions(req as never, res, next));
+
 router.put('/budgets/:category', requireRoles(UserRole.TREASURER), validate(setBudgetSchema), (req, res, next) =>
   expensesController.setBudget(req as never, res, next));
 

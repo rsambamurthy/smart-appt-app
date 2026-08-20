@@ -30,6 +30,7 @@ import ExpenseListPage from './pages/expenses/ExpenseListPage';
 import ExpenseDashboardPage from './pages/expenses/ExpenseDashboardPage';
 import TransparencyPage from './pages/expenses/TransparencyPage';
 import ExpenseCategoriesPage from './pages/expenses/ExpenseCategoriesPage';
+import RecurringExpensesPage from './pages/expenses/RecurringExpensesPage';
 import AnnouncementFeedPage from './pages/announcements/AnnouncementFeedPage';
 import DocumentRepositoryPage from './pages/announcements/DocumentRepositoryPage';
 import VisitorLogPage from './pages/visitors/VisitorLogPage';
@@ -157,6 +158,7 @@ export default function App() {
         {!IS_NATIVE && <Route path="/expenses" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseListPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseDashboardPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/categories" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><ExpenseCategoriesPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/expenses/recurring" element={<RoleRoute roles={['TREASURER']}><RecurringExpensesPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/transparency" element={<ProtectedRoute><TransparencyPage /></ProtectedRoute>} />}
 
         {/* Announcements */}

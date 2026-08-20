@@ -5,6 +5,7 @@ import { CreateJournalEntryBody } from './journal.schema';
 import logger from '../../utils/logger';
 import { auditService } from '../../services/audit.service';
 import { fyClosureService, getFinancialYear } from './fy-closure.service';
+import { accountingService } from './accounting.service';
 
 // Account types whose normal balance is DEBIT (DR increases balance)
 const DEBIT_NORMAL = new Set<string>(['ASSET', 'EXPENSE']);
@@ -476,29 +477,7 @@ class JournalService {
     narration:     string,
   ) {
     try {
-      // Try to find a matching expense account by name
-      let expenseAccount = await prisma.account.findFirst({
-        where: {
-          association_id: associationId,
-          type:           AccountType.EXPENSE,
-          is_active:      true,
-          name:           { contains: category, mode: 'insensitive' },
-        },
-      });
-      // Fall back to account 4008 (Administrative), then first EXPENSE account
-      if (!expenseAccount) {
-        expenseAccount = await prisma.account.findUnique({
-          where: { association_id_code: { association_id: associationId, code: '4008' } },
-        });
-      }
-      if (!expenseAccount) {
-        expenseAccount = await prisma.account.findFirst({
-          where: { association_id: associationId, type: AccountType.EXPENSE, is_active: true },
-          orderBy: { sort_order: 'asc' },
-        });
-      }
-      if (!expenseAccount) throw new Error('No expense account found.');
-
+      const expenseAccount = await this.resolveExpenseAccount(associationId, category);
       const cashOrBank = await this.getAccount(associationId, cashOrBankCode(paymentMode));
 
       await this.post(associationId, {
@@ -516,6 +495,143 @@ class JournalService {
     } catch (err) {
       logger.error('Auto-post failed (expense)', { expenseId, error: err });
     }
+  }
+
+  // ── Resolve the expense account to hit for a given category ───────────────
+  // Match by name, fall back to 4008 (Administrative), then any EXPENSE
+  // account. Shared by postExpense and the provisioning postings below so
+  // both land on the same account for the same category.
+  private async resolveExpenseAccount(associationId: string, category: string) {
+    let expenseAccount = await prisma.account.findFirst({
+      where: {
+        association_id: associationId,
+        type:           AccountType.EXPENSE,
+        is_active:      true,
+        name:           { contains: category, mode: 'insensitive' },
+      },
+    });
+    if (!expenseAccount) {
+      expenseAccount = await prisma.account.findUnique({
+        where: { association_id_code: { association_id: associationId, code: '4008' } },
+      });
+    }
+    if (!expenseAccount) {
+      expenseAccount = await prisma.account.findFirst({
+        where: { association_id: associationId, type: AccountType.EXPENSE, is_active: true },
+        orderBy: { sort_order: 'asc' },
+      });
+    }
+    if (!expenseAccount) throw new Error('No expense account found.');
+    return expenseAccount;
+  }
+
+  // ── Get an account, self-healing if the association predates it ──────────
+  // Chart of Accounts evolves (4009/4010 were added after launch the same
+  // way); seedDefaults() is idempotent and safe to re-run, so a missing
+  // system account is backfilled on first use rather than requiring every
+  // existing association to be migrated by hand.
+  private async getOrSeedAccount(associationId: string, code: string) {
+    const account = await prisma.account.findUnique({
+      where: { association_id_code: { association_id: associationId, code } },
+    });
+    if (account) return account;
+
+    await accountingService.seedDefaults(associationId);
+    return this.getAccount(associationId, code);
+  }
+
+  // ── AUTO-POST: Recurring expense provisioned at month-end ─────────────────
+  // DR Expense account (by category) / CR 2004 Accounts Payable, against the
+  // specific vendor's sub-ledger card. Books the accrual on the P&L in the
+  // correct month even though the vendor hasn't actually been paid — reversed
+  // later by reverseExpenseProvision once the real expense is recorded.
+  // Voucher type JV: this is an adjustment, not money moving.
+  //
+  // businessPartnerId is required: 2004 is a control account (linked to the
+  // Vendor BP type via linkAccountsPayable), and every line against a control
+  // account must carry the sub-ledger card it belongs to — same rule Dues
+  // Receivable enforces per-flat. Recurring expenses with auto_provision on
+  // are required to have a vendor for exactly this reason (see
+  // expenses.schema.ts) — this is a confirmed, contracted amount owed to a
+  // specific vendor, not an anonymous estimate.
+  async postExpenseProvision(
+    associationId:     string,
+    provisionId:       string,
+    category:          string,
+    amount:            number,
+    businessPartnerId: string,
+    narration:         string,
+    entryDate:         Date,
+  ): Promise<string> {
+    const [expenseAccount, payableAccount] = await Promise.all([
+      this.resolveExpenseAccount(associationId, category),
+      this.getOrSeedAccount(associationId, '2004'),
+    ]);
+
+    const entry = await this.post(associationId, {
+      entry_date:     entryDate,
+      narration,
+      reference_type: 'EXPENSE_PROVISION',
+      reference_id:   provisionId,
+      voucher_type:   VoucherType.JV,
+      source:         JournalEntrySource.AUTO,
+      lines: [
+        { account_id: expenseAccount.id,  debit: amount, credit: 0,      narration: `${category} (accrued)` },
+        { account_id: payableAccount.id,  business_partner_id: businessPartnerId, debit: 0, credit: amount, narration: 'Accounts Payable — accrued' },
+      ],
+    });
+    return entry.id;
+  }
+
+  // ── AUTO-POST: Accrual settled by the real expense ────────────────────────
+  // DR 2004 Accounts Payable, same vendor card (the amount originally
+  // accrued) / CR Cash/Bank (what was actually paid).
+  // If the real bill differs from the accrued amount, the difference hits the
+  // expense account too, so the P&L ends up showing the actual amount rather
+  // than the contracted estimate:
+  //   actual > accrued  → extra DR to the expense account
+  //   actual < accrued  → extra CR to the expense account
+  // Voucher type JV, same reasoning as the accrual entry itself.
+  async reverseExpenseProvision(
+    associationId:     string,
+    provisionId:       string,
+    provisionedAmount: number,
+    actualAmount:      number,
+    category:          string,
+    businessPartnerId: string,
+    paymentMode:        string,
+    narration:         string,
+    entryDate:         Date,
+  ): Promise<string> {
+    const [payableAccount, cashOrBank, expenseAccount] = await Promise.all([
+      this.getOrSeedAccount(associationId, '2004'),
+      this.getAccount(associationId, cashOrBankCode(paymentMode)),
+      this.resolveExpenseAccount(associationId, category),
+    ]);
+
+    const variance = actualAmount - provisionedAmount;
+    const lines: { account_id: string; business_partner_id?: string; debit: number; credit: number; narration?: string }[] = [
+      { account_id: payableAccount.id, business_partner_id: businessPartnerId, debit: provisionedAmount, credit: 0, narration: 'Accounts Payable — accrual reversed' },
+      { account_id: cashOrBank.id,     debit: 0, credit: actualAmount,     narration: 'Actual payment made' },
+    ];
+    if (variance > 0) {
+      // Actual bill was higher than the contracted/estimated amount — book the extra expense.
+      lines.push({ account_id: expenseAccount.id, debit: variance, credit: 0, narration: `${category} (variance over estimate)` });
+    } else if (variance < 0) {
+      // Actual bill was lower — claw back the over-accrued expense.
+      lines.push({ account_id: expenseAccount.id, debit: 0, credit: -variance, narration: `${category} (variance under estimate)` });
+    }
+
+    const entry = await this.post(associationId, {
+      entry_date:     entryDate,
+      narration,
+      reference_type: 'EXPENSE_PROVISION_SETTLEMENT',
+      reference_id:   provisionId,
+      voucher_type:   VoucherType.JV,
+      source:         JournalEntrySource.AUTO,
+      lines,
+    });
+    return entry.id;
   }
 
   // ── AUTO-POST: Other Receipt ──────────────────────────────────────────────

@@ -106,6 +106,18 @@ enum ExpenseFrequency {
   ANNUAL
 }
 
+// Lifecycle of a month-end accrual booked against a RecurringExpense that
+// hasn't actually been invoiced/recorded yet.
+//   OPEN     — provisioned, waiting for the real expense to be recorded.
+//   SETTLED  — the real expense arrived and was matched; provision reversed.
+//   REVERSED — cancelled without a matching expense (e.g. the recurring item
+//              was deactivated before the real bill ever showed up).
+enum ProvisionStatus {
+  OPEN
+  SETTLED
+  REVERSED
+}
+
 enum AnnouncementCategory {
   GENERAL
   URGENT
@@ -216,6 +228,7 @@ model Association {
   expense_categories ExpenseCategoryConfig[]
   vendors            Vendor[]
   recurring_expenses RecurringExpense[]
+  expense_provisions ExpenseProvision[]
   announcements      Announcement[]
   announcement_reads AnnouncementRead[]
   documents          Document[]
@@ -715,6 +728,13 @@ model Vendor {
   creator        User        @relation(fields: [created_by], references: [id])
   created_at     DateTime    @default(now()) @db.Timestamptz
 
+  // Lazily created the first time this vendor needs a real ledger card —
+  // e.g. when a recurring expense against it turns on month-end accrual.
+  // Nothing else requires it: most vendors are just a name on an Expense row
+  // and never need a sub-ledger presence at all.
+  business_partner_id String?          @unique @db.Uuid
+  business_partner    BusinessPartner? @relation(fields: [business_partner_id], references: [id])
+
   expenses           Expense[]
   recurring_expenses RecurringExpense[]
 
@@ -804,16 +824,62 @@ model RecurringExpense {
   next_due_date  DateTime         @db.Date
   reminder_days  Int              @default(3) @db.SmallInt
   is_active      Boolean          @default(true)
+  // Opt-in: when true, the month-end job books an accrual (DR Expense / CR
+  // 2004 "Accounts Payable", against this item's vendor) if it hasn't
+  // actually been recorded yet that month, instead of letting the P&L
+  // understate the month just because the vendor's invoice hasn't shown up.
+  // Requires vendor_id — this is a confirmed, contracted amount owed to a
+  // specific vendor, not an anonymous estimate (see expenses.schema.ts).
+  // Only meaningful for MONTHLY items — quarterly/half-yearly/annual
+  // amortisation is a different problem and isn't handled by this flag.
+  auto_provision Boolean          @default(false)
   created_by     String           @db.Uuid
   creator        User             @relation(fields: [created_by], references: [id])
   created_at     DateTime         @default(now()) @db.Timestamptz
   updated_at     DateTime         @updatedAt @db.Timestamptz
 
-  expenses Expense[]
+  expenses   Expense[]
+  provisions ExpenseProvision[]
 
   @@index([next_due_date])
   @@index([is_active])
   @@map("recurring_expenses")
+}
+
+// One row per (recurring expense, calendar month) that got accrued instead of
+// waiting for the real invoice. Matched against the eventual real Expense by
+// recurring_expense_id + period so the accrual can be reversed rather than
+// double-booked once the actual bill is recorded.
+model ExpenseProvision {
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id      String           @db.Uuid
+  association         Association      @relation(fields: [association_id], references: [id])
+  recurring_expense_id String          @db.Uuid
+  recurring_expense   RecurringExpense @relation(fields: [recurring_expense_id], references: [id])
+
+  period_year         Int              @db.SmallInt
+  period_month        Int              @db.SmallInt // 1-12
+  amount              Decimal          @db.Decimal(10, 2) // amount actually provisioned (the recurring item's amount at the time)
+  status              ProvisionStatus  @default(OPEN)
+
+  // The JV that booked DR Expense / CR 2004 Accounts Payable (against the
+  // vendor's own sub-ledger card) at month-end. Plain scalar, not a Prisma
+  // relation — same soft-link convention as JournalEntry.reference_id
+  // elsewhere (a FK constraint still exists at the DB level; see the migration).
+  provisioning_journal_entry_id String?  @db.Uuid
+
+  // Set once the real expense is recorded against the same recurring item in
+  // the same period and this provision is reversed/settled.
+  settled_expense_id            String?  @unique @db.Uuid
+  settlement_journal_entry_id   String?  @db.Uuid
+  settled_at                    DateTime? @db.Timestamptz
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  @@unique([recurring_expense_id, period_year, period_month])
+  @@index([association_id, status])
+  @@map("expense_provisions")
 }
 
 // ─── Communication Tables ─────────────────────────────────────────────────────
@@ -1406,6 +1472,8 @@ model BusinessPartner {
 
   journal_lines  JournalLine[]
   upi_for_dues   DuesConfig[]  @relation("UpiCollectionAccount")
+  // Opposite side of Vendor.business_partner_id — the FK lives on Vendor.
+  vendor_link    Vendor?
 
   @@unique([association_id, code])
   @@index([association_id])

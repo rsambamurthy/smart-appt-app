@@ -81,6 +81,11 @@ export class ExpensesController {
     catch (err) { next(err); }
   }
 
+  async listProvisions(req: AuthRequest, res: Response, next: NextFunction) {
+    try { res.json(await expensesService.listProvisions(req.user!.association_id, req.query['status'] as string | undefined)); }
+    catch (err) { next(err); }
+  }
+
   // ── Category Config ──────────────────────────────────────────────────────────
   async listCategories(req: AuthRequest, res: Response, next: NextFunction) {
     try { res.json(await expensesService.listCategories(req.user!.association_id)); }

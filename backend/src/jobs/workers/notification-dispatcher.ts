@@ -16,6 +16,8 @@ const NOTIFICATION_MESSAGES: Record<string, { title: string; body: string }> = {
   DUES_REMINDER: { title: 'Dues Reminder', body: 'Your maintenance dues are pending.' },
   EXPENSE_PENDING_APPROVAL: { title: 'Expense Needs Approval', body: 'An expense is awaiting your approval.' },
   EXPENSE_DECISION: { title: 'Expense Update', body: 'An expense has been reviewed.' },
+  RECURRING_EXPENSE_DUE: { title: 'Recurring Expense Due', body: 'A recurring expense is due and needs approval.' },
+  EXPENSE_PROVISIONED: { title: 'Month-End Provision Posted', body: 'A recurring expense was provisioned for this month pending the actual bill.' },
   ANNOUNCEMENT_POSTED: { title: 'New Announcement', body: 'A new announcement has been posted.' },
   URGENT_ANNOUNCEMENT: { title: '🚨 Urgent Notice', body: 'An urgent announcement has been posted.' },
   VISITOR_WALKIN: { title: 'Visitor at Gate', body: 'Someone is requesting entry to your flat.' },
