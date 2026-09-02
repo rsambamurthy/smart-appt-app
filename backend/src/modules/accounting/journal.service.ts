@@ -1733,17 +1733,30 @@ class JournalService {
       ],
     });
 
-    // The other side of each entry — "what was this receipt for".
+    // The other side of each entry — "what was this receipt for". The
+    // sub-ledger tag (unit/vendor) usually lives on this contra line, not on
+    // the cash/bank line itself — e.g. a dues receipt is Dr Cash / Cr Dues
+    // Receivable, and it's the Dues Receivable line that carries the unit.
     const entryIds = [...new Set(lines.map(l => l.journal_entry.id))];
     const contras  = await prisma.journalLine.findMany({
       where: { journal_entry_id: { in: entryIds }, account_id: { not: account.id } },
-      include: { account: { select: { code: true, name: true } } },
+      include: {
+        account: { select: { code: true, name: true } },
+        business_partner: { select: { name: true } },
+      },
     });
     const contraByEntry = new Map<string, string[]>();
+    const contraBPByEntry = new Map<string, string[]>();
     for (const c of contras) {
       const list = contraByEntry.get(c.journal_entry_id) ?? [];
       list.push(`${c.account.code} ${c.account.name}`);
       contraByEntry.set(c.journal_entry_id, list);
+
+      if (c.business_partner) {
+        const bpList = contraBPByEntry.get(c.journal_entry_id) ?? [];
+        if (!bpList.includes(c.business_partner.name)) bpList.push(c.business_partner.name);
+        contraBPByEntry.set(c.journal_entry_id, bpList);
+      }
     }
 
     let balance = openingBalance;
@@ -1759,7 +1772,7 @@ class JournalService {
         voucher_type:   l.journal_entry.voucher_type,
         narration:      l.narration ?? l.journal_entry.narration,
         particulars:    contraByEntry.get(l.journal_entry.id)?.join(', ') ?? '',
-        bp_name:        l.business_partner?.name ?? null,
+        bp_name:        l.business_partner?.name ?? contraBPByEntry.get(l.journal_entry.id)?.join(', ') ?? null,
         receipt,
         payment,
         balance:        Math.round(balance * 100) / 100,
