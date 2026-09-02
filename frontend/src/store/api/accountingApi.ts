@@ -44,7 +44,7 @@ export interface JournalEntry {
   reference_id:   string | null;
   reference_code: string | null;
   voucher_type:   string | null;
-  type:           'AUTO' | 'MANUAL';
+  source:         'AUTO' | 'MANUAL';
   created_by:     string | null;
   created_at:     string;
   lines:          JournalLine[];

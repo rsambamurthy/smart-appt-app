@@ -2017,6 +2017,26 @@ class JournalService {
     });
     if (!entry) throw new NotFoundError('Journal entry not found.');
 
+    // Defense in depth beyond the UI, which only offers Edit on Manual
+    // entries in the first place: an Auto-posted entry is the ledger side of
+    // some other record (a dues payment, an expense approval, a provision),
+    // and editing it here would silently desync the two. Same posture as
+    // attachDocument on cancelled/closed-year entries, just not yet applied
+    // here.
+    if (entry.source !== JournalEntrySource.MANUAL) {
+      throw new UnprocessableError(
+        'This entry was posted automatically and cannot be edited directly — correct it at its source (the dues payment, expense, or provision that created it).'
+      );
+    }
+    if (entry.status === JournalStatus.CANCELLED) {
+      throw new UnprocessableError('This entry is cancelled — it cannot be edited.');
+    }
+    if (await fyClosureService.isYearClosed(associationId, entry.financial_year)) {
+      throw new UnprocessableError(
+        `Financial year ${entry.financial_year} is closed. Reopen it to edit this entry.`,
+      );
+    }
+
     const totalDebit  = body.lines.reduce((s, l) => s + (l.debit  ?? 0), 0);
     const totalCredit = body.lines.reduce((s, l) => s + (l.credit ?? 0), 0);
     if (Math.abs(totalDebit - totalCredit) > 0.005) {

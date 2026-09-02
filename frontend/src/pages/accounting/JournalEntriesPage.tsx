@@ -737,7 +737,7 @@ export default function JournalEntriesPage() {
 
   // ── Right panel: entry detail ─────────────────────────────────────────────
   const renderDetail = (entry: JournalEntry) => {
-    const tc    = TYPE_STYLE[entry.type] ?? TYPE_STYLE['MANUAL'];
+    const tc    = TYPE_STYLE[entry.source] ?? TYPE_STYLE['MANUAL'];
     const totDR = entry.lines.reduce((s, l) => s + Number(l.debit),  0);
     const totCR = entry.lines.reduce((s, l) => s + Number(l.credit), 0);
     const bal   = Math.abs(totDR - totCR) < 0.005;
@@ -765,7 +765,7 @@ export default function JournalEntriesPage() {
             <div style={{ fontSize: 18, fontWeight: 600, color: '#1e293b', marginBottom: 4 }}>{entry.narration}</div>
             <div style={{ fontSize: 12, color: '#94a3b8' }}>{fmtDate(entry.entry_date)}</div>
           </div>
-          {entry.type === 'MANUAL' && (
+          {entry.source === 'MANUAL' && (
             <button onClick={() => openEditForm(entry)}
               style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12.5, cursor: 'pointer', flexShrink: 0 }}>
               <i className="ti ti-pencil" style={{ fontSize: 13 }} /> Edit
@@ -918,7 +918,7 @@ export default function JournalEntriesPage() {
                     {fmtDate(date)}
                   </div>
                   {grouped[date].map(entry => {
-                    const tc       = TYPE_STYLE[entry.type] ?? TYPE_STYLE['MANUAL'];
+                    const tc       = TYPE_STYLE[entry.source] ?? TYPE_STYLE['MANUAL'];
                     const isActive = entry.id === selectedId;
                     const amount   = entry.lines.reduce((s, l) => s + Number(l.debit), 0);
                     return (
