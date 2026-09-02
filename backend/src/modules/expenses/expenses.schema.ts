@@ -4,7 +4,13 @@ import { ExpensePaymentMode, ExpenseFrequency } from '@prisma/client';
 export const createExpenseSchema = z.object({
   expense_date: z.string().datetime(),
   category: z.string().min(1).max(100),
-  vendor_id: z.string().uuid().optional(),
+  // The vendor, picked from Business Partners (category VENDOR) — optional,
+  // since most one-off expenses (a random cash payee) don't need a ledger
+  // card. Resolved server-side to the internal Vendor bridge row, same as
+  // RecurringExpense — see ensureVendorFromBusinessPartner.
+  business_partner_id: z.string().uuid().optional(),
+  // Free-text payee name, independent of the above — for a quick one-off
+  // payment that doesn't warrant a Business Partner card at all.
   vendor_name: z.string().max(255).optional(),
   amount: z.number().positive(),
   payment_mode: z.nativeEnum(ExpensePaymentMode),

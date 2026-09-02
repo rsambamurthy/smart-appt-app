@@ -13,24 +13,30 @@ import {
   useApproveExpenseMutation,
 } from '../../store/api/expensesApi';
 import { useGetDuesDashboardQuery } from '../../store/api/duesApi';
+import { useListBPMastersQuery } from '../../store/api/accountingApi';
 
 const PAYMENT_MODES = ['CASH', 'CHEQUE', 'ONLINE', 'UPI'] as const;
 
 interface Category { id: string; name: string; display_name: string; color: string; is_active: boolean }
 interface Expense {
   id: string; expense_date: string; category: string;
-  vendor?: { name: string }; vendor_name?: string;
+  vendor?: { name: string; business_partner_id?: string | null } | null; vendor_name?: string;
   amount: number; payment_mode: string; description?: string;
   status: string; creator?: { name: string };
 }
 type FormMode = 'create' | 'edit';
 interface ExpenseForm {
   expense_date: string; category: string; vendor_name: string;
+  // The vendor, picked from Business Partners — a contracted payee like an
+  // AMC or a security agency worth tracking a running balance for. Separate
+  // from vendor_name above, which stays free text for a one-off payee that
+  // doesn't need a ledger card at all.
+  business_partner_id: string;
   amount: string; payment_mode: typeof PAYMENT_MODES[number]; description: string;
 }
 const emptyForm = (): ExpenseForm => ({
   expense_date: new Date().toISOString().slice(0, 10),
-  category: '', vendor_name: '', amount: '', payment_mode: 'CASH', description: '',
+  category: '', vendor_name: '', business_partner_id: '', amount: '', payment_mode: 'CASH', description: '',
 });
 
 export default function ExpenseListPage() {
@@ -55,6 +61,11 @@ export default function ExpenseListPage() {
   });
   const { data: dashData } = useGetDuesDashboardQuery();
   const expenses = (expData?.data ?? []) as Expense[];
+
+  // The one vendor list associations actually maintain — Business Partners
+  // (Configuration → Business Partners), category VENDOR.
+  const { data: bpData } = useListBPMastersQuery({ category: 'VENDOR' });
+  const vendors = (bpData?.data ?? []).filter((v) => v.is_active);
   const dash = dashData?.data as Record<string, unknown> | undefined;
   const openingBalance = dash ? Number(dash['cash_balance'] ?? 0) : 0;
   const openingBalanceAsOn = dash?.['cash_balance_as_on'] as string | undefined;
@@ -93,6 +104,7 @@ export default function ExpenseListPage() {
     setForm({
       expense_date: e.expense_date.slice(0, 10), category: e.category,
       vendor_name: e.vendor?.name ?? e.vendor_name ?? '',
+      business_partner_id: e.vendor?.business_partner_id ?? '',
       amount: String(e.amount),
       payment_mode: e.payment_mode as typeof PAYMENT_MODES[number],
       description: e.description ?? '',
@@ -109,7 +121,9 @@ export default function ExpenseListPage() {
     }
     const body = {
       expense_date: new Date(form.expense_date).toISOString(), category: form.category,
-      vendor_name: form.vendor_name || undefined, amount: parseFloat(form.amount),
+      vendor_name: form.vendor_name || undefined,
+      business_partner_id: form.business_partner_id || undefined,
+      amount: parseFloat(form.amount),
       payment_mode: form.payment_mode, description: form.description || undefined,
     };
     try {
@@ -312,7 +326,19 @@ export default function ExpenseListPage() {
                 </select>
               </div>
               <div className="ent-fg">
-                <label className="ent-fl">Vendor / Payee</label>
+                <label className="ent-fl">
+                  Vendor <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>(optional — for a contracted payee worth tracking a balance for)</span>
+                </label>
+                <select className="ent-fc" value={form.business_partner_id} onChange={(e) => setF('business_partner_id', e.target.value)}>
+                  <option value="">— None —</option>
+                  {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+                <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: 4 }}>
+                  Don't see the vendor you need? Add it under Business Partners first.
+                </div>
+              </div>
+              <div className="ent-fg">
+                <label className="ent-fl">Payee (free text)</label>
                 <input className="ent-fc" type="text" placeholder="e.g. BESCOM, Ramesh Cleaning" value={form.vendor_name} onChange={(e) => setF('vendor_name', e.target.value)} />
               </div>
               <div className="ent-fg">

@@ -475,6 +475,10 @@ class JournalService {
     paymentMode:   string,
     category:      string,
     narration:     string,
+    // Optional vendor sub-ledger tag on the expense line — e.g. an AMC or
+    // contracted vendor, picked from Business Partners. Most one-off
+    // expenses have none, which is fine; the line just posts untagged.
+    businessPartnerId?: string | null,
   ) {
     try {
       const expenseAccount = await this.resolveExpenseAccount(associationId, category);
@@ -488,7 +492,7 @@ class JournalService {
         voucher_type:   VoucherType.PV,
         source:         JournalEntrySource.AUTO,
         lines: [
-          { account_id: expenseAccount.id, debit: amount, credit: 0,      narration: category },
+          { account_id: expenseAccount.id, debit: amount, credit: 0,      narration: category, business_partner_id: businessPartnerId ?? undefined },
           { account_id: cashOrBank.id,     debit: 0,      credit: amount, narration: 'Payment made' },
         ],
       });

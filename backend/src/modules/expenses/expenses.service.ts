@@ -29,12 +29,21 @@ export class ExpensesService {
     const threshold = Number(config?.expense_approval_threshold ?? 0);
     const needsApproval = body.amount > threshold && threshold > 0;
 
+    // Resolves to the internal Vendor bridge row (Expense.vendor_id's actual
+    // FK target) — see ensureVendorFromBusinessPartner. Only set when the
+    // partner genuinely exists under this association as a VENDOR; a bad id
+    // just means no vendor gets linked rather than a hard failure, since it's
+    // an optional field on an otherwise-valid expense.
+    const vendorId = body.business_partner_id
+      ? (await ensureVendorFromBusinessPartner(associationId, body.business_partner_id, createdBy)) ?? undefined
+      : undefined;
+
     const expense = await prisma.expense.create({
       data: {
         association_id: associationId,
         expense_date: new Date(body.expense_date),
         category: body.category,
-        vendor_id: body.vendor_id,
+        vendor_id: vendorId,
         vendor_name: body.vendor_name,
         amount: body.amount,
         payment_mode: body.payment_mode,
@@ -78,6 +87,7 @@ export class ExpensesService {
         body.payment_mode,
         body.category,
         body.description ?? body.category,
+        vendorId ? body.business_partner_id : undefined,
       );
     }
 
@@ -102,7 +112,7 @@ export class ExpensesService {
     const expenses = await prisma.expense.findMany({
       where: where as never,
       take: query.limit,
-      include: { vendor: { select: { name: true } }, creator: { select: { name: true } } },
+      include: { vendor: { select: { name: true, business_partner_id: true } }, creator: { select: { name: true } } },
       orderBy: { expense_date: 'desc' },
     });
 
@@ -125,7 +135,18 @@ export class ExpensesService {
       throw new UnprocessableError('Only PENDING_APPROVAL or RECORDED expenses can be edited.');
     }
 
-    const updated = await prisma.expense.update({ where: { id: expenseId }, data: body as never });
+    // Editing is only ever allowed before the expense is posted (the guard
+    // above), so there's no live journal line to keep in sync here — unlike
+    // createExpense, changing the vendor at this stage is just data.
+    const { business_partner_id, ...rest } = body;
+    const vendorId = business_partner_id
+      ? (await ensureVendorFromBusinessPartner(associationId, business_partner_id, userId)) ?? undefined
+      : undefined;
+
+    const updated = await prisma.expense.update({
+      where: { id: expenseId },
+      data: { ...rest, ...(business_partner_id ? { vendor_id: vendorId } : {}) } as never,
+    });
 
     await prisma.auditLog.create({
       data: {
@@ -185,7 +206,7 @@ export class ExpensesService {
         if (openProvision) {
           // The recurring item is the authoritative source of which vendor
           // this accrual belongs to (auto_provision requires one — see
-          // ensureVendorForProvisioning) — not expense.vendor_id, which is a
+          // resolveVendorForProvisioning) — not expense.vendor_id, which is a
           // separately-editable field on the individual expense.
           const recurring = await prisma.recurringExpense.findUnique({
             where: { id: expense.recurring_id },
@@ -217,6 +238,17 @@ export class ExpensesService {
             },
           });
         } else {
+          // No accrual to settle — first time this recurring item is
+          // approved for this period. Still worth tagging the vendor on the
+          // expense line if one's linked, same as the settlement path above.
+          const recurring = await prisma.recurringExpense.findUnique({
+            where: { id: expense.recurring_id },
+            include: { vendor: true },
+          });
+          const businessPartnerId = recurring?.vendor
+            ? await ensureVendorBP(associationId, recurring.vendor)
+            : undefined;
+
           await journalService.postExpense(
             associationId,
             expenseId,
@@ -224,6 +256,7 @@ export class ExpensesService {
             expense.payment_mode,
             expense.category,
             expense.description ?? expense.category,
+            businessPartnerId,
           );
         }
       } catch (err) {
