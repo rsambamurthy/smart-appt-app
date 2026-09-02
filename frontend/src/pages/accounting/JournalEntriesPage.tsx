@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Layout from '../../components/organisms/Layout';
 import PageSubHeader from '../../components/molecules/PageSubHeader';
 import {
@@ -110,6 +110,17 @@ export default function JournalEntriesPage() {
   // ── Filter state ──────────────────────────────────────────────────────────
   const [filter, setFilter] = useState({ type: '', from: '', to: '' });
 
+  // Free-text search — voucher number, narration, account, or Sub Ledger
+  // name, plus an exact amount if the box holds a plain number. Debounced so
+  // it doesn't refetch on every keystroke; searchInput is what the box shows,
+  // search is what actually goes to the server.
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   // ── Panel state ───────────────────────────────────────────────────────────
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formMode,   setFormMode]   = useState<'new' | 'edit' | null>(null);
@@ -135,6 +146,7 @@ export default function JournalEntriesPage() {
     type: filter.type || undefined,
     from: filter.from || undefined,
     to:   filter.to   || undefined,
+    q:    search      || undefined,
   });
   const { data: accountsData } = useListAccountsQuery();
   const { data: bpData }       = useListBPMastersQuery({});
@@ -888,6 +900,35 @@ export default function JournalEntriesPage() {
               </button>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ position: 'relative' }}>
+                <i className="ti ti-search" style={{
+                  position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)',
+                  fontSize: 13, color: '#94a3b8', pointerEvents: 'none',
+                }} />
+                <input
+                  type="text"
+                  placeholder="Search voucher #, narration, account, sub ledger, amount…"
+                  style={{
+                    width: '100%', padding: '6px 9px 6px 28px', border: '1px solid #e2e8f0',
+                    borderRadius: 6, fontSize: 12, color: '#1e293b', background: '#fff', outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                  value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                />
+                {searchInput && (
+                  <button
+                    onClick={() => setSearchInput('')}
+                    title="Clear search"
+                    style={{
+                      position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                      border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8',
+                      fontSize: 13, padding: 2, lineHeight: 1,
+                    }}>
+                    <i className="ti ti-x" />
+                  </button>
+                )}
+              </div>
               <select style={{ width: '100%', padding: '6px 9px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, color: '#1e293b', background: '#fff', outline: 'none' }}
                 value={filter.type} onChange={e => setFilter(f => ({ ...f, type: e.target.value }))}>
                 <option value="">All types</option>
@@ -909,7 +950,9 @@ export default function JournalEntriesPage() {
               <div style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Loading…</div>
             ) : entries.length === 0 ? (
               <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#94a3b8', fontSize: 12.5, lineHeight: 1.6 }}>
-                No entries found.
+                {search
+                  ? <>No entries match &ldquo;{search}&rdquo;.</>
+                  : 'No entries found.'}
               </div>
             ) : (
               sortedDates.map(date => (

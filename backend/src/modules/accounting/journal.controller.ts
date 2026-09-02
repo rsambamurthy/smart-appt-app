@@ -7,9 +7,9 @@ class JournalController {
   list = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const associationId = (req as never as { user: { association_id: string } }).user.association_id;
-      const { cursor, limit, type, from, to } = req.query as Record<string, string>;
+      const { cursor, limit, type, from, to, q } = req.query as Record<string, string>;
       const result = await journalService.listEntries(associationId, {
-        cursor, type, from, to,
+        cursor, type, from, to, q,
         limit: limit ? parseInt(limit) : undefined,
       });
       res.json(result);

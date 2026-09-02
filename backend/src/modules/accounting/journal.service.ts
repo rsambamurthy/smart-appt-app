@@ -672,7 +672,7 @@ class JournalService {
   // ── LIST entries ──────────────────────────────────────────────────────────
   async listEntries(
     associationId: string,
-    query: { cursor?: string; limit?: number; type?: string; from?: string; to?: string },
+    query: { cursor?: string; limit?: number; type?: string; from?: string; to?: string; q?: string },
   ) {
     const take = Math.min(query.limit ?? 50, 200);
     const where: Record<string, unknown> = { association_id: associationId };
@@ -682,6 +682,41 @@ class JournalService {
         ...(query.from ? { gte: new Date(query.from) } : {}),
         ...(query.to   ? { lte: new Date(query.to)   } : {}),
       };
+    }
+
+    // Free-text search — matches the voucher number, the entry's own
+    // narration, or (via the line-level `some`) any line's own narration,
+    // its account's name/code, or its Sub Ledger (business partner)
+    // name/code. A query that parses as a plain number also matches an
+    // exact debit/credit amount, so pasting a rupee figure finds the entry
+    // it was posted for.
+    const q = query.q?.trim();
+    if (q) {
+      const bareNumber = q.replace(/,/g, '');
+      const asAmount = /^\d+(\.\d+)?$/.test(bareNumber) ? Number(bareNumber) : null;
+
+      where['OR'] = [
+        { reference_code: { contains: q, mode: 'insensitive' } },
+        { narration:       { contains: q, mode: 'insensitive' } },
+        {
+          lines: {
+            some: {
+              OR: [
+                { narration: { contains: q, mode: 'insensitive' } },
+                { account: { OR: [
+                  { name: { contains: q, mode: 'insensitive' } },
+                  { code: { contains: q, mode: 'insensitive' } },
+                ] } },
+                { business_partner: { OR: [
+                  { name: { contains: q, mode: 'insensitive' } },
+                  { code: { contains: q, mode: 'insensitive' } },
+                ] } },
+                ...(asAmount !== null ? [{ debit: asAmount }, { credit: asAmount }] : []),
+              ],
+            },
+          },
+        },
+      ];
     }
 
     const entries = await prisma.journalEntry.findMany({

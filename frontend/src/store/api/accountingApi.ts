@@ -538,14 +538,15 @@ const accountingApi = baseApi.injectEndpoints({
     }),
 
     // Journal Entries
-    listJournalEntries: builder.query<{ data: JournalEntry[]; nextCursor: string | null }, { type?: string; from?: string; to?: string; cursor?: string }>({
+    listJournalEntries: builder.query<{ data: JournalEntry[]; nextCursor: string | null }, { type?: string; from?: string; to?: string; cursor?: string; q?: string }>({
       query: (params) => {
-        const q = new URLSearchParams();
-        if (params.type)   q.set('type',   params.type);
-        if (params.from)   q.set('from',   params.from);
-        if (params.to)     q.set('to',     params.to);
-        if (params.cursor) q.set('cursor', params.cursor);
-        return `/accounting/journal?${q.toString()}`;
+        const usp = new URLSearchParams();
+        if (params.type)   usp.set('type',   params.type);
+        if (params.from)   usp.set('from',   params.from);
+        if (params.to)     usp.set('to',     params.to);
+        if (params.cursor) usp.set('cursor', params.cursor);
+        if (params.q)      usp.set('q',      params.q);
+        return `/accounting/journal?${usp.toString()}`;
       },
       providesTags: ['Journal'],
     }),
