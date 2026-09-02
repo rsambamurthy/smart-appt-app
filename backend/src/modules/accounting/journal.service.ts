@@ -1749,7 +1749,7 @@ class JournalService {
     const contraBPByEntry = new Map<string, string[]>();
     for (const c of contras) {
       const list = contraByEntry.get(c.journal_entry_id) ?? [];
-      list.push(`${c.account.code} ${c.account.name}`);
+      list.push(c.account.name);
       contraByEntry.set(c.journal_entry_id, list);
 
       if (c.business_partner) {

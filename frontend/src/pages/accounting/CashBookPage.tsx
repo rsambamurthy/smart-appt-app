@@ -22,7 +22,7 @@ function Row({ row }: { row: CashBookRow }) {
   return (
     <tr style={{ borderBottom: '1px solid #f8fafc' }}>
       <td style={{ padding: '8px 16px 8px 20px', fontSize: 12.5, color: '#475569', whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</td>
-      <td style={{ padding: '8px 12px', fontSize: 11.5, fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'normal', wordBreak: 'break-all' }}>{row.reference_code}</td>
+      <td style={{ padding: '8px 12px', fontSize: 11.5, fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'normal', wordBreak: 'break-all', overflowWrap: 'anywhere' }}>{row.reference_code}</td>
       <td style={{ padding: '8px 12px', fontSize: 12, color: '#334155', whiteSpace: 'normal', wordBreak: 'break-word' }}>
         {row.particulars || '—'}
       </td>
@@ -160,13 +160,13 @@ export default function CashBookPage() {
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
                 <colgroup>
                   <col style={{ width: '9%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '14%' }} />
-                  <col style={{ width: '13%' }} />
-                  <col style={{ width: '20%' }} />
-                  <col style={{ width: '11%' }} />
-                  <col style={{ width: '11%' }} />
                   <col style={{ width: '12%' }} />
+                  <col style={{ width: '12%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: '21%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '11%' }} />
                 </colgroup>
                 <thead>
                   <tr>
