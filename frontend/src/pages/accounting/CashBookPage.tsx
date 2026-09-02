@@ -23,9 +23,14 @@ function Row({ row }: { row: CashBookRow }) {
     <tr style={{ borderBottom: '1px solid #f8fafc' }}>
       <td style={{ padding: '8px 16px 8px 20px', fontSize: 12.5, color: '#475569', whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</td>
       <td style={{ padding: '8px 12px', fontSize: 11.5, fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'nowrap' }}>{row.reference_code}</td>
+      <td style={{ padding: '8px 12px', fontSize: 12, color: '#334155', whiteSpace: 'normal', wordBreak: 'break-word' }}>
+        {row.particulars || '—'}
+      </td>
+      <td style={{ padding: '8px 12px', fontSize: 12, color: '#475569', whiteSpace: 'normal', wordBreak: 'break-word' }}>
+        {row.bp_name || '—'}
+      </td>
       <td style={{ padding: '8px 12px', fontSize: 12.5, color: '#1e293b', whiteSpace: 'normal', wordBreak: 'break-word' }}>
         {row.narration}
-        {row.bp_name && <span style={{ marginLeft: 6, fontSize: 11, color: '#94a3b8' }}>· {row.bp_name}</span>}
       </td>
       <td style={{ padding: '8px 14px', textAlign: 'right', fontSize: 13, fontWeight: row.receipt ? 600 : 400, color: row.receipt ? '#15803d' : '#cbd5e1' }}>
         {row.receipt ? fmtAmt(row.receipt) : '—'}
@@ -89,7 +94,7 @@ export default function CashBookPage() {
     <Layout>
       <PageSubHeader crumbs={[{ label: 'Accounting' }, { label: kind === 'CASH' ? 'Cash Book' : 'Bank Book' }]} />
 
-      <div style={{ padding: '1.25rem 1.5rem 3rem', maxWidth: 1100 }}>
+      <div style={{ padding: '1.25rem 1.5rem 3rem', maxWidth: 1340 }}>
 
         {/* Filter bar */}
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, padding: '14px 18px', marginBottom: 20 }}>
@@ -154,17 +159,21 @@ export default function CashBookPage() {
 
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
                 <colgroup>
+                  <col style={{ width: '9%' }} />
+                  <col style={{ width: '7%' }} />
+                  <col style={{ width: '17%' }} />
+                  <col style={{ width: '13%' }} />
+                  <col style={{ width: '20%' }} />
+                  <col style={{ width: '11%' }} />
+                  <col style={{ width: '11%' }} />
                   <col style={{ width: '12%' }} />
-                  <col style={{ width: '10%' }} />
-                  <col style={{ width: '36%' }} />
-                  <col style={{ width: '14%' }} />
-                  <col style={{ width: '14%' }} />
-                  <col style={{ width: '14%' }} />
                 </colgroup>
                 <thead>
                   <tr>
                     <th style={{ ...th, textAlign: 'left', paddingLeft: 20 }}>Date</th>
                     <th style={{ ...th, textAlign: 'left' }}>Voucher</th>
+                    <th style={{ ...th, textAlign: 'left' }}>Account Head</th>
+                    <th style={{ ...th, textAlign: 'left' }}>Sub Ledger</th>
                     <th style={{ ...th, textAlign: 'left' }}>Particulars</th>
                     <th style={th}>Receipts</th>
                     <th style={th}>Payments</th>
@@ -173,7 +182,7 @@ export default function CashBookPage() {
                 </thead>
                 <tbody>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    <td colSpan={5} style={{ padding: '8px 20px', fontSize: 12.5, fontWeight: 600, color: '#475569' }}>
+                    <td colSpan={7} style={{ padding: '8px 20px', fontSize: 12.5, fontWeight: 600, color: '#475569' }}>
                       Opening Balance
                     </td>
                     <td style={{ padding: '8px 20px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
@@ -181,14 +190,14 @@ export default function CashBookPage() {
                     </td>
                   </tr>
                   {book.rows.length === 0 ? (
-                    <tr><td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+                    <tr><td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
                       No transactions in this period.
                     </td></tr>
                   ) : book.rows.map(r => <Row key={r.id} row={r} />)}
                 </tbody>
                 <tfoot>
                   <tr style={{ borderTop: '2px solid #e2e8f0', background: '#f8fafc' }}>
-                    <td colSpan={3} style={{ padding: '11px 20px', fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
+                    <td colSpan={5} style={{ padding: '11px 20px', fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
                       Closing Balance
                     </td>
                     <td style={{ padding: '11px 14px', textAlign: 'right', fontWeight: 700, fontSize: 13, color: '#15803d' }}>{fmtAmt(book.totalReceipts)}</td>
