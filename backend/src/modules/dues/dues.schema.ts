@@ -38,6 +38,13 @@ export const initiatePaymentSchema = z.object({
   bill_id: z.string().uuid(),
 });
 
+export const undoPaymentSchema = z.object({
+  // Optional note on WHY this payment is being undone — stored on the
+  // cancelled journal entry so a treasurer looking at it later (or another
+  // committee member) can see the reason, not just that it happened.
+  reason: z.string().max(255).optional(),
+});
+
 export const createLevySchema = z.object({
   unit_ids: z.array(z.string().uuid()).min(1),
   amount: z.number().positive(),
@@ -65,6 +72,7 @@ export type GenerateBillsBody = z.infer<typeof generateBillsSchema>;
 export type RollbackBillsBody = z.infer<typeof rollbackBillsSchema>;
 export type OfflinePaymentBody = z.infer<typeof offlinePaymentSchema>;
 export type InitiatePaymentBody = z.infer<typeof initiatePaymentSchema>;
+export type UndoPaymentBody = z.infer<typeof undoPaymentSchema>;
 export type CreateLevyBody = z.infer<typeof createLevySchema>;
 export type OneTimeDueBody = z.infer<typeof oneTimeDueSchema>;
 export type UpdateOneTimeDueBody = z.infer<typeof updateOneTimeDueSchema>;

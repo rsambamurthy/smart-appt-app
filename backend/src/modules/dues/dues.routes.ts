@@ -14,7 +14,7 @@ import { requireRoles } from '../../middleware/rbac';
 import { validate } from '../../middleware/validate';
 import {
   duesConfigSchema, generateBillsSchema, rollbackBillsSchema, offlinePaymentSchema,
-  initiatePaymentSchema, createLevySchema,
+  initiatePaymentSchema, createLevySchema, undoPaymentSchema,
   oneTimeDueSchema, updateOneTimeDueSchema, generateOneTimeDueBillsSchema,
 } from './dues.schema';
 const router = Router();
@@ -84,6 +84,9 @@ router.post('/payments/verify', (req, res, next) =>
 
 router.post('/payments/offline', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(offlinePaymentSchema), (req, res, next) =>
   duesController.offlinePayment(req as never, res, next));
+
+router.post('/payments/:id/undo', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(undoPaymentSchema), (req, res, next) =>
+  duesController.undoPayment(req as never, res, next));
 
 // ── Bulk Payment Upload ───────────────────────────────────────────────────────
 router.get('/payments/upload/template', requireRoles(...treasurerOrManagerRoles), (req, res, next) =>

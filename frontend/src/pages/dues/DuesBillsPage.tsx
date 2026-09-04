@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store';
 import Layout from '../../components/organisms/Layout';
@@ -10,6 +10,7 @@ import {
   useGenerateBillsMutation,
   useRollbackBillsMutation,
   useRecordOfflinePaymentMutation,
+  useUndoPaymentMutation,
   useGetDuesDashboardQuery,
   usePreviewPaymentUploadMutation,
   useApplyPaymentUploadMutation,
@@ -40,7 +41,10 @@ interface Bill {
   total_amount: number;
   due_date: string;
   status: string;
-  payments: { amount: number; payment_mode: string; payment_date: string }[];
+  payments: {
+    id: string; amount: number; payment_mode: string; payment_date: string;
+    gateway: string | null; reference_no: string | null;
+  }[];
 }
 
 interface PaymentForm {
@@ -93,7 +97,22 @@ export default function DuesBillsPage() {
   const [payError, setPayError] = useState('');
   const [paySuccess, setPaySuccess] = useState('');
 
+  // Undo a wrongly-recorded payment. confirmUndoId holds the payment
+  // currently showing its "are you sure?" strip (only one at a time).
+  const [undoPayment, { isLoading: isUndoing }] = useUndoPaymentMutation();
+  const [confirmUndoId, setConfirmUndoId] = useState<string | null>(null);
+  const [undoError, setUndoError] = useState('');
+
   const bills = (billsData?.data ?? []) as Bill[];
+
+  // Keep the open side panel's bill in sync with the list — after an Undo,
+  // `bills` refetches with the payment gone, but `selectedBill` is a
+  // snapshot from whenever the panel was opened and won't update on its own.
+  useEffect(() => {
+    if (!selectedBill) return;
+    const fresh = bills.find((b) => b.id === selectedBill.id);
+    if (fresh && fresh !== selectedBill) setSelectedBill(fresh);
+  }, [bills, selectedBill]);
 
   // Client-side search
   const filtered = bills.filter((b) => {
@@ -148,12 +167,16 @@ export default function DuesBillsPage() {
     });
     setPayError('');
     setPaySuccess('');
+    setConfirmUndoId(null);
+    setUndoError('');
   };
 
   const closePayPanel = () => {
     setSelectedBill(null);
     setPayError('');
     setPaySuccess('');
+    setConfirmUndoId(null);
+    setUndoError('');
   };
 
   const handleRecordPayment = async () => {
@@ -177,6 +200,18 @@ export default function DuesBillsPage() {
     } catch (e: unknown) {
       const err = e as { data?: { message?: string } };
       setPayError(err?.data?.message ?? 'Failed to record payment.');
+    }
+  };
+
+  const handleUndoPayment = async (paymentId: string) => {
+    setUndoError('');
+    try {
+      await undoPayment({ id: paymentId }).unwrap();
+      setConfirmUndoId(null);
+      refetch();
+    } catch (e: unknown) {
+      const err = e as { data?: { message?: string } };
+      setUndoError(err?.data?.message ?? 'Failed to undo payment.');
     }
   };
 
@@ -250,6 +285,8 @@ export default function DuesBillsPage() {
   // ── Compute amounts paid for display ────────────────────────────────────────
   const paidAmount = (bill: Bill) =>
     bill.payments.reduce((s, p) => s + Number(p.amount), 0);
+
+  const canPayFor = (bill: Bill) => bill.status === 'UNPAID' || bill.status === 'PARTIAL';
 
   const yearOptions = Array.from({ length: 6 }, (_, i) => now.getFullYear() - 2 + i);
 
@@ -545,7 +582,7 @@ export default function DuesBillsPage() {
                 {filtered.map((bill) => {
                   const badge = STATUS_BADGE[bill.status] ?? STATUS_BADGE['UNPAID'];
                   const paid = paidAmount(bill);
-                  const canPay = bill.status === 'UNPAID' || bill.status === 'PARTIAL';
+                  const canPay = canPayFor(bill);
                   return (
                     <tr key={bill.id}>
                       <td>
@@ -581,7 +618,7 @@ export default function DuesBillsPage() {
                         </span>
                       </td>
                       <td style={{ textAlign: 'center' }}>
-                        {canPay && (
+                        {(canPay || bill.payments.length > 0) ? (
                           <button
                             onClick={() => openPayPanel(bill)}
                             style={{
@@ -590,10 +627,11 @@ export default function DuesBillsPage() {
                               border: '1px solid var(--theme-accent)', cursor: 'pointer', fontWeight: 600,
                             }}
                           >
-                            Record Payment
+                            {canPay ? 'Record Payment' : 'View Payments'}
                           </button>
+                        ) : (
+                          <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem' }}>—</span>
                         )}
-                        {!canPay && <span style={{ color: 'var(--color-muted)', fontSize: '0.78rem' }}>—</span>}
                       </td>
                     </tr>
                   );
@@ -656,6 +694,86 @@ export default function DuesBillsPage() {
 
             {/* Form */}
             <div style={{ padding: '1.25rem', flex: 1, overflowY: 'auto' }}>
+
+              {/* Payment History — lists what's already recorded on this bill,
+                  each with an Undo action for fixing a wrongly-recorded entry. */}
+              {selectedBill.payments.length > 0 && (
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#475569', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                    Payment History
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {selectedBill.payments.map((p) => {
+                      const isGateway = p.gateway === 'razorpay';
+                      return (
+                        <div key={p.id} style={{ border: '1px solid var(--color-border)', borderRadius: 6, padding: '0.55rem 0.75rem', background: '#f8fafc' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                            <div>
+                              <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>₹{Number(p.amount).toLocaleString()}</div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+                                {p.payment_mode.replace('_', ' ')} · {new Date(p.payment_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                {p.reference_no && ` · Ref: ${p.reference_no}`}
+                              </div>
+                            </div>
+                            {isGateway ? (
+                              <span title="Online Razorpay payments can't be undone here — the money already settled. Process a refund through Razorpay first." style={{ fontSize: '0.72rem', color: '#94a3b8', cursor: 'help', whiteSpace: 'nowrap' }}>
+                                🔒 Settled online
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => { setConfirmUndoId(p.id); setUndoError(''); }}
+                                style={{
+                                  padding: '2px 10px', fontSize: '0.75rem', borderRadius: 4,
+                                  background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5',
+                                  cursor: 'pointer', fontWeight: 600, whiteSpace: 'nowrap',
+                                }}
+                              >
+                                Undo
+                              </button>
+                            )}
+                          </div>
+
+                          {confirmUndoId === p.id && (
+                            <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed #fca5a5' }}>
+                              <div style={{ fontSize: '0.78rem', color: '#991b1b', fontWeight: 600, marginBottom: '0.4rem' }}>
+                                ⚠ This will cancel its journal entry and set the bill back to unpaid (or partial). Undo this payment?
+                              </div>
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button
+                                  onClick={() => handleUndoPayment(p.id)}
+                                  disabled={isUndoing}
+                                  style={{ padding: '2px 12px', borderRadius: 4, background: '#dc2626', color: '#fff', border: 'none', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}
+                                >
+                                  {isUndoing ? 'Undoing…' : 'Yes, Undo'}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmUndoId(null)}
+                                  style={{ padding: '2px 10px', borderRadius: 4, background: '#fff', color: '#6b7280', border: '1px solid #d1d5db', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {undoError && (
+                    <div style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#dc2626', fontSize: '0.8rem' }}>
+                      {undoError}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!canPayFor(selectedBill) && (
+                <div style={{ padding: '0.6rem 0.9rem', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, color: '#15803d', fontSize: '0.82rem', marginBottom: '1rem' }}>
+                  This bill is fully paid — no further payment can be recorded on it.
+                </div>
+              )}
+
+              {canPayFor(selectedBill) && <>
               <div className="ent-fg" style={{ marginBottom: '1rem' }}>
                 <label className="ent-fl">Amount Received (₹) *</label>
                 <input
@@ -720,6 +838,7 @@ export default function DuesBillsPage() {
               >
                 {isRecording ? 'Recording…' : 'Confirm Payment'}
               </button>
+              </>}
               <button
                 className="ent-btn-cancel"
                 style={{ width: '100%', marginTop: '0.5rem' }}

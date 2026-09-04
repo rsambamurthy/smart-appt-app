@@ -9,9 +9,13 @@ import {
   InitiatePaymentBody, CreateLevyBody,
   OneTimeDueBody, UpdateOneTimeDueBody, GenerateOneTimeDueBillsBody,
 } from './dues.schema';
-import { AuditAction, BillStatus, ExpenseStatus, OneTimeDueStatus, PaymentMode, UserRole } from '@prisma/client';
+import {
+  AuditAction, BillStatus, ExpenseStatus, OneTimeDueStatus, PaymentMode, UserRole,
+  JournalStatus, PaymentClaimStatus,
+} from '@prisma/client';
 import { auditService } from '../../services/audit.service';
 import { journalService } from '../accounting/journal.service';
+import { fyClosureService } from '../accounting/fy-closure.service';
 import { duesNotifyService } from './dues-notify.service';
 
 // Default platform Razorpay instance (fallback if association has no own keys)
@@ -312,7 +316,10 @@ export class DuesService {
       take: query.limit,
       include: {
         unit: { select: { flat_number: true, block: true } },
-        payments: { select: { id: true, amount: true, payment_mode: true, payment_date: true } },
+        // gateway distinguishes a real settled Razorpay payment ('razorpay')
+        // from a manual/UPI one ('manual' / 'upi-direct') — the frontend uses
+        // it to decide whether Undo is offered for a given payment.
+        payments: { select: { id: true, amount: true, payment_mode: true, payment_date: true, gateway: true, reference_no: true } },
       },
       orderBy: { created_at: 'desc' },
     });
@@ -550,6 +557,100 @@ export class DuesService {
     });
 
     return { data: payment };
+  }
+
+  // ── Undo a wrongly-recorded payment ───────────────────────────────────────────
+  // Cancels the journal entry it posted (kept for audit history — every report
+  // only ever reads POSTED entries, so a CANCELLED one already disappears from
+  // all of them), detaches + resets any UPI claim that pointed at it, deletes
+  // the Payment row, and recomputes the bill's status from what's left.
+  async undoPayment(associationId: string, paymentId: string, userId: string, reason?: string) {
+    const payment = await prisma.payment.findFirst({
+      where: { id: paymentId, association_id: associationId },
+      include: { bill: { select: { id: true, total_amount: true, status: true } } },
+    });
+    if (!payment) throw new NotFoundError('Payment');
+
+    // Real money already settled into the association's Razorpay account for
+    // this one — undoing it here would only change our own records, not
+    // refund the resident, leaving the books saying "unpaid" while the
+    // association actually holds the money.
+    if (payment.gateway === 'razorpay') {
+      throw new UnprocessableError(
+        'This was an online Razorpay payment — the money has already settled into the association\'s account. ' +
+        'Undoing it here would not refund the resident. Process a refund through Razorpay first, then contact support to reconcile the books.',
+      );
+    }
+
+    const entry = await prisma.journalEntry.findFirst({
+      where: { association_id: associationId, reference_type: 'PAYMENT', reference_id: paymentId },
+    });
+
+    if (entry) {
+      if (entry.status === JournalStatus.CANCELLED) {
+        throw new UnprocessableError('This payment has already been undone.');
+      }
+      if (await fyClosureService.isYearClosed(associationId, entry.financial_year)) {
+        throw new UnprocessableError(
+          `Financial year ${entry.financial_year} is closed. Reopen it to undo this payment.`,
+        );
+      }
+    }
+
+    const bill = payment.bill;
+
+    await prisma.$transaction(async (tx) => {
+      if (entry) {
+        await tx.journalEntry.update({
+          where: { id: entry.id },
+          data: {
+            status:              JournalStatus.CANCELLED,
+            cancelled_at:        new Date(),
+            cancelled_by_id:     userId,
+            cancellation_reason: reason?.trim() || 'Payment undone from Dues & Payments.',
+          },
+        });
+      }
+
+      // If a resident's UPI claim points at this payment, detach it and put
+      // it back to PENDING for proper re-review, rather than silently
+      // losing it when the payment disappears.
+      await tx.paymentClaim.updateMany({
+        where: { payment_id: paymentId },
+        data:  { status: PaymentClaimStatus.PENDING, reviewed_by: null, reviewed_at: null, payment_id: null },
+      });
+
+      await tx.payment.delete({ where: { id: paymentId } });
+
+      // Leave a WAIVED bill alone — this is about undoing the payment, not
+      // about un-waiving a bill.
+      if (bill.status !== BillStatus.WAIVED) {
+        const totals = await tx.payment.aggregate({
+          where: { bill_id: bill.id },
+          _sum:  { amount: true },
+        });
+        const paid  = Number(totals._sum.amount ?? 0);
+        const total = Number(bill.total_amount);
+        const newStatus = paid <= 0 ? BillStatus.UNPAID : paid >= total ? BillStatus.PAID : BillStatus.PARTIAL;
+        await tx.bill.update({ where: { id: bill.id }, data: { status: newStatus } });
+      }
+    });
+
+    await auditService.record({
+      entity_type: 'payment',
+      entity_id:   paymentId,
+      action:      AuditAction.DELETE,
+      summary:     `Undid ${payment.payment_mode} payment ₹${Number(payment.amount).toFixed(2)} for bill ${bill.id}${reason ? ` — ${reason}` : ''}`,
+      old_value:   {
+        bill_id: bill.id,
+        amount:  Number(payment.amount),
+        mode:    payment.payment_mode,
+        gateway: payment.gateway,
+        reason:  reason ?? null,
+      },
+    });
+
+    return { data: { undone: true, bill_id: bill.id } };
   }
 
   // ── Arrears ──────────────────────────────────────────────────────────────────

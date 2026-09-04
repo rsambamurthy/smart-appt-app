@@ -76,6 +76,14 @@ export class DuesController {
     catch (err) { next(err); }
   }
 
+  async undoPayment(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      res.json(await duesService.undoPayment(
+        req.user!.association_id, req.params['id'], req.user!.id, req.body?.reason,
+      ));
+    } catch (err) { next(err); }
+  }
+
   async rollbackBills(req: AuthRequest, res: Response, next: NextFunction) {
     try { res.json(await duesService.rollbackBills(req.user!.association_id, req.body)); }
     catch (err) { next(err); }
