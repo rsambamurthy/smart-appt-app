@@ -154,8 +154,21 @@ export default function JournalEntriesPage() {
   const [createEntry, { isLoading: isCreating }] = useCreateJournalEntryMutation();
   const [updateEntry, { isLoading: isUpdating }] = useUpdateJournalEntryMutation();
   const [uploadAttachment,   { isLoading: isUploading }] = useUploadJournalAttachmentMutation();
-  const [deleteAttachment]   = useDeleteJournalAttachmentMutation();
+  const [deleteAttachment, { isLoading: isRemovingAttachment }] = useDeleteJournalAttachmentMutation();
   const [downloadAttachment] = useDownloadJournalAttachmentMutation();
+  const [attachmentError, setAttachmentError] = useState('');
+  const [confirmRemoveAttachment, setConfirmRemoveAttachment] = useState(false);
+
+  const handleRemoveAttachment = async (entryId: string) => {
+    setAttachmentError('');
+    try {
+      await deleteAttachment({ id: entryId }).unwrap();
+      refetch();
+    } catch (e: unknown) {
+      const err = e as { data?: { message?: string } };
+      setAttachmentError(err?.data?.message ?? 'Failed to remove attachment.');
+    }
+  };
 
   // Fetched as a blob so the request carries the auth header, then handed to
   // the browser as a download.
@@ -846,13 +859,41 @@ export default function JournalEntriesPage() {
 
         {/* Supporting document */}
         {entry.file_name && (
-          <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-            <i className="ti ti-paperclip" style={{ fontSize: 15, color: '#64748b' }} />
-            <span style={{ fontSize: 12.5, color: '#1e293b', flex: 1 }}>{entry.file_name}</span>
-            <button type="button" onClick={() => handleDownload(entry)}
-              style={{ padding: '4px 11px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#2563eb', fontSize: 12, cursor: 'pointer' }}>
-              Download
-            </button>
+          <div style={{ marginTop: 16, padding: '10px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <i className="ti ti-paperclip" style={{ fontSize: 15, color: '#64748b' }} />
+              <span style={{ fontSize: 12.5, color: '#1e293b', flex: 1 }}>{entry.file_name}</span>
+              <button type="button" onClick={() => handleDownload(entry)}
+                style={{ padding: '4px 11px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#2563eb', fontSize: 12, cursor: 'pointer' }}>
+                Download
+              </button>
+              <button type="button" onClick={() => { setAttachmentError(''); setConfirmRemoveAttachment(true); }}
+                style={{ padding: '4px 11px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fff', color: '#dc2626', fontSize: 12, cursor: 'pointer' }}>
+                Delete
+              </button>
+            </div>
+
+            {confirmRemoveAttachment && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #fca5a5', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#991b1b', fontWeight: 600, flex: 1 }}>
+                  ⚠ Delete this attachment? This can't be undone — you'd need to upload it again.
+                </span>
+                <button type="button"
+                  onClick={async () => { await handleRemoveAttachment(entry.id); setConfirmRemoveAttachment(false); }}
+                  disabled={isRemovingAttachment}
+                  style={{ padding: '3px 12px', borderRadius: 6, border: 'none', background: '#dc2626', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>
+                  {isRemovingAttachment ? 'Deleting…' : 'Yes, Delete'}
+                </button>
+                <button type="button" onClick={() => setConfirmRemoveAttachment(false)}
+                  style={{ padding: '3px 10px', borderRadius: 6, border: '1px solid #d1d5db', background: '#fff', color: '#6b7280', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {attachmentError && (
+              <div style={{ marginTop: 10, fontSize: 12, color: '#dc2626' }}>{attachmentError}</div>
+            )}
           </div>
         )}
       </div>
@@ -966,7 +1007,10 @@ export default function JournalEntriesPage() {
                     const amount   = entry.lines.reduce((s, l) => s + Number(l.debit), 0);
                     return (
                       <div key={entry.id}
-                        onClick={() => { setSelectedId(entry.id); setFormMode(null); }}
+                        onClick={() => {
+                          setSelectedId(entry.id); setFormMode(null);
+                          setConfirmRemoveAttachment(false); setAttachmentError('');
+                        }}
                         style={{
                           padding: '10px 14px', cursor: 'pointer',
                           borderBottom: '1px solid #e2e8f0',
