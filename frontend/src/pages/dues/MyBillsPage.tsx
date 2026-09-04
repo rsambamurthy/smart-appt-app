@@ -76,6 +76,12 @@ export default function MyBillsPage() {
       onError: (msg) => {
         if (msg !== 'Payment cancelled.') showToast('error', msg);
       },
+      // Native only: fires on return from the Custom Tab, before we actually
+      // know whether the payment went through — see the doc comment on
+      // PayOptions.onReturn. The refetch this triggers is what actually
+      // updates the bill's status; this toast is just reassurance that
+      // something is happening rather than the tap having been lost.
+      onReturn: () => showToast('success', 'Checking your payment status…'),
     });
     setPayingId(null);
   };

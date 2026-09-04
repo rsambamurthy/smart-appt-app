@@ -146,6 +146,15 @@ export default function App() {
         {!IS_NATIVE && <Route path="/dues/my-bills" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><MyBillsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/my-statement" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><MyStatementPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/pay/:billId" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><PaymentPage /></RoleRoute>} />}
+        {/* Entry point for the native app's Custom Tab handoff (see
+            hooks/useRazorpay.ts) — a fresh browser session with no
+            state.auth.user yet, so it deliberately skips RoleRoute (which
+            would bounce straight to /login on a null user). The access
+            token in the URL is still required for every API call the page
+            makes, and the backend re-checks that the bill actually belongs
+            to that token's user — this route is a UX convenience, not the
+            security boundary. */}
+        {!IS_NATIVE && <Route path="/dues/pay-native/:billId" element={<PaymentPage />} />}
         {!IS_NATIVE && <Route path="/chat" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><ChatPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/one-time-dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OneTimeDuesPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/arrears" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ArrearsPage /></RoleRoute>} />}
