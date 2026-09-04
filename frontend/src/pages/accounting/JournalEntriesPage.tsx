@@ -129,7 +129,10 @@ export default function JournalEntriesPage() {
   // ── Form state ────────────────────────────────────────────────────────────
   const [entryDate, setEntryDate] = useState(TODAY);
   const [narration, setNarration] = useState('');
-  const [lines,     setLines]     = useState<LineState[]>([emptyLine(), emptyLine()]);
+  // A single contra line — matches the default voucher class below (Bank),
+  // which is a money voucher and so only ever needs the one line the
+  // treasurer fills in themselves (the money side is generated on save).
+  const [lines,     setLines]     = useState<LineState[]>([emptyLine()]);
   const [formError, setFormError] = useState('');
 
   // Voucher class drives the whole form: Bank and Cash collect a direction and
@@ -141,13 +144,28 @@ export default function JournalEntriesPage() {
   // Supporting document, uploaded after the entry is saved (it needs an id).
   const [attachment, setAttachment] = useState<File | null>(null);
 
+  // ── Pagination ────────────────────────────────────────────────────────────
+  // The list only ever shows one page (default 50) at a time — cursor is the
+  // page currently shown, stack holds the cursors for every page before it so
+  // "← Newer" can step back. Any filter/search/type change starts over from
+  // the first page, otherwise the cursor would point into a result set that
+  // no longer matches and the list would look empty.
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [cursorStack, setCursorStack] = useState<string[]>([]);
+  useEffect(() => {
+    setCursor(undefined);
+    setCursorStack([]);
+  }, [filter.type, filter.from, filter.to, search]);
+
   // ── Data ──────────────────────────────────────────────────────────────────
   const { data, isLoading, refetch } = useListJournalEntriesQuery({
     type: filter.type || undefined,
     from: filter.from || undefined,
     to:   filter.to   || undefined,
     q:    search      || undefined,
+    cursor,
   });
+  const nextCursor = data?.nextCursor ?? null;
   const { data: accountsData } = useListAccountsQuery();
   const { data: bpData }       = useListBPMastersQuery({});
   const { data: bpTypesData }  = useListBPTypesQuery();
@@ -207,6 +225,14 @@ export default function JournalEntriesPage() {
   const bpTypeToCategory = new Map(bpTypes.map(t => [t.id, inferCategoryFromTypeName(t.name)]));
   const selectedEntry    = entries.find(e => e.id === selectedId) ?? null;
 
+  // With exactly one bank (or cash) account set up, there's nothing to
+  // choose — pick it automatically instead of making every voucher start
+  // with an extra click.
+  const defaultMoneyAccountFor = (cls: VoucherClass) => {
+    const opts = cls === 'BANK' ? bankAccounts : cls === 'CASH' ? cashAccounts : [];
+    return opts.length === 1 ? opts[0].id : '';
+  };
+
   // ── Form actions ──────────────────────────────────────────────────────────
   const openNewForm = () => {
     setSelectedId(null);
@@ -215,7 +241,7 @@ export default function JournalEntriesPage() {
     setNarration('');
     setVoucherClass('BANK');
     setDirection('RECEIPT');
-    setMoneyAccount('');
+    setMoneyAccount(defaultMoneyAccountFor('BANK'));
     setAttachment(null);
     // Money vouchers start with a single contra line; the money side is added
     // on save. A journal voucher needs the usual two-line grid.
@@ -227,7 +253,7 @@ export default function JournalEntriesPage() {
   // Switching class resets the parts that no longer apply.
   const changeVoucherClass = (cls: VoucherClass) => {
     setVoucherClass(cls);
-    setMoneyAccount('');
+    setMoneyAccount(defaultMoneyAccountFor(cls));
     setFormError('');
     setLines(cls === 'JOURNAL' ? [emptyLine(), emptyLine()] : [emptyLine()]);
   };
@@ -272,7 +298,22 @@ export default function JournalEntriesPage() {
     setFormMode('edit');
   };
 
-  const closeForm = () => { setFormMode(null); setEditTarget(null); };
+  // Closing (×) doesn't hide the form — with nothing selected the panel
+  // always shows one (see the right-panel render below) — so this has to
+  // put it back to a genuinely blank voucher, not just drop formMode and
+  // leave whatever was half-typed sitting there.
+  const closeForm = () => {
+    setFormMode(null);
+    setEditTarget(null);
+    setEntryDate(TODAY);
+    setNarration('');
+    setVoucherClass('BANK');
+    setDirection('RECEIPT');
+    setMoneyAccount(defaultMoneyAccountFor('BANK'));
+    setAttachment(null);
+    setLines([emptyLine()]);
+    setFormError('');
+  };
 
   const updateLine = (idx: number, field: string, value: string | number) => {
     setLines(ls => ls.map((l, i) => {
@@ -900,15 +941,6 @@ export default function JournalEntriesPage() {
     );
   };
 
-  // ── Right panel: empty state ──────────────────────────────────────────────
-  const renderEmpty = () => (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10 }}>
-      <i className="ti ti-book-2" style={{ fontSize: 44, color: '#e2e8f0' }} />
-      <div style={{ fontSize: 14, fontWeight: 500, color: '#cbd5e1' }}>Select an entry to view</div>
-      <div style={{ fontSize: 12.5, color: '#d1d5db' }}>or create a new manual entry</div>
-    </div>
-  );
-
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <Layout>
@@ -1043,6 +1075,50 @@ export default function JournalEntriesPage() {
               ))
             )}
           </div>
+
+          {/* Pagination — this list only ever shows one page; step through
+              older/newer pages rather than everything loading at once. */}
+          {(cursorStack.length > 0 || nextCursor) && (
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', gap: 8,
+              padding: '8px 14px', borderTop: '1px solid #e2e8f0', background: '#fff', flexShrink: 0,
+            }}>
+              <button
+                disabled={cursorStack.length === 0}
+                onClick={() => {
+                  const prev = [...cursorStack];
+                  const target = prev.pop();
+                  setCursorStack(prev);
+                  setCursor(target);
+                }}
+                style={{
+                  padding: '5px 12px', borderRadius: 6, border: '1px solid #e2e8f0',
+                  background: cursorStack.length ? '#fff' : '#f8fafc',
+                  color: cursorStack.length ? '#334155' : '#cbd5e1',
+                  fontSize: 12, fontWeight: 600,
+                  cursor: cursorStack.length ? 'pointer' : 'not-allowed',
+                }}
+              >
+                ← Newer
+              </button>
+              <button
+                disabled={!nextCursor}
+                onClick={() => {
+                  setCursorStack(s => [...s, cursor ?? '']);
+                  setCursor(nextCursor ?? undefined);
+                }}
+                style={{
+                  padding: '5px 12px', borderRadius: 6, border: '1px solid #e2e8f0',
+                  background: nextCursor ? '#fff' : '#f8fafc',
+                  color: nextCursor ? '#334155' : '#cbd5e1',
+                  fontSize: 12, fontWeight: 600,
+                  cursor: nextCursor ? 'pointer' : 'not-allowed',
+                }}
+              >
+                Older →
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ═══ RIGHT PANEL: detail / form / empty ══════════════════════════ */}
@@ -1051,7 +1127,11 @@ export default function JournalEntriesPage() {
             ? renderForm()
             : selectedEntry
               ? renderDetail(selectedEntry)
-              : renderEmpty()}
+              // Nothing picked yet — land on a ready-to-fill New Entry form
+              // instead of a blank panel (formMode stays null here; the
+              // Bank/Receipt fields it renders come from the same defaults
+              // openNewForm()/closeForm() already reset to).
+              : renderForm()}
         </div>
 
       </div>
