@@ -1,0 +1,271 @@
+From cf39e8f5665c45e064f1772375ae48dcc9eeb36b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 08:37:29 +0000
+Subject: [PATCH] feat(expenses): allow tagging a vendor (Business Partner) on
+ regular expenses
+
+Previously only Recurring Expenses could tag a vendor sub-ledger.
+One-off Expenses had no way to link a Business Partner at all, so
+their posted journal line never carried a Sub Ledger tag.
+
+- createExpenseSchema: add optional business_partner_id (same
+  Business Partners VENDOR list used elsewhere), keep vendor_name
+  as a separate free-text payee field for one-offs that don't
+  warrant a ledger card.
+- expenses.service.ts: resolve business_partner_id to the internal
+  Vendor bridge row via ensureVendorFromBusinessPartner (same
+  pattern as RecurringExpense) in both createExpense and
+  updateExpense; pass it through to postExpense so the expense
+  line posts with the vendor tag. Also thread it through the
+  recurring-approval "no open provision" branch, and include
+  business_partner_id on the vendor include in listExpenses so the
+  frontend can pre-select it on edit.
+- journal.service.ts: postExpense takes an optional businessPartnerId
+  and tags it onto the expense line.
+- ExpenseListPage.tsx: add a Vendor select (from Business Partners,
+  category VENDOR) above the free-text Payee field, wired into the
+  create/edit form.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TzRYcGBjDHGFFNgpNih7vR
+---
+ .../src/modules/accounting/journal.service.ts |  6 ++-
+ .../src/modules/expenses/expenses.schema.ts   |  8 +++-
+ .../src/modules/expenses/expenses.service.ts  | 41 +++++++++++++++++--
+ .../src/pages/expenses/ExpenseListPage.tsx    | 34 +++++++++++++--
+ 4 files changed, 79 insertions(+), 10 deletions(-)
+
+diff --git a/backend/src/modules/accounting/journal.service.ts b/backend/src/modules/accounting/journal.service.ts
+index 67ca192..a5ee085 100644
+--- a/backend/src/modules/accounting/journal.service.ts
++++ b/backend/src/modules/accounting/journal.service.ts
+@@ -475,6 +475,10 @@ class JournalService {
+     paymentMode:   string,
+     category:      string,
+     narration:     string,
++    // Optional vendor sub-ledger tag on the expense line — e.g. an AMC or
++    // contracted vendor, picked from Business Partners. Most one-off
++    // expenses have none, which is fine; the line just posts untagged.
++    businessPartnerId?: string | null,
+   ) {
+     try {
+       const expenseAccount = await this.resolveExpenseAccount(associationId, category);
+@@ -488,7 +492,7 @@ class JournalService {
+         voucher_type:   VoucherType.PV,
+         source:         JournalEntrySource.AUTO,
+         lines: [
+-          { account_id: expenseAccount.id, debit: amount, credit: 0,      narration: category },
++          { account_id: expenseAccount.id, debit: amount, credit: 0,      narration: category, business_partner_id: businessPartnerId ?? undefined },
+           { account_id: cashOrBank.id,     debit: 0,      credit: amount, narration: 'Payment made' },
+         ],
+       });
+diff --git a/backend/src/modules/expenses/expenses.schema.ts b/backend/src/modules/expenses/expenses.schema.ts
+index 03c2c3b..ba7a92e 100644
+--- a/backend/src/modules/expenses/expenses.schema.ts
++++ b/backend/src/modules/expenses/expenses.schema.ts
+@@ -4,7 +4,13 @@ import { ExpensePaymentMode, ExpenseFrequency } from '@prisma/client';
+ export const createExpenseSchema = z.object({
+   expense_date: z.string().datetime(),
+   category: z.string().min(1).max(100),
+-  vendor_id: z.string().uuid().optional(),
++  // The vendor, picked from Business Partners (category VENDOR) — optional,
++  // since most one-off expenses (a random cash payee) don't need a ledger
++  // card. Resolved server-side to the internal Vendor bridge row, same as
++  // RecurringExpense — see ensureVendorFromBusinessPartner.
++  business_partner_id: z.string().uuid().optional(),
++  // Free-text payee name, independent of the above — for a quick one-off
++  // payment that doesn't warrant a Business Partner card at all.
+   vendor_name: z.string().max(255).optional(),
+   amount: z.number().positive(),
+   payment_mode: z.nativeEnum(ExpensePaymentMode),
+diff --git a/backend/src/modules/expenses/expenses.service.ts b/backend/src/modules/expenses/expenses.service.ts
+index 4505a43..82e115b 100644
+--- a/backend/src/modules/expenses/expenses.service.ts
++++ b/backend/src/modules/expenses/expenses.service.ts
+@@ -29,12 +29,21 @@ export class ExpensesService {
+     const threshold = Number(config?.expense_approval_threshold ?? 0);
+     const needsApproval = body.amount > threshold && threshold > 0;
+ 
++    // Resolves to the internal Vendor bridge row (Expense.vendor_id's actual
++    // FK target) — see ensureVendorFromBusinessPartner. Only set when the
++    // partner genuinely exists under this association as a VENDOR; a bad id
++    // just means no vendor gets linked rather than a hard failure, since it's
++    // an optional field on an otherwise-valid expense.
++    const vendorId = body.business_partner_id
++      ? (await ensureVendorFromBusinessPartner(associationId, body.business_partner_id, createdBy)) ?? undefined
++      : undefined;
++
+     const expense = await prisma.expense.create({
+       data: {
+         association_id: associationId,
+         expense_date: new Date(body.expense_date),
+         category: body.category,
+-        vendor_id: body.vendor_id,
++        vendor_id: vendorId,
+         vendor_name: body.vendor_name,
+         amount: body.amount,
+         payment_mode: body.payment_mode,
+@@ -78,6 +87,7 @@ export class ExpensesService {
+         body.payment_mode,
+         body.category,
+         body.description ?? body.category,
++        vendorId ? body.business_partner_id : undefined,
+       );
+     }
+ 
+@@ -102,7 +112,7 @@ export class ExpensesService {
+     const expenses = await prisma.expense.findMany({
+       where: where as never,
+       take: query.limit,
+-      include: { vendor: { select: { name: true } }, creator: { select: { name: true } } },
++      include: { vendor: { select: { name: true, business_partner_id: true } }, creator: { select: { name: true } } },
+       orderBy: { expense_date: 'desc' },
+     });
+ 
+@@ -125,7 +135,18 @@ export class ExpensesService {
+       throw new UnprocessableError('Only PENDING_APPROVAL or RECORDED expenses can be edited.');
+     }
+ 
+-    const updated = await prisma.expense.update({ where: { id: expenseId }, data: body as never });
++    // Editing is only ever allowed before the expense is posted (the guard
++    // above), so there's no live journal line to keep in sync here — unlike
++    // createExpense, changing the vendor at this stage is just data.
++    const { business_partner_id, ...rest } = body;
++    const vendorId = business_partner_id
++      ? (await ensureVendorFromBusinessPartner(associationId, business_partner_id, userId)) ?? undefined
++      : undefined;
++
++    const updated = await prisma.expense.update({
++      where: { id: expenseId },
++      data: { ...rest, ...(business_partner_id ? { vendor_id: vendorId } : {}) } as never,
++    });
+ 
+     await prisma.auditLog.create({
+       data: {
+@@ -185,7 +206,7 @@ export class ExpensesService {
+         if (openProvision) {
+           // The recurring item is the authoritative source of which vendor
+           // this accrual belongs to (auto_provision requires one — see
+-          // ensureVendorForProvisioning) — not expense.vendor_id, which is a
++          // resolveVendorForProvisioning) — not expense.vendor_id, which is a
+           // separately-editable field on the individual expense.
+           const recurring = await prisma.recurringExpense.findUnique({
+             where: { id: expense.recurring_id },
+@@ -217,6 +238,17 @@ export class ExpensesService {
+             },
+           });
+         } else {
++          // No accrual to settle — first time this recurring item is
++          // approved for this period. Still worth tagging the vendor on the
++          // expense line if one's linked, same as the settlement path above.
++          const recurring = await prisma.recurringExpense.findUnique({
++            where: { id: expense.recurring_id },
++            include: { vendor: true },
++          });
++          const businessPartnerId = recurring?.vendor
++            ? await ensureVendorBP(associationId, recurring.vendor)
++            : undefined;
++
+           await journalService.postExpense(
+             associationId,
+             expenseId,
+@@ -224,6 +256,7 @@ export class ExpensesService {
+             expense.payment_mode,
+             expense.category,
+             expense.description ?? expense.category,
++            businessPartnerId,
+           );
+         }
+       } catch (err) {
+diff --git a/frontend/src/pages/expenses/ExpenseListPage.tsx b/frontend/src/pages/expenses/ExpenseListPage.tsx
+index db19c88..e8a31d3 100644
+--- a/frontend/src/pages/expenses/ExpenseListPage.tsx
++++ b/frontend/src/pages/expenses/ExpenseListPage.tsx
+@@ -13,24 +13,30 @@ import {
+   useApproveExpenseMutation,
+ } from '../../store/api/expensesApi';
+ import { useGetDuesDashboardQuery } from '../../store/api/duesApi';
++import { useListBPMastersQuery } from '../../store/api/accountingApi';
+ 
+ const PAYMENT_MODES = ['CASH', 'CHEQUE', 'ONLINE', 'UPI'] as const;
+ 
+ interface Category { id: string; name: string; display_name: string; color: string; is_active: boolean }
+ interface Expense {
+   id: string; expense_date: string; category: string;
+-  vendor?: { name: string }; vendor_name?: string;
++  vendor?: { name: string; business_partner_id?: string | null } | null; vendor_name?: string;
+   amount: number; payment_mode: string; description?: string;
+   status: string; creator?: { name: string };
+ }
+ type FormMode = 'create' | 'edit';
+ interface ExpenseForm {
+   expense_date: string; category: string; vendor_name: string;
++  // The vendor, picked from Business Partners — a contracted payee like an
++  // AMC or a security agency worth tracking a running balance for. Separate
++  // from vendor_name above, which stays free text for a one-off payee that
++  // doesn't need a ledger card at all.
++  business_partner_id: string;
+   amount: string; payment_mode: typeof PAYMENT_MODES[number]; description: string;
+ }
+ const emptyForm = (): ExpenseForm => ({
+   expense_date: new Date().toISOString().slice(0, 10),
+-  category: '', vendor_name: '', amount: '', payment_mode: 'CASH', description: '',
++  category: '', vendor_name: '', business_partner_id: '', amount: '', payment_mode: 'CASH', description: '',
+ });
+ 
+ export default function ExpenseListPage() {
+@@ -55,6 +61,11 @@ export default function ExpenseListPage() {
+   });
+   const { data: dashData } = useGetDuesDashboardQuery();
+   const expenses = (expData?.data ?? []) as Expense[];
++
++  // The one vendor list associations actually maintain — Business Partners
++  // (Configuration → Business Partners), category VENDOR.
++  const { data: bpData } = useListBPMastersQuery({ category: 'VENDOR' });
++  const vendors = (bpData?.data ?? []).filter((v) => v.is_active);
+   const dash = dashData?.data as Record<string, unknown> | undefined;
+   const openingBalance = dash ? Number(dash['cash_balance'] ?? 0) : 0;
+   const openingBalanceAsOn = dash?.['cash_balance_as_on'] as string | undefined;
+@@ -93,6 +104,7 @@ export default function ExpenseListPage() {
+     setForm({
+       expense_date: e.expense_date.slice(0, 10), category: e.category,
+       vendor_name: e.vendor?.name ?? e.vendor_name ?? '',
++      business_partner_id: e.vendor?.business_partner_id ?? '',
+       amount: String(e.amount),
+       payment_mode: e.payment_mode as typeof PAYMENT_MODES[number],
+       description: e.description ?? '',
+@@ -109,7 +121,9 @@ export default function ExpenseListPage() {
+     }
+     const body = {
+       expense_date: new Date(form.expense_date).toISOString(), category: form.category,
+-      vendor_name: form.vendor_name || undefined, amount: parseFloat(form.amount),
++      vendor_name: form.vendor_name || undefined,
++      business_partner_id: form.business_partner_id || undefined,
++      amount: parseFloat(form.amount),
+       payment_mode: form.payment_mode, description: form.description || undefined,
+     };
+     try {
+@@ -312,7 +326,19 @@ export default function ExpenseListPage() {
+                 </select>
+               </div>
+               <div className="ent-fg">
+-                <label className="ent-fl">Vendor / Payee</label>
++                <label className="ent-fl">
++                  Vendor <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>(optional — for a contracted payee worth tracking a balance for)</span>
++                </label>
++                <select className="ent-fc" value={form.business_partner_id} onChange={(e) => setF('business_partner_id', e.target.value)}>
++                  <option value="">— None —</option>
++                  {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
++                </select>
++                <div style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: 4 }}>
++                  Don't see the vendor you need? Add it under Business Partners first.
++                </div>
++              </div>
++              <div className="ent-fg">
++                <label className="ent-fl">Payee (free text)</label>
+                 <input className="ent-fc" type="text" placeholder="e.g. BESCOM, Ramesh Cleaning" value={form.vendor_name} onChange={(e) => setF('vendor_name', e.target.value)} />
+               </div>
+               <div className="ent-fg">
+-- 
+2.43.0
+

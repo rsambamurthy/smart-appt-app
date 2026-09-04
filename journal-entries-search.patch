@@ -1,0 +1,219 @@
+From 4b876b2a336f8db800ce8fc833f303386dbddf40 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 11:58:29 +0000
+Subject: [PATCH] feat(journal): add free-text search to Journal Entries
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Journal Entries could only be filtered by type (Auto/Manual) and a
+date range — finding one specific entry meant scrolling through the
+list by eye. Adds a search box above those filters that matches, on
+the server:
+
+- the voucher number (reference_code)
+- the entry's own narration
+- any line's own narration
+- the line's account name or code
+- the line's Sub Ledger (business partner) name or code
+- an exact debit/credit amount, when the search text is a plain
+  number (commas allowed, e.g. "20,000")
+
+Search is debounced 300ms client-side before it's sent, so typing
+doesn't fire a request per keystroke. The empty-state message now
+says what search term came up empty, instead of a generic "No
+entries found."
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TzRYcGBjDHGFFNgpNih7vR
+---
+ .../modules/accounting/journal.controller.ts  |  4 +-
+ .../src/modules/accounting/journal.service.ts | 37 ++++++++++++++-
+ .../pages/accounting/JournalEntriesPage.tsx   | 47 ++++++++++++++++++-
+ frontend/src/store/api/accountingApi.ts       | 15 +++---
+ 4 files changed, 91 insertions(+), 12 deletions(-)
+
+diff --git a/backend/src/modules/accounting/journal.controller.ts b/backend/src/modules/accounting/journal.controller.ts
+index 5233ef7..ac2bd84 100644
+--- a/backend/src/modules/accounting/journal.controller.ts
++++ b/backend/src/modules/accounting/journal.controller.ts
+@@ -7,9 +7,9 @@ class JournalController {
+   list = async (req: Request, res: Response, next: NextFunction) => {
+     try {
+       const associationId = (req as never as { user: { association_id: string } }).user.association_id;
+-      const { cursor, limit, type, from, to } = req.query as Record<string, string>;
++      const { cursor, limit, type, from, to, q } = req.query as Record<string, string>;
+       const result = await journalService.listEntries(associationId, {
+-        cursor, type, from, to,
++        cursor, type, from, to, q,
+         limit: limit ? parseInt(limit) : undefined,
+       });
+       res.json(result);
+diff --git a/backend/src/modules/accounting/journal.service.ts b/backend/src/modules/accounting/journal.service.ts
+index a5ee085..d4bded0 100644
+--- a/backend/src/modules/accounting/journal.service.ts
++++ b/backend/src/modules/accounting/journal.service.ts
+@@ -672,7 +672,7 @@ class JournalService {
+   // ── LIST entries ──────────────────────────────────────────────────────────
+   async listEntries(
+     associationId: string,
+-    query: { cursor?: string; limit?: number; type?: string; from?: string; to?: string },
++    query: { cursor?: string; limit?: number; type?: string; from?: string; to?: string; q?: string },
+   ) {
+     const take = Math.min(query.limit ?? 50, 200);
+     const where: Record<string, unknown> = { association_id: associationId };
+@@ -684,6 +684,41 @@ class JournalService {
+       };
+     }
+ 
++    // Free-text search — matches the voucher number, the entry's own
++    // narration, or (via the line-level `some`) any line's own narration,
++    // its account's name/code, or its Sub Ledger (business partner)
++    // name/code. A query that parses as a plain number also matches an
++    // exact debit/credit amount, so pasting a rupee figure finds the entry
++    // it was posted for.
++    const q = query.q?.trim();
++    if (q) {
++      const bareNumber = q.replace(/,/g, '');
++      const asAmount = /^\d+(\.\d+)?$/.test(bareNumber) ? Number(bareNumber) : null;
++
++      where['OR'] = [
++        { reference_code: { contains: q, mode: 'insensitive' } },
++        { narration:       { contains: q, mode: 'insensitive' } },
++        {
++          lines: {
++            some: {
++              OR: [
++                { narration: { contains: q, mode: 'insensitive' } },
++                { account: { OR: [
++                  { name: { contains: q, mode: 'insensitive' } },
++                  { code: { contains: q, mode: 'insensitive' } },
++                ] } },
++                { business_partner: { OR: [
++                  { name: { contains: q, mode: 'insensitive' } },
++                  { code: { contains: q, mode: 'insensitive' } },
++                ] } },
++                ...(asAmount !== null ? [{ debit: asAmount }, { credit: asAmount }] : []),
++              ],
++            },
++          },
++        },
++      ];
++    }
++
+     const entries = await prisma.journalEntry.findMany({
+       where: where as never,
+       select: {
+diff --git a/frontend/src/pages/accounting/JournalEntriesPage.tsx b/frontend/src/pages/accounting/JournalEntriesPage.tsx
+index 477ae19..41237cd 100644
+--- a/frontend/src/pages/accounting/JournalEntriesPage.tsx
++++ b/frontend/src/pages/accounting/JournalEntriesPage.tsx
+@@ -1,4 +1,4 @@
+-import { useState } from 'react';
++import { useState, useEffect } from 'react';
+ import Layout from '../../components/organisms/Layout';
+ import PageSubHeader from '../../components/molecules/PageSubHeader';
+ import {
+@@ -110,6 +110,17 @@ export default function JournalEntriesPage() {
+   // ── Filter state ──────────────────────────────────────────────────────────
+   const [filter, setFilter] = useState({ type: '', from: '', to: '' });
+ 
++  // Free-text search — voucher number, narration, account, or Sub Ledger
++  // name, plus an exact amount if the box holds a plain number. Debounced so
++  // it doesn't refetch on every keystroke; searchInput is what the box shows,
++  // search is what actually goes to the server.
++  const [searchInput, setSearchInput] = useState('');
++  const [search, setSearch] = useState('');
++  useEffect(() => {
++    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
++    return () => clearTimeout(t);
++  }, [searchInput]);
++
+   // ── Panel state ───────────────────────────────────────────────────────────
+   const [selectedId, setSelectedId] = useState<string | null>(null);
+   const [formMode,   setFormMode]   = useState<'new' | 'edit' | null>(null);
+@@ -135,6 +146,7 @@ export default function JournalEntriesPage() {
+     type: filter.type || undefined,
+     from: filter.from || undefined,
+     to:   filter.to   || undefined,
++    q:    search      || undefined,
+   });
+   const { data: accountsData } = useListAccountsQuery();
+   const { data: bpData }       = useListBPMastersQuery({});
+@@ -888,6 +900,35 @@ export default function JournalEntriesPage() {
+               </button>
+             </div>
+             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
++              <div style={{ position: 'relative' }}>
++                <i className="ti ti-search" style={{
++                  position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)',
++                  fontSize: 13, color: '#94a3b8', pointerEvents: 'none',
++                }} />
++                <input
++                  type="text"
++                  placeholder="Search voucher #, narration, account, sub ledger, amount…"
++                  style={{
++                    width: '100%', padding: '6px 9px 6px 28px', border: '1px solid #e2e8f0',
++                    borderRadius: 6, fontSize: 12, color: '#1e293b', background: '#fff', outline: 'none',
++                    boxSizing: 'border-box',
++                  }}
++                  value={searchInput}
++                  onChange={e => setSearchInput(e.target.value)}
++                />
++                {searchInput && (
++                  <button
++                    onClick={() => setSearchInput('')}
++                    title="Clear search"
++                    style={{
++                      position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
++                      border: 'none', background: 'none', cursor: 'pointer', color: '#94a3b8',
++                      fontSize: 13, padding: 2, lineHeight: 1,
++                    }}>
++                    <i className="ti ti-x" />
++                  </button>
++                )}
++              </div>
+               <select style={{ width: '100%', padding: '6px 9px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, color: '#1e293b', background: '#fff', outline: 'none' }}
+                 value={filter.type} onChange={e => setFilter(f => ({ ...f, type: e.target.value }))}>
+                 <option value="">All types</option>
+@@ -909,7 +950,9 @@ export default function JournalEntriesPage() {
+               <div style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>Loading…</div>
+             ) : entries.length === 0 ? (
+               <div style={{ padding: '2.5rem 1rem', textAlign: 'center', color: '#94a3b8', fontSize: 12.5, lineHeight: 1.6 }}>
+-                No entries found.
++                {search
++                  ? <>No entries match &ldquo;{search}&rdquo;.</>
++                  : 'No entries found.'}
+               </div>
+             ) : (
+               sortedDates.map(date => (
+diff --git a/frontend/src/store/api/accountingApi.ts b/frontend/src/store/api/accountingApi.ts
+index 06e4265..fdf6b80 100644
+--- a/frontend/src/store/api/accountingApi.ts
++++ b/frontend/src/store/api/accountingApi.ts
+@@ -538,14 +538,15 @@ const accountingApi = baseApi.injectEndpoints({
+     }),
+ 
+     // Journal Entries
+-    listJournalEntries: builder.query<{ data: JournalEntry[]; nextCursor: string | null }, { type?: string; from?: string; to?: string; cursor?: string }>({
++    listJournalEntries: builder.query<{ data: JournalEntry[]; nextCursor: string | null }, { type?: string; from?: string; to?: string; cursor?: string; q?: string }>({
+       query: (params) => {
+-        const q = new URLSearchParams();
+-        if (params.type)   q.set('type',   params.type);
+-        if (params.from)   q.set('from',   params.from);
+-        if (params.to)     q.set('to',     params.to);
+-        if (params.cursor) q.set('cursor', params.cursor);
+-        return `/accounting/journal?${q.toString()}`;
++        const usp = new URLSearchParams();
++        if (params.type)   usp.set('type',   params.type);
++        if (params.from)   usp.set('from',   params.from);
++        if (params.to)     usp.set('to',     params.to);
++        if (params.cursor) usp.set('cursor', params.cursor);
++        if (params.q)      usp.set('q',      params.q);
++        return `/accounting/journal?${usp.toString()}`;
+       },
+       providesTags: ['Journal'],
+     }),
+-- 
+2.43.0
+

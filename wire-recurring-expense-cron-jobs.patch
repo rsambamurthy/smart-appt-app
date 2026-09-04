@@ -1,0 +1,189 @@
+From e128ae0df22243d192eb30ffddd6d611cee31b0e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 4 Sep 2026 10:45:38 +0000
+Subject: [PATCH] fix(jobs): wire recurring-expense/dues/SLA/visitor cron jobs
+ into the deployed process
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Railway only ever deploys one service running src/index.ts (npm start) —
+there is no separate `npm run worker` service for jobs/worker-entry.ts, so
+every cron job defined only there (recurring expense polling, month-end
+expense accrual, dues reminders, SLA breach checks, visitor QR expiry) has
+never actually run. This is the same root cause already fixed for the
+notification queue consumer; this does the same for the remaining cron
+jobs by registering them in index.ts instead.
+
+runBillGenerator is deliberately left unregistered here — it overlaps with
+scheduler.service.ts's own bill-generation cron on a different trigger
+condition, and running both risks duplicate bills. worker-entry.ts keeps
+that one only, and no longer re-registers the jobs now owned by index.ts
+(to avoid double-firing if that file is ever deployed as its own service).
+
+Also fixes the recurring-expense poller to catch up on any item whose due
+date has already passed (previously it only matched an exact "due today",
+so a missed run — like this one — left an item stuck forever with no way
+to ever pick it up again), and to advance from the item's own scheduled
+date rather than the run date, so a late catch-up run doesn't drift the
+day-of-month forward.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TzRYcGBjDHGFFNgpNih7vR
+---
+ backend/src/index.ts                          | 37 +++++++++++++++++--
+ backend/src/jobs/worker-entry.ts              | 30 ++++++++-------
+ .../jobs/workers/recurring-expense-poller.ts  | 14 ++++++-
+ 3 files changed, 62 insertions(+), 19 deletions(-)
+
+diff --git a/backend/src/index.ts b/backend/src/index.ts
+index 7d6b258..0696d23 100644
+--- a/backend/src/index.ts
++++ b/backend/src/index.ts
+@@ -12,9 +12,15 @@ import { httpServer } from './app';
+ import prisma from './config/database';
+ import redis from './config/redis';
+ import logger from './utils/logger';
++import cron from 'node-cron';
+ import { initScheduler } from './services/scheduler.service';
+ import { notificationQueue } from './jobs/queue';
+ import { processNotificationJob } from './jobs/workers/notification-dispatcher';
++import { runRecurringExpensePoller } from './jobs/workers/recurring-expense-poller';
++import { runExpenseProvisioner } from './jobs/workers/expense-provisioner';
++import { runDuesReminder } from './jobs/workers/dues-reminder';
++import { runSlaBreachChecker } from './jobs/workers/sla-breach-checker';
++import { runVisitorQrExpiry } from './jobs/workers/visitor-qr-expiry';
+ 
+ const PORT = parseInt(process.env.PORT ?? '3000', 10);
+ 
+@@ -31,13 +37,38 @@ const PORT = parseInt(process.env.PORT ?? '3000', 10);
+ // Bull queues support multiple concurrent consumers safely — a job is
+ // claimed by whichever consumer picks it up first, never processed twice —
+ // so this is harmless to run alongside a dedicated worker service if one is
+-// ever added later. Deliberately NOT duplicating worker-entry.ts's cron
+-// schedules here: unlike a queue consumer, two independent cron schedules
+-// both firing would genuinely double-send things like bill generation.
++// ever added later.
+ notificationQueue.process('dispatch', 5, processNotificationJob);
+ notificationQueue.on('failed', (job, err) =>
+   logger.error('Notification job failed', { job_id: job?.id, error: err.message }));
+ 
++// ── Cron jobs (recurring expenses, dues reminders, SLA, visitor QR) ─────────
++//
++// Same root cause as the notification queue above: these lived ONLY in
++// jobs/worker-entry.ts, a `npm run worker` process Railway never had a
++// service for, so they have never actually run — a recurring expense's
++// "next due" date just sits there forever, dues reminders never go out,
++// breached SLAs are never flagged, expired visitor QR codes never get
++// marked expired. Wiring them into this process (the only one Railway
++// deploys) fixes that, the same way the queue consumer above was fixed.
++//
++// NOT included: runBillGenerator (jobs/workers/bill-generator.ts). It
++// overlaps with services/scheduler.service.ts's own bill-generation cron
++// below (initScheduler) on a different trigger (`due_day` on every config,
++// vs. opt-in `auto_generate_bills`+`auto_generate_day`) — running both risks
++// generating duplicate bills for associations that satisfy both. Needs
++// reconciling into one code path before it's safe to enable.
++cron.schedule('0 6 * * *', () =>
++  runRecurringExpensePoller().catch((err) => logger.error('Recurring expense poller error', { error: err.message })));
++cron.schedule('30 23 * * *', () =>
++  runExpenseProvisioner().catch((err) => logger.error('Expense provisioner error', { error: err.message })));
++cron.schedule('0 9 * * *', () =>
++  runDuesReminder().catch((err) => logger.error('Dues reminder error', { error: err.message })));
++cron.schedule('*/15 * * * *', () =>
++  runSlaBreachChecker().catch((err) => logger.error('SLA breach checker error', { error: err.message })));
++cron.schedule('0 * * * *', () =>
++  runVisitorQrExpiry().catch((err) => logger.error('Visitor QR expiry error', { error: err.message })));
++
+ const start = async () => {
+   // Start listening FIRST — health check must respond immediately
+   await new Promise<void>((resolve) => {
+diff --git a/backend/src/jobs/worker-entry.ts b/backend/src/jobs/worker-entry.ts
+index 308e726..ed8877a 100644
+--- a/backend/src/jobs/worker-entry.ts
++++ b/backend/src/jobs/worker-entry.ts
+@@ -3,32 +3,34 @@ import cron from 'node-cron';
+ import { notificationQueue } from './queue';
+ import { processNotificationJob } from './workers/notification-dispatcher';
+ import { runBillGenerator } from './workers/bill-generator';
+-import { runSlaBreachChecker } from './workers/sla-breach-checker';
+-import { runDuesReminder } from './workers/dues-reminder';
+-import { runRecurringExpensePoller } from './workers/recurring-expense-poller';
+-import { runExpenseProvisioner } from './workers/expense-provisioner';
+-import { runVisitorQrExpiry } from './workers/visitor-qr-expiry';
+ import prisma from '../config/database';
+ import redis from '../config/redis';
+ import logger from '../utils/logger';
+ 
+ // ── Bull queue processor ──────────────────────────────────────────────────────
++// Harmless to run alongside src/index.ts's own consumer of the same queue —
++// Bull guarantees a job is claimed by whichever consumer picks it up first,
++// never processed twice.
+ notificationQueue.process('dispatch', 5, processNotificationJob);
+ notificationQueue.on('failed', (job, err) => logger.error('Notification job failed', { job_id: job.id, error: err.message }));
+ logger.info('Notification worker started');
+ 
+ // ── Cron jobs ─────────────────────────────────────────────────────────────────
++//
++// runDuesReminder, runSlaBreachChecker, runRecurringExpensePoller and
++// runExpenseProvisioner moved to src/index.ts (see the comment there) —
++// Railway has never run this file as its own service, so scheduling them
++// only here meant they never ran at all. They are deliberately NOT
++// re-registered below: if this file ever IS deployed as a separate service
++// alongside the main API, duplicating them here would double-fire — extra
++// draft expenses, duplicate accrual entries, duplicate reminder pushes.
++//
++// runBillGenerator is left registered here (and nowhere else) since it's
++// currently dead code on either path — see the "NOT included" note in
++// src/index.ts for why it isn't safe to turn on yet.
+ cron.schedule('0 7 * * *', () => runBillGenerator().catch((e) => logger.error('Bill generator error', { error: e.message })));
+-cron.schedule('0 9 * * *', () => runDuesReminder().catch((e) => logger.error('Dues reminder error', { error: e.message })));
+-cron.schedule('*/15 * * * *', () => runSlaBreachChecker().catch((e) => logger.error('SLA checker error', { error: e.message })));
+-cron.schedule('0 6 * * *', () => runRecurringExpensePoller().catch((e) => logger.error('Recurring expense error', { error: e.message })));
+-// 23:30 daily — the job itself is a no-op on every day except the last of
+-// the month, same shape as runRecurringExpensePoller's daily "is anything
+-// due" query.
+-cron.schedule('30 23 * * *', () => runExpenseProvisioner().catch((e) => logger.error('Expense provisioner error', { error: e.message })));
+-cron.schedule('0 * * * *', () => runVisitorQrExpiry().catch((e) => logger.error('Visitor QR expiry error', { error: e.message })));
+ 
+-logger.info('All cron jobs scheduled');
++logger.info('Cron jobs scheduled (see comment above for what intentionally is NOT registered here)');
+ 
+ // Graceful shutdown
+ const shutdown = async () => {
+diff --git a/backend/src/jobs/workers/recurring-expense-poller.ts b/backend/src/jobs/workers/recurring-expense-poller.ts
+index a14156e..dbf004b 100644
+--- a/backend/src/jobs/workers/recurring-expense-poller.ts
++++ b/backend/src/jobs/workers/recurring-expense-poller.ts
+@@ -19,8 +19,14 @@ export const runRecurringExpensePoller = async (): Promise<void> => {
+   today.setHours(0, 0, 0, 0);
+   const tomorrow = new Date(today.getTime() + 86400000);
+ 
++  // Catch anything due today OR overdue (next_due_date in the past), not
++  // just an exact match on today. A narrow `gte: today` window means a
++  // single missed run (the poller not being wired up at all, a deploy, a
++  // restart at the wrong moment) leaves that item stuck forever — its
++  // due date never advances, so a same-day-only window can never see it
++  // again once "today" moves past it.
+   const due = await prisma.recurringExpense.findMany({
+-    where: { is_active: true, next_due_date: { gte: today, lt: tomorrow } },
++    where: { is_active: true, next_due_date: { lt: tomorrow } },
+   });
+ 
+   for (const rec of due) {
+@@ -46,7 +52,11 @@ export const runRecurringExpensePoller = async (): Promise<void> => {
+       },
+     });
+ 
+-    await prisma.recurringExpense.update({ where: { id: rec.id }, data: { next_due_date: nextDueDate(today, rec.frequency) } });
++    // Advance from the item's own scheduled date, not from "today" — so a
++    // late/catch-up run doesn't drag the day-of-month forward with it (a
++    // monthly item due on the 1st stays due on the 1st, even if this
++    // particular run happened on the 4th).
++    await prisma.recurringExpense.update({ where: { id: rec.id }, data: { next_due_date: nextDueDate(rec.next_due_date, rec.frequency) } });
+ 
+     const treasurers = await prisma.user.findMany({
+       where: { association_id: rec.association_id, role: UserRole.TREASURER, is_active: true, deleted_at: null },
+-- 
+2.43.0
+

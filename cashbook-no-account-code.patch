@@ -1,0 +1,70 @@
+From f52163c62aea2560eca40c96c10565bdedf43377 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 06:37:36 +0000
+Subject: [PATCH] fix(cash-book): drop account code from Account Head; harden
+ voucher wrap
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Account Head now shows only the account's name (e.g. "Repairs &
+Maintenance"), not "4005 Repairs & Maintenance" — shorter, and removes
+the leading digits that were reading as glued onto the Voucher column
+next to it. Also added overflow-wrap:anywhere alongside word-break on
+the Voucher cell as a second guarantee against overflow, and rebalanced
+column widths now that Account Head needs less room.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TzRYcGBjDHGFFNgpNih7vR
+---
+ backend/src/modules/accounting/journal.service.ts |  2 +-
+ frontend/src/pages/accounting/CashBookPage.tsx    | 10 +++++-----
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/backend/src/modules/accounting/journal.service.ts b/backend/src/modules/accounting/journal.service.ts
+index 48f981d..c207768 100644
+--- a/backend/src/modules/accounting/journal.service.ts
++++ b/backend/src/modules/accounting/journal.service.ts
+@@ -1749,7 +1749,7 @@ class JournalService {
+     const contraBPByEntry = new Map<string, string[]>();
+     for (const c of contras) {
+       const list = contraByEntry.get(c.journal_entry_id) ?? [];
+-      list.push(`${c.account.code} ${c.account.name}`);
++      list.push(c.account.name);
+       contraByEntry.set(c.journal_entry_id, list);
+ 
+       if (c.business_partner) {
+diff --git a/frontend/src/pages/accounting/CashBookPage.tsx b/frontend/src/pages/accounting/CashBookPage.tsx
+index e66c137..29e0784 100644
+--- a/frontend/src/pages/accounting/CashBookPage.tsx
++++ b/frontend/src/pages/accounting/CashBookPage.tsx
+@@ -22,7 +22,7 @@ function Row({ row }: { row: CashBookRow }) {
+   return (
+     <tr style={{ borderBottom: '1px solid #f8fafc' }}>
+       <td style={{ padding: '8px 16px 8px 20px', fontSize: 12.5, color: '#475569', whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</td>
+-      <td style={{ padding: '8px 12px', fontSize: 11.5, fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'normal', wordBreak: 'break-all' }}>{row.reference_code}</td>
++      <td style={{ padding: '8px 12px', fontSize: 11.5, fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'normal', wordBreak: 'break-all', overflowWrap: 'anywhere' }}>{row.reference_code}</td>
+       <td style={{ padding: '8px 12px', fontSize: 12, color: '#334155', whiteSpace: 'normal', wordBreak: 'break-word' }}>
+         {row.particulars || '—'}
+       </td>
+@@ -160,13 +160,13 @@ export default function CashBookPage() {
+               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
+                 <colgroup>
+                   <col style={{ width: '9%' }} />
+-                  <col style={{ width: '10%' }} />
+-                  <col style={{ width: '14%' }} />
++                  <col style={{ width: '12%' }} />
++                  <col style={{ width: '12%' }} />
+                   <col style={{ width: '13%' }} />
+-                  <col style={{ width: '20%' }} />
++                  <col style={{ width: '21%' }} />
++                  <col style={{ width: '11%' }} />
+                   <col style={{ width: '11%' }} />
+                   <col style={{ width: '11%' }} />
+-                  <col style={{ width: '12%' }} />
+                 </colgroup>
+                 <thead>
+                   <tr>
+-- 
+2.43.0
+

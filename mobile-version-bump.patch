@@ -1,0 +1,38 @@
+From c492a5378929782a744dc5e529dd2ba0782dc086 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 4 Sep 2026 16:54:01 +0000
+Subject: [PATCH] chore(mobile): bump versionCode/versionName for the UPI
+ Custom Tab fix
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Still at the initial build's versionCode 1 — fine for sideloading the same
+build over itself, but Play Console rejects any upload that doesn't
+increase the version. Bumping it now so the next build is uploadable
+without a second round-trip.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TzRYcGBjDHGFFNgpNih7vR
+---
+ frontend/android/app/build.gradle | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/frontend/android/app/build.gradle b/frontend/android/app/build.gradle
+index 1e8995f..57f1ed4 100644
+--- a/frontend/android/app/build.gradle
++++ b/frontend/android/app/build.gradle
+@@ -7,8 +7,8 @@ android {
+         applicationId "com.smartappt.app"
+         minSdkVersion rootProject.ext.minSdkVersion
+         targetSdkVersion rootProject.ext.targetSdkVersion
+-        versionCode 1
+-        versionName "1.0"
++        versionCode 2
++        versionName "1.1"
+         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+         aaptOptions {
+              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+-- 
+2.43.0
+

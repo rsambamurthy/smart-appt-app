@@ -1,0 +1,53 @@
+From e51e81056bfe73840b64a3bb7c18106dcebf7cdf Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 04:39:59 +0000
+Subject: [PATCH] fix(cash-book): show narration instead of account head in
+ Particulars
+
+Particulars was showing the contra account's code+name, which the
+treasurer reads as an account head rather than what the transaction
+was for. Swapped to the entry's narration, and fixed the column to a
+percentage width with word-wrap so long text wraps within the table
+instead of stretching it off-screen.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TzRYcGBjDHGFFNgpNih7vR
+---
+ frontend/src/pages/accounting/CashBookPage.tsx | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/frontend/src/pages/accounting/CashBookPage.tsx b/frontend/src/pages/accounting/CashBookPage.tsx
+index fd98779..ce126c0 100644
+--- a/frontend/src/pages/accounting/CashBookPage.tsx
++++ b/frontend/src/pages/accounting/CashBookPage.tsx
+@@ -23,8 +23,8 @@ function Row({ row }: { row: CashBookRow }) {
+     <tr style={{ borderBottom: '1px solid #f8fafc' }}>
+       <td style={{ padding: '8px 16px 8px 20px', fontSize: 12.5, color: '#475569', whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</td>
+       <td style={{ padding: '8px 12px', fontSize: 11.5, fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'nowrap' }}>{row.reference_code}</td>
+-      <td style={{ padding: '8px 12px', fontSize: 12.5, color: '#1e293b' }}>
+-        {row.particulars || row.narration}
++      <td style={{ padding: '8px 12px', fontSize: 12.5, color: '#1e293b', whiteSpace: 'normal', wordBreak: 'break-word' }}>
++        {row.narration}
+         {row.bp_name && <span style={{ marginLeft: 6, fontSize: 11, color: '#94a3b8' }}>· {row.bp_name}</span>}
+       </td>
+       <td style={{ padding: '8px 14px', textAlign: 'right', fontSize: 13, fontWeight: row.receipt ? 600 : 400, color: row.receipt ? '#15803d' : '#cbd5e1' }}>
+@@ -152,7 +152,15 @@ export default function CashBookPage() {
+                 </div>
+               </div>
+ 
+-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
++              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
++                <colgroup>
++                  <col style={{ width: '12%' }} />
++                  <col style={{ width: '10%' }} />
++                  <col style={{ width: '36%' }} />
++                  <col style={{ width: '14%' }} />
++                  <col style={{ width: '14%' }} />
++                  <col style={{ width: '14%' }} />
++                </colgroup>
+                 <thead>
+                   <tr>
+                     <th style={{ ...th, textAlign: 'left', paddingLeft: 20 }}>Date</th>
+-- 
+2.43.0
+

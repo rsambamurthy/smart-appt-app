@@ -1,0 +1,98 @@
+From d3beb65d947040004623dc3c996771f634418198 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 06:31:20 +0000
+Subject: [PATCH] fix(cash-book): show unit/vendor sub-ledger from the contra
+ line; fix voucher overlap
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Sub Ledger was reading business_partner off the cash/bank line itself,
+which is almost never tagged — e.g. a dues receipt is Dr Cash / Cr
+Dues Receivable, and it's the Dues Receivable line that carries the
+unit. Falls back to the contra line's business partner(s) now.
+
+Also fixed the Voucher column overlapping into Account Head: long
+reference codes now wrap (break-all) instead of overflowing, and the
+column is a bit wider.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TzRYcGBjDHGFFNgpNih7vR
+---
+ .../src/modules/accounting/journal.service.ts | 19 ++++++++++++++++---
+ .../src/pages/accounting/CashBookPage.tsx     |  6 +++---
+ 2 files changed, 19 insertions(+), 6 deletions(-)
+
+diff --git a/backend/src/modules/accounting/journal.service.ts b/backend/src/modules/accounting/journal.service.ts
+index d9db2c6..48f981d 100644
+--- a/backend/src/modules/accounting/journal.service.ts
++++ b/backend/src/modules/accounting/journal.service.ts
+@@ -1733,17 +1733,30 @@ class JournalService {
+       ],
+     });
+ 
+-    // The other side of each entry — "what was this receipt for".
++    // The other side of each entry — "what was this receipt for". The
++    // sub-ledger tag (unit/vendor) usually lives on this contra line, not on
++    // the cash/bank line itself — e.g. a dues receipt is Dr Cash / Cr Dues
++    // Receivable, and it's the Dues Receivable line that carries the unit.
+     const entryIds = [...new Set(lines.map(l => l.journal_entry.id))];
+     const contras  = await prisma.journalLine.findMany({
+       where: { journal_entry_id: { in: entryIds }, account_id: { not: account.id } },
+-      include: { account: { select: { code: true, name: true } } },
++      include: {
++        account: { select: { code: true, name: true } },
++        business_partner: { select: { name: true } },
++      },
+     });
+     const contraByEntry = new Map<string, string[]>();
++    const contraBPByEntry = new Map<string, string[]>();
+     for (const c of contras) {
+       const list = contraByEntry.get(c.journal_entry_id) ?? [];
+       list.push(`${c.account.code} ${c.account.name}`);
+       contraByEntry.set(c.journal_entry_id, list);
++
++      if (c.business_partner) {
++        const bpList = contraBPByEntry.get(c.journal_entry_id) ?? [];
++        if (!bpList.includes(c.business_partner.name)) bpList.push(c.business_partner.name);
++        contraBPByEntry.set(c.journal_entry_id, bpList);
++      }
+     }
+ 
+     let balance = openingBalance;
+@@ -1759,7 +1772,7 @@ class JournalService {
+         voucher_type:   l.journal_entry.voucher_type,
+         narration:      l.narration ?? l.journal_entry.narration,
+         particulars:    contraByEntry.get(l.journal_entry.id)?.join(', ') ?? '',
+-        bp_name:        l.business_partner?.name ?? null,
++        bp_name:        l.business_partner?.name ?? contraBPByEntry.get(l.journal_entry.id)?.join(', ') ?? null,
+         receipt,
+         payment,
+         balance:        Math.round(balance * 100) / 100,
+diff --git a/frontend/src/pages/accounting/CashBookPage.tsx b/frontend/src/pages/accounting/CashBookPage.tsx
+index 629da74..e66c137 100644
+--- a/frontend/src/pages/accounting/CashBookPage.tsx
++++ b/frontend/src/pages/accounting/CashBookPage.tsx
+@@ -22,7 +22,7 @@ function Row({ row }: { row: CashBookRow }) {
+   return (
+     <tr style={{ borderBottom: '1px solid #f8fafc' }}>
+       <td style={{ padding: '8px 16px 8px 20px', fontSize: 12.5, color: '#475569', whiteSpace: 'nowrap' }}>{fmtDate(row.date)}</td>
+-      <td style={{ padding: '8px 12px', fontSize: 11.5, fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'nowrap' }}>{row.reference_code}</td>
++      <td style={{ padding: '8px 12px', fontSize: 11.5, fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'normal', wordBreak: 'break-all' }}>{row.reference_code}</td>
+       <td style={{ padding: '8px 12px', fontSize: 12, color: '#334155', whiteSpace: 'normal', wordBreak: 'break-word' }}>
+         {row.particulars || '—'}
+       </td>
+@@ -160,8 +160,8 @@ export default function CashBookPage() {
+               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, tableLayout: 'fixed' }}>
+                 <colgroup>
+                   <col style={{ width: '9%' }} />
+-                  <col style={{ width: '7%' }} />
+-                  <col style={{ width: '17%' }} />
++                  <col style={{ width: '10%' }} />
++                  <col style={{ width: '14%' }} />
+                   <col style={{ width: '13%' }} />
+                   <col style={{ width: '20%' }} />
+                   <col style={{ width: '11%' }} />
+-- 
+2.43.0
+

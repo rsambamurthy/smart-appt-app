@@ -1,0 +1,109 @@
+From 2252d5e6156b36558dcec6ef832d0ff3be958520 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 2 Sep 2026 06:49:01 +0000
+Subject: [PATCH] =?UTF-8?q?fix(journal):=20Edit=20button=20never=20rendere?=
+ =?UTF-8?q?d=20=E2=80=94=20field=20name=20mismatch=20(type=20vs=20source)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Edit facility on Journal Entries was already fully built (form,
+mutation, submit handling) but never appeared: the frontend checked
+entry.type === 'MANUAL' while the API actually returns the field as
+source (confirmed against DayBookPage, which reads it correctly).
+undefined === 'MANUAL' is always false, so the button never rendered
+for any entry, Manual or Auto.
+
+Also hardened the server side to match: updateEntry only checked that
+debits equal credits, with no guard against editing an Auto-posted
+entry (which would desync it from whatever created it — a dues
+payment, expense, or provision), a cancelled entry, or an entry in a
+closed financial year. Added all three, mirroring the same checks
+attachDocument already applies to the same entity.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TzRYcGBjDHGFFNgpNih7vR
+---
+ .../src/modules/accounting/journal.service.ts | 20 +++++++++++++++++++
+ .../pages/accounting/JournalEntriesPage.tsx   |  6 +++---
+ frontend/src/store/api/accountingApi.ts       |  2 +-
+ 3 files changed, 24 insertions(+), 4 deletions(-)
+
+diff --git a/backend/src/modules/accounting/journal.service.ts b/backend/src/modules/accounting/journal.service.ts
+index c207768..67ca192 100644
+--- a/backend/src/modules/accounting/journal.service.ts
++++ b/backend/src/modules/accounting/journal.service.ts
+@@ -2017,6 +2017,26 @@ class JournalService {
+     });
+     if (!entry) throw new NotFoundError('Journal entry not found.');
+ 
++    // Defense in depth beyond the UI, which only offers Edit on Manual
++    // entries in the first place: an Auto-posted entry is the ledger side of
++    // some other record (a dues payment, an expense approval, a provision),
++    // and editing it here would silently desync the two. Same posture as
++    // attachDocument on cancelled/closed-year entries, just not yet applied
++    // here.
++    if (entry.source !== JournalEntrySource.MANUAL) {
++      throw new UnprocessableError(
++        'This entry was posted automatically and cannot be edited directly — correct it at its source (the dues payment, expense, or provision that created it).'
++      );
++    }
++    if (entry.status === JournalStatus.CANCELLED) {
++      throw new UnprocessableError('This entry is cancelled — it cannot be edited.');
++    }
++    if (await fyClosureService.isYearClosed(associationId, entry.financial_year)) {
++      throw new UnprocessableError(
++        `Financial year ${entry.financial_year} is closed. Reopen it to edit this entry.`,
++      );
++    }
++
+     const totalDebit  = body.lines.reduce((s, l) => s + (l.debit  ?? 0), 0);
+     const totalCredit = body.lines.reduce((s, l) => s + (l.credit ?? 0), 0);
+     if (Math.abs(totalDebit - totalCredit) > 0.005) {
+diff --git a/frontend/src/pages/accounting/JournalEntriesPage.tsx b/frontend/src/pages/accounting/JournalEntriesPage.tsx
+index 784ecab..477ae19 100644
+--- a/frontend/src/pages/accounting/JournalEntriesPage.tsx
++++ b/frontend/src/pages/accounting/JournalEntriesPage.tsx
+@@ -737,7 +737,7 @@ export default function JournalEntriesPage() {
+ 
+   // ── Right panel: entry detail ─────────────────────────────────────────────
+   const renderDetail = (entry: JournalEntry) => {
+-    const tc    = TYPE_STYLE[entry.type] ?? TYPE_STYLE['MANUAL'];
++    const tc    = TYPE_STYLE[entry.source] ?? TYPE_STYLE['MANUAL'];
+     const totDR = entry.lines.reduce((s, l) => s + Number(l.debit),  0);
+     const totCR = entry.lines.reduce((s, l) => s + Number(l.credit), 0);
+     const bal   = Math.abs(totDR - totCR) < 0.005;
+@@ -765,7 +765,7 @@ export default function JournalEntriesPage() {
+             <div style={{ fontSize: 18, fontWeight: 600, color: '#1e293b', marginBottom: 4 }}>{entry.narration}</div>
+             <div style={{ fontSize: 12, color: '#94a3b8' }}>{fmtDate(entry.entry_date)}</div>
+           </div>
+-          {entry.type === 'MANUAL' && (
++          {entry.source === 'MANUAL' && (
+             <button onClick={() => openEditForm(entry)}
+               style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12.5, cursor: 'pointer', flexShrink: 0 }}>
+               <i className="ti ti-pencil" style={{ fontSize: 13 }} /> Edit
+@@ -918,7 +918,7 @@ export default function JournalEntriesPage() {
+                     {fmtDate(date)}
+                   </div>
+                   {grouped[date].map(entry => {
+-                    const tc       = TYPE_STYLE[entry.type] ?? TYPE_STYLE['MANUAL'];
++                    const tc       = TYPE_STYLE[entry.source] ?? TYPE_STYLE['MANUAL'];
+                     const isActive = entry.id === selectedId;
+                     const amount   = entry.lines.reduce((s, l) => s + Number(l.debit), 0);
+                     return (
+diff --git a/frontend/src/store/api/accountingApi.ts b/frontend/src/store/api/accountingApi.ts
+index 008b74e..06e4265 100644
+--- a/frontend/src/store/api/accountingApi.ts
++++ b/frontend/src/store/api/accountingApi.ts
+@@ -44,7 +44,7 @@ export interface JournalEntry {
+   reference_id:   string | null;
+   reference_code: string | null;
+   voucher_type:   string | null;
+-  type:           'AUTO' | 'MANUAL';
++  source:         'AUTO' | 'MANUAL';
+   created_by:     string | null;
+   created_at:     string;
+   lines:          JournalLine[];
+-- 
+2.43.0
+

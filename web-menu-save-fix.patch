@@ -1,0 +1,174 @@
+From 7c122d368a092a623d93721592326ee91b74b324 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 5 Sep 2026 15:36:06 +0000
+Subject: [PATCH] fix(system): stop web menu saves from being rejected
+ wholesale
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+saveMenuConfig() threw ForbiddenError for the entire save whenever the
+payload contained ANY item for a role the caller can't edit. But the
+admin screen's draft state is seeded from GET, which returns every
+role that has an override stored for the association — including
+roles the current caller cannot edit (e.g. a super user's earlier
+overrides for MANAGER, sitting alongside a manager's own RESIDENT
+overrides). The save button flattens the whole draft, so those
+foreign-role rows rode along on every save, not just ones that
+actually touched that role — and once such a row existed, EVERY
+subsequent save by that association's manager failed outright.
+
+Because WebMenuPage.tsx's onSave/resetRole called .unwrap() with no
+try/catch, that failure was invisible: the button just stayed on
+"Save changes" with no error shown, which reads exactly like "nothing
+happened" — matching the report that toggling off Transparency and
+Documents for Residents didn't stick.
+
+Fixes, both sides:
+- Backend: filter items to editableRoles instead of rejecting the
+  batch. deleteMany already scopes to editableRoles, so a foreign-role
+  item is now simply left untouched rather than failing everything.
+- Frontend: flatten() now only sends roles the caller can edit, so a
+  stale foreign-role entry in the draft never reaches the request body
+  in the first place.
+- Frontend: onSave/resetRole now catch a failed save and show the
+  server's message in a visible banner, instead of leaving a silent
+  failure with no on-screen signal.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TzRYcGBjDHGFFNgpNih7vR
+---
+ backend/src/modules/system/system.service.ts | 25 ++++++----
+ frontend/src/pages/admin/WebMenuPage.tsx     | 48 +++++++++++++++++---
+ 2 files changed, 58 insertions(+), 15 deletions(-)
+
+diff --git a/backend/src/modules/system/system.service.ts b/backend/src/modules/system/system.service.ts
+index c1f664b..119e41f 100644
+--- a/backend/src/modules/system/system.service.ts
++++ b/backend/src/modules/system/system.service.ts
+@@ -95,12 +95,19 @@ export class SystemService {
+     items: Array<{ group_id: string; role: string; enabled: boolean }>,
+     editableRoles: string[],
+   ) {
+-    const rejected = items.find(i => !editableRoles.includes(i.role));
+-    if (rejected) {
+-      throw new ForbiddenError(
+-        `You cannot change what the ${rejected.role} role sees.`,
+-      );
+-    }
++    // The screen loads and holds the WHOLE config for the association —
++    // including roles the caller cannot edit (e.g. a super user's earlier
++    // overrides for MANAGER) — because that is also what a manager's own GET
++    // returns. Its save button then flattens the entire draft, so any
++    // pre-existing row for a role outside editableRoles rides along in
++    // `items` on every save, not just ones that actually touch that role.
++    //
++    // Rejecting the whole batch for that meant a manager's save could fail
++    // in full — silently, since the caller has no try/catch — even though
++    // every change they actually made was for roles they ARE allowed to
++    // edit. Filtering instead means a foreign role's rows are left exactly
++    // as deleteMany already scopes them: untouched.
++    const filtered = items.filter(i => editableRoles.includes(i.role));
+ 
+     const before = await prisma.menuGroupConfig.findMany({
+       where: { association_id: associationId },
+@@ -112,9 +119,9 @@ export class SystemService {
+       prisma.menuGroupConfig.deleteMany({
+         where: { association_id: associationId, role: { in: editableRoles } },
+       }),
+-      ...(items.length
++      ...(filtered.length
+         ? [prisma.menuGroupConfig.createMany({
+-            data: items.map(i => ({
++            data: filtered.map(i => ({
+               association_id: associationId,
+               group_id:       i.group_id,
+               role:           i.role,
+@@ -125,7 +132,7 @@ export class SystemService {
+     ]);
+ 
+     const beforeMap = new Map(before.map(b => [`${b.group_id}|${b.role}`, b.enabled]));
+-    const afterMap  = new Map(items.map(i => [`${i.group_id}|${i.role}`, i.enabled]));
++    const afterMap  = new Map(filtered.map(i => [`${i.group_id}|${i.role}`, i.enabled]));
+     const keys = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+     const changed = [...keys].filter(k => beforeMap.get(k) !== afterMap.get(k));
+ 
+diff --git a/frontend/src/pages/admin/WebMenuPage.tsx b/frontend/src/pages/admin/WebMenuPage.tsx
+index 04c1cd0..d592d25 100644
+--- a/frontend/src/pages/admin/WebMenuPage.tsx
++++ b/frontend/src/pages/admin/WebMenuPage.tsx
+@@ -85,22 +85,50 @@ export default function WebMenuPage() {
+     setDirty(true);
+   };
+ 
++  // `draft` is seeded from the GET response, which returns every role that has
++  // ANY override stored for this association — including roles this caller
++  // cannot edit (e.g. a super user's earlier overrides for MANAGER, sitting
++  // alongside a manager's own RESIDENT overrides). Flattening the whole draft
++  // used to resend those foreign-role rows on every save; the backend has its
++  // own filter for this too, but keeping it out of the payload here means a
++  // manager's save only ever describes the role they were actually editing.
+   const flatten = (d: Record<string, Record<string, boolean>>) =>
+-    Object.entries(d).flatMap(([r, cells]) =>
+-      Object.entries(cells).map(([group_id, enabled]) => ({ group_id, role: r, enabled })));
++    Object.entries(d)
++      .filter(([r]) => editable.includes(r))
++      .flatMap(([r, cells]) =>
++        Object.entries(cells).map(([group_id, enabled]) => ({ group_id, role: r, enabled })));
++
++  const [saveError, setSaveError] = useState<string | null>(null);
+ 
+   const onSave = async () => {
+     if (!assocId) return;
+-    await save({ associationId: assocId, items: flatten(draft) }).unwrap();
+-    setDirty(false);
++    setSaveError(null);
++    try {
++      await save({ associationId: assocId, items: flatten(draft) }).unwrap();
++      setDirty(false);
++    } catch (err) {
++      // Without this, a failed save left the button reading "Save changes"
++      // with nothing else on screen to say why — which reads exactly like a
++      // save that silently did nothing.
++      const msg = (err as { data?: { message?: string } })?.data?.message
++        ?? 'Could not save — please try again.';
++      setSaveError(msg);
++    }
+   };
+ 
+   const resetRole = async () => {
+     if (!assocId) return;
++    setSaveError(null);
+     const next = { ...draft, [role]: {} };
+     setDraft(next);
+-    await save({ associationId: assocId, items: flatten(next) }).unwrap();
+-    setDirty(false);
++    try {
++      await save({ associationId: assocId, items: flatten(next) }).unwrap();
++      setDirty(false);
++    } catch (err) {
++      const msg = (err as { data?: { message?: string } })?.data?.message
++        ?? 'Could not save — please try again.';
++      setSaveError(msg);
++    }
+   };
+ 
+   const visibleCount  = items.filter(i => isOn(i.id)).length;
+@@ -177,6 +205,14 @@ export default function WebMenuPage() {
+           )}
+         </div>
+ 
++        {saveError && (
++          <div style={{ border: '1px solid #fca5a5', background: '#fef2f2',
++                        borderRadius: 10, padding: '10px 14px', marginBottom: 14,
++                        fontSize: 12.5, color: '#b91c1c' }}>
++            {saveError}
++          </div>
++        )}
++
+         {error ? (
+           // Without this the screen sat on "Loading…" for ever whenever the
+           // request failed — which is exactly what a not-yet-deployed backend
+-- 
+2.43.0
+

@@ -1,0 +1,602 @@
+From 6bdc54ae4004e94865037202aad360d5a4013321 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 4 Sep 2026 16:51:30 +0000
+Subject: [PATCH] fix(mobile): pay via a Custom Tab instead of the app's own
+ WebView, so UPI works
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+UPI never showed as a payment option in the native SmartAppt Gold app
+(Capacitor/Android), only on the web build, even though both use the exact
+same Razorpay integration with no method restrictions configured anywhere.
+The difference is the container: the native app runs its whole UI inside
+an embedded Android WebView, which carries a "; wv" marker identifying it
+as embedded rather than a standalone browser. Razorpay (and the UPI apps
+themselves) treat that marker as untrustworthy for UPI specifically, since
+completing a UPI payment means handing off to a banking app and getting
+control back reliably — something an embedded WebView can't always
+guarantee — so UPI gets suppressed while Cards/EMI/Netbanking/Wallet,
+which don't need that hand-off, are unaffected.
+
+Fix: for native only, open the existing web checkout page
+(PaymentPage.tsx, already used by the plain web build) in a real Chrome
+Custom Tab / SFSafariViewController via @capacitor/browser, instead of
+Razorpay's inline checkout.js modal inside the app's own WebView. A real
+browser context resolves the trust issue directly.
+
+- hooks/useRazorpay.ts: on Capacitor.isNativePlatform(), hand off to a new
+  /dues/pay-native/:billId Custom Tab instead of loading checkout.js
+  in-page. Since that's a separate browser process with no access to this
+  app's Redux/session storage, the current access token is passed once via
+  the URL. There's no way to learn the outcome back in the app's own JS,
+  so on return (Browser's `browserFinished` event) it just invalidates the
+  Bill/Payment RTK Query tags and lets the bill's real status (paid,
+  partial, still unpaid) speak for itself, via a new onReturn callback.
+- App.tsx: added /dues/pay-native/:billId as a sibling of the existing
+  /dues/pay/:billId, deliberately without the RoleRoute guard — a fresh
+  Custom Tab session has no state.auth.user yet, which would otherwise
+  bounce straight to /login. The backend still enforces that the bill
+  belongs to the token's own user; this route is a UX convenience, not the
+  security boundary.
+- pages/dues/PaymentPage.tsx: now accepts an access token via ?token= (for
+  the native handoff only — a normal web visit is unaffected), and skips
+  the full app chrome in favor of a plain centered card, since there's no
+  real logged-in session to build a nav around. Also now calls
+  verifyPayment on success, closing a pre-existing gap where this page
+  relied solely on the (now newly wired-up) webhook to ever record the
+  payment.
+- pages/dues/MyBillsPage.tsx: added a neutral "checking payment status"
+  toast on return from the native flow, ahead of the actual refetch.
+- Added @capacitor/browser (matching the other @capacitor/* packages
+  already pinned to ^6.0.0).
+
+Requires a new app build to reach devices — this is native app code, not
+something a backend/web deploy picks up. Needs frontend/.env.mobile
+(gitignored, not included in this patch) with:
+  VITE_API_URL=https://smart-appt-app-development.up.railway.app/api/v1
+  VITE_WEB_APP_URL=https://smartapptgold.integratatech.ai
+before running npm run build:mobile && npx cap sync android.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01TzRYcGBjDHGFFNgpNih7vR
+---
+ frontend/package-lock.json              |  55 +++---------
+ frontend/package.json                   |   3 +-
+ frontend/src/App.tsx                    |   9 ++
+ frontend/src/hooks/useRazorpay.ts       |  83 +++++++++++++++++-
+ frontend/src/pages/dues/MyBillsPage.tsx |   6 ++
+ frontend/src/pages/dues/PaymentPage.tsx | 107 +++++++++++++++++++++---
+ frontend/src/vite-env.d.ts              |   8 ++
+ 7 files changed, 213 insertions(+), 58 deletions(-)
+
+diff --git a/frontend/package-lock.json b/frontend/package-lock.json
+index a495811..21f2f72 100644
+--- a/frontend/package-lock.json
++++ b/frontend/package-lock.json
+@@ -10,6 +10,7 @@
+       "dependencies": {
+         "@capacitor/android": "^6.0.0",
+         "@capacitor/app-launcher": "^6.0.0",
++        "@capacitor/browser": "^6.0.6",
+         "@capacitor/core": "^6.0.0",
+         "@capacitor/filesystem": "^6.0.0",
+         "@capacitor/push-notifications": "^6.0.0",
+@@ -1683,6 +1684,15 @@
+         "@capacitor/core": "^6.0.0"
+       }
+     },
++    "node_modules/@capacitor/browser": {
++      "version": "6.0.6",
++      "resolved": "https://registry.npmjs.org/@capacitor/browser/-/browser-6.0.6.tgz",
++      "integrity": "sha512-VHOPkMR+JqKz2mf5YncnnOWvFdVYFTTLnPW+JRcsP1LobXmA0gtchER35PQ7XXqXU16eeacrehX+XF+rC6wmQw==",
++      "license": "MIT",
++      "peerDependencies": {
++        "@capacitor/core": "^6.0.0"
++      }
++    },
+     "node_modules/@capacitor/cli": {
+       "version": "6.2.1",
+       "resolved": "https://registry.npmjs.org/@capacitor/cli/-/cli-6.2.1.tgz",
+@@ -2858,9 +2868,6 @@
+         "arm"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -2875,9 +2882,6 @@
+         "arm"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -2892,9 +2896,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -2909,9 +2910,6 @@
+         "arm64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -2926,9 +2924,6 @@
+         "loong64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -2943,9 +2938,6 @@
+         "loong64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -2960,9 +2952,6 @@
+         "ppc64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -2977,9 +2966,6 @@
+         "ppc64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -2994,9 +2980,6 @@
+         "riscv64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3011,9 +2994,6 @@
+         "riscv64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3028,9 +3008,6 @@
+         "s390x"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3045,9 +3022,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3062,9 +3036,6 @@
+         "x64"
+       ],
+       "dev": true,
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -3265,7 +3236,7 @@
+       "version": "15.7.15",
+       "resolved": "https://registry.npmjs.org/@types/prop-types/-/prop-types-15.7.15.tgz",
+       "integrity": "sha512-F6bEyamV9jKGAFBEmlQnesRPGOQqS2+Uwi0Em15xenOxHaf2hv6L8YCVn3rPdPJOiJfPiCnLIRyvwVaqMY3MIw==",
+-      "devOptional": true,
++      "dev": true,
+       "license": "MIT"
+     },
+     "node_modules/@types/qrcode": {
+@@ -3282,7 +3253,7 @@
+       "version": "18.3.31",
+       "resolved": "https://registry.npmjs.org/@types/react/-/react-18.3.31.tgz",
+       "integrity": "sha512-vfEqpXTvwT91yhmwdfouStN2hSKwTvyRs8qpLfADyrq/kxDw0hZM7Wk9Ug1FELj8hIby+S/+kQCSRFF32nv2Qw==",
+-      "devOptional": true,
++      "dev": true,
+       "license": "MIT",
+       "dependencies": {
+         "@types/prop-types": "*",
+@@ -4241,7 +4212,7 @@
+       "version": "3.2.3",
+       "resolved": "https://registry.npmjs.org/csstype/-/csstype-3.2.3.tgz",
+       "integrity": "sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==",
+-      "devOptional": true,
++      "dev": true,
+       "license": "MIT"
+     },
+     "node_modules/data-view-buffer": {
+diff --git a/frontend/package.json b/frontend/package.json
+index 54ec457..0e0a802 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -16,6 +16,7 @@
+   "dependencies": {
+     "@capacitor/android": "^6.0.0",
+     "@capacitor/app-launcher": "^6.0.0",
++    "@capacitor/browser": "^6.0.6",
+     "@capacitor/core": "^6.0.0",
+     "@capacitor/filesystem": "^6.0.0",
+     "@capacitor/push-notifications": "^6.0.0",
+@@ -34,10 +35,10 @@
+   },
+   "devDependencies": {
+     "@capacitor/cli": "^6.0.0",
++    "@types/qrcode": "^1.5.5",
+     "@types/react": "^18.3.3",
+     "@types/react-dom": "^18.3.0",
+     "@typescript-eslint/eslint-plugin": "^7.14.1",
+-    "@types/qrcode": "^1.5.5",
+     "@typescript-eslint/parser": "^7.14.1",
+     "@vitejs/plugin-react": "^4.3.1",
+     "eslint": "^8.57.0",
+diff --git a/frontend/src/App.tsx b/frontend/src/App.tsx
+index 44ef16b..a3fade0 100644
+--- a/frontend/src/App.tsx
++++ b/frontend/src/App.tsx
+@@ -146,6 +146,15 @@ export default function App() {
+         {!IS_NATIVE && <Route path="/dues/my-bills" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><MyBillsPage /></RoleRoute>} />}
+         {!IS_NATIVE && <Route path="/dues/my-statement" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><MyStatementPage /></RoleRoute>} />}
+         {!IS_NATIVE && <Route path="/dues/pay/:billId" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><PaymentPage /></RoleRoute>} />}
++        {/* Entry point for the native app's Custom Tab handoff (see
++            hooks/useRazorpay.ts) — a fresh browser session with no
++            state.auth.user yet, so it deliberately skips RoleRoute (which
++            would bounce straight to /login on a null user). The access
++            token in the URL is still required for every API call the page
++            makes, and the backend re-checks that the bill actually belongs
++            to that token's user — this route is a UX convenience, not the
++            security boundary. */}
++        {!IS_NATIVE && <Route path="/dues/pay-native/:billId" element={<PaymentPage />} />}
+         {!IS_NATIVE && <Route path="/chat" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><ChatPage /></RoleRoute>} />}
+         {!IS_NATIVE && <Route path="/dues/one-time-dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OneTimeDuesPage /></RoleRoute>} />}
+         {!IS_NATIVE && <Route path="/dues/arrears" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ArrearsPage /></RoleRoute>} />}
+diff --git a/frontend/src/hooks/useRazorpay.ts b/frontend/src/hooks/useRazorpay.ts
+index 34f9333..61890c6 100644
+--- a/frontend/src/hooks/useRazorpay.ts
++++ b/frontend/src/hooks/useRazorpay.ts
+@@ -1,7 +1,9 @@
+ import { useCallback, useRef } from 'react';
+-import { useDispatch } from 'react-redux';
++import { useDispatch, useSelector } from 'react-redux';
++import { Browser } from '@capacitor/browser';
+ import { duesApi } from '../store/api/duesApi';
+-import type { AppDispatch } from '../store';
++import { IS_NATIVE } from './usePlatform';
++import type { AppDispatch, RootState } from '../store';
+ 
+ declare global {
+   interface Window {
+@@ -26,6 +28,15 @@ interface PayOptions {
+   onSuccess?: (paymentId: string) => void;
+   /** Called with a human-readable error message on failure */
+   onError?: (msg: string) => void;
++  /**
++   * Native (Capacitor) only: called after the resident returns from the
++   * Razorpay Custom Tab, before onSuccess/onError. There's no reliable way
++   * to know the outcome from here — the checkout ran in a separate browser
++   * process, not this app's JS — so callers should use this to refetch and
++   * let the bill's real status (paid, partial, still unpaid) speak for
++   * itself rather than assuming success.
++   */
++  onReturn?: () => void;
+ }
+ 
+ function loadCheckoutScript(): Promise<void> {
+@@ -39,10 +50,71 @@ function loadCheckoutScript(): Promise<void> {
+   });
+ }
+ 
++/**
++ * Native (Capacitor) checkout path. Razorpay's checkout.js — same script
++ * the web build uses below — hides UPI when it detects it's running inside
++ * an embedded Android/iOS WebView (the `; wv` marker in the WebView's own
++ * identity string): a UPI payment means handing off to a banking app and
++ * getting control back, and neither Razorpay nor the UPI apps themselves
++ * trust a generic WebView to complete that hand-back reliably. Opening the
++ * exact same web checkout page in a real Chrome Custom Tab / SFSafariView
++ * instead of this app's own WebView sidesteps that entirely — it's a
++ * genuine browser as far as Razorpay and the UPI apps are concerned.
++ *
++ * The web app already has a self-contained page (PaymentPage.tsx) that does
++ * this same order-create + checkout.js + verify flow for a normal logged-in
++ * web visit at /dues/pay/:billId; this opens its sibling route,
++ * /dues/pay-native/:billId, rather than duplicating checkout logic for
++ * native. That route skips the app's login-role guard (RoleRoute), because
++ * this is a fresh browser process with no access to this app's Redux/session
++ * storage — the access token is passed once via the URL instead, which is
++ * all that page needs to authenticate its own API calls.
++ */
++async function payViaCustomTab(opts: PayOptions, accessToken: string | null, dispatch: AppDispatch): Promise<void> {
++  if (!accessToken) {
++    opts.onError?.('You need to be logged in to pay.');
++    return;
++  }
++  const webAppUrl = import.meta.env.VITE_WEB_APP_URL;
++  if (!webAppUrl) {
++    opts.onError?.('Payment is not configured for this app build. Please contact support.');
++    return;
++  }
++
++  const url = `${webAppUrl.replace(/\/$/, '')}/dues/pay-native/${opts.billId}?token=${encodeURIComponent(accessToken)}`;
++
++  await new Promise<void>((resolve) => {
++    let settled = false;
++    const finish = async () => {
++      if (settled) return;
++      settled = true;
++      // handle may not be assigned yet if browserFinished somehow fires
++      // before the addListener promise resolves (it won't in practice —
++      // the tab has to actually open and close first) — skip removal
++      // rather than throw on `undefined.remove()`.
++      await handle?.remove().catch(() => {});
++      // Refetch rather than assume an outcome — see the onReturn doc comment.
++      dispatch(duesApi.util.invalidateTags(['Bill', 'Payment']));
++      opts.onReturn?.();
++      resolve();
++    };
++
++    let handle: { remove: () => Promise<void> };
++    Browser.addListener('browserFinished', finish).then((h) => { handle = h; });
++
++    Browser.open({ url, toolbarColor: '#C4572B' }).catch((err: unknown) => {
++      settled = true;
++      opts.onError?.((err as Error)?.message ?? 'Could not open payment page.');
++      resolve();
++    });
++  });
++}
++
+ export function useRazorpay() {
+   // Typed dispatch — the plain useDispatch() cannot accept RTK Query thunks,
+   // and without it the mutation results degrade to `unknown`.
+   const dispatch = useDispatch<AppDispatch>();
++  const accessToken = useSelector((s: RootState) => s.auth.access_token);
+   const busyRef = useRef(false);
+ 
+   const pay = useCallback(async (opts: PayOptions) => {
+@@ -50,6 +122,11 @@ export function useRazorpay() {
+     busyRef.current = true;
+ 
+     try {
++      if (IS_NATIVE) {
++        await payViaCustomTab(opts, accessToken, dispatch);
++        return;
++      }
++
+       // 1. Load checkout.js if not already loaded
+       await loadCheckoutScript();
+ 
+@@ -122,7 +199,7 @@ export function useRazorpay() {
+     } finally {
+       busyRef.current = false;
+     }
+-  }, [dispatch]);
++  }, [dispatch, accessToken]);
+ 
+   return { pay };
+ }
+diff --git a/frontend/src/pages/dues/MyBillsPage.tsx b/frontend/src/pages/dues/MyBillsPage.tsx
+index c3ad0f8..32a56f1 100644
+--- a/frontend/src/pages/dues/MyBillsPage.tsx
++++ b/frontend/src/pages/dues/MyBillsPage.tsx
+@@ -76,6 +76,12 @@ export default function MyBillsPage() {
+       onError: (msg) => {
+         if (msg !== 'Payment cancelled.') showToast('error', msg);
+       },
++      // Native only: fires on return from the Custom Tab, before we actually
++      // know whether the payment went through — see the doc comment on
++      // PayOptions.onReturn. The refetch this triggers is what actually
++      // updates the bill's status; this toast is just reassurance that
++      // something is happening rather than the tap having been lost.
++      onReturn: () => showToast('success', 'Checking your payment status…'),
+     });
+     setPayingId(null);
+   };
+diff --git a/frontend/src/pages/dues/PaymentPage.tsx b/frontend/src/pages/dues/PaymentPage.tsx
+index afcb754..e3b6f2a 100644
+--- a/frontend/src/pages/dues/PaymentPage.tsx
++++ b/frontend/src/pages/dues/PaymentPage.tsx
+@@ -1,16 +1,49 @@
+-import { useParams, useNavigate } from 'react-router-dom';
++import { useEffect, useState } from 'react';
++import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
++import { useDispatch } from 'react-redux';
+ import Layout from '../../components/organisms/Layout';
+-import { useInitiatePaymentMutation } from '../../store/api/duesApi';
+-import { useEffect } from 'react';
++import { useInitiatePaymentMutation, useVerifyPaymentMutation } from '../../store/api/duesApi';
++import { updateAccessToken } from '../../features/auth/authSlice';
++import type { AppDispatch } from '../../store';
++
++interface RazorpayResponse {
++  razorpay_payment_id: string;
++  razorpay_order_id: string;
++  razorpay_signature: string;
++}
+ 
+ export default function PaymentPage() {
+   const { billId } = useParams<{ billId: string }>();
+   const navigate = useNavigate();
++  const dispatch = useDispatch<AppDispatch>();
++  const [searchParams] = useSearchParams();
++
++  // Present only when this page was opened in a Custom Tab from the native
++  // app (see hooks/useRazorpay.ts) — that's a separate browser process with
++  // no access to the app's own Redux/session storage, so the access token
++  // is handed over once via the URL instead. A normal web visit to this
++  // page never has this param and behaves exactly as before.
++  const nativeToken = searchParams.get('token');
++  const [ready, setReady] = useState(!nativeToken);
++  const [status, setStatus] = useState<'opening' | 'success' | 'error'>('opening');
++  const [message, setMessage] = useState('');
++
+   const [initiate, { data, isLoading }] = useInitiatePaymentMutation();
++  const [verify] = useVerifyPaymentMutation();
+ 
+   useEffect(() => {
+-    if (billId) initiate({ bill_id: billId });
+-  }, [billId]);
++    if (nativeToken) {
++      dispatch(updateAccessToken(nativeToken));
++      setReady(true);
++    }
++    // Only ever needs to run once per page load — re-running on every
++    // dispatch identity change would just re-set the same token.
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, []);
++
++  useEffect(() => {
++    if (ready && billId) initiate({ bill_id: billId });
++  }, [ready, billId]);
+ 
+   useEffect(() => {
+     if (!data) return;
+@@ -19,20 +52,70 @@ export default function PaymentPage() {
+       key: d.key_id,
+       amount: d.amount * 100,
+       currency: 'INR',
+-      name: 'SmartAppt',
+-      description: 'Monthly Maintenance Dues',
++      name: 'SmartAppt Gold',
++      description: 'Maintenance Dues Payment',
+       order_id: d.order_id,
+-      handler: () => navigate('/dues/my-bills'),
++      handler: async (response: RazorpayResponse) => {
++        try {
++          const result = await verify({
++            bill_id: billId!,
++            razorpay_payment_id: response.razorpay_payment_id,
++            razorpay_order_id: response.razorpay_order_id,
++            razorpay_signature: response.razorpay_signature,
++          }).unwrap();
++          void result;
++          if (nativeToken) {
++            setStatus('success');
++            setMessage('Payment successful! You can close this tab and return to the app.');
++          } else {
++            navigate('/dues/my-bills');
++          }
++        } catch {
++          if (nativeToken) {
++            setStatus('error');
++            setMessage('Payment captured but verification failed. Please contact support before paying again.');
++          } else {
++            navigate('/dues/my-bills');
++          }
++        }
++      },
++      modal: {
++        ondismiss: () => {
++          if (nativeToken) {
++            setStatus('error');
++            setMessage('Payment cancelled. You can close this tab and return to the app.');
++          } else {
++            navigate('/dues/my-bills');
++          }
++        },
++      },
+     });
+     rzp.open();
+   }, [data]);
+ 
+-  return (
+-    <Layout>
++  const body = (
++    <>
+       <div className="page-header"><h1>Payment</h1></div>
+       <div className="card" style={{ maxWidth: 400, textAlign: 'center' }}>
+-        {isLoading ? <p>Initialising payment...</p> : <p>Opening Razorpay checkout...</p>}
++        {status === 'opening' && <p>{isLoading || !ready ? 'Initialising payment...' : 'Opening Razorpay checkout...'}</p>}
++        {status === 'success' && <p style={{ color: '#16a34a', fontWeight: 600 }}>{message}</p>}
++        {status === 'error' && <p style={{ color: '#dc2626', fontWeight: 600 }}>{message}</p>}
+       </div>
+-    </Layout>
++    </>
+   );
++
++  // Opened via the native handoff: this is a bare Custom Tab session with no
++  // real state.auth.user (see the route comment in App.tsx), so the full
++  // app chrome (nav sidebar, account menu) would render mostly empty and
++  // isn't useful here anyway — a plain centered card reads more like "one
++  // step in a payment," which is what it actually is.
++  if (nativeToken) {
++    return (
++      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, background: '#f8fafc' }}>
++        {body}
++      </div>
++    );
++  }
++
++  return <Layout>{body}</Layout>;
+ }
+diff --git a/frontend/src/vite-env.d.ts b/frontend/src/vite-env.d.ts
+index acfe15d..d4a8b02 100644
+--- a/frontend/src/vite-env.d.ts
++++ b/frontend/src/vite-env.d.ts
+@@ -7,6 +7,14 @@
+ interface ImportMetaEnv {
+   readonly VITE_API_URL?: string;
+   readonly VITE_RAZORPAY_KEY_ID?: string;
++  /**
++   * Public URL of this same web app, used only by the native (Capacitor)
++   * build to open the Razorpay checkout page in a real browser tab instead
++   * of the app's own embedded WebView — see hooks/useRazorpay.ts. Unused
++   * on the web build itself (window.location.origin is already correct
++   * there).
++   */
++  readonly VITE_WEB_APP_URL?: string;
+ }
+ 
+ interface ImportMeta {
+-- 
+2.43.0
+
