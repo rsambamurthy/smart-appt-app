@@ -12,9 +12,15 @@ import { httpServer } from './app';
 import prisma from './config/database';
 import redis from './config/redis';
 import logger from './utils/logger';
+import cron from 'node-cron';
 import { initScheduler } from './services/scheduler.service';
 import { notificationQueue } from './jobs/queue';
 import { processNotificationJob } from './jobs/workers/notification-dispatcher';
+import { runRecurringExpensePoller } from './jobs/workers/recurring-expense-poller';
+import { runExpenseProvisioner } from './jobs/workers/expense-provisioner';
+import { runDuesReminder } from './jobs/workers/dues-reminder';
+import { runSlaBreachChecker } from './jobs/workers/sla-breach-checker';
+import { runVisitorQrExpiry } from './jobs/workers/visitor-qr-expiry';
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
@@ -31,12 +37,37 @@ const PORT = parseInt(process.env.PORT ?? '3000', 10);
 // Bull queues support multiple concurrent consumers safely — a job is
 // claimed by whichever consumer picks it up first, never processed twice —
 // so this is harmless to run alongside a dedicated worker service if one is
-// ever added later. Deliberately NOT duplicating worker-entry.ts's cron
-// schedules here: unlike a queue consumer, two independent cron schedules
-// both firing would genuinely double-send things like bill generation.
+// ever added later.
 notificationQueue.process('dispatch', 5, processNotificationJob);
 notificationQueue.on('failed', (job, err) =>
   logger.error('Notification job failed', { job_id: job?.id, error: err.message }));
+
+// ── Cron jobs (recurring expenses, dues reminders, SLA, visitor QR) ─────────
+//
+// Same root cause as the notification queue above: these lived ONLY in
+// jobs/worker-entry.ts, a `npm run worker` process Railway never had a
+// service for, so they have never actually run — a recurring expense's
+// "next due" date just sits there forever, dues reminders never go out,
+// breached SLAs are never flagged, expired visitor QR codes never get
+// marked expired. Wiring them into this process (the only one Railway
+// deploys) fixes that, the same way the queue consumer above was fixed.
+//
+// NOT included: runBillGenerator (jobs/workers/bill-generator.ts). It
+// overlaps with services/scheduler.service.ts's own bill-generation cron
+// below (initScheduler) on a different trigger (`due_day` on every config,
+// vs. opt-in `auto_generate_bills`+`auto_generate_day`) — running both risks
+// generating duplicate bills for associations that satisfy both. Needs
+// reconciling into one code path before it's safe to enable.
+cron.schedule('0 6 * * *', () =>
+  runRecurringExpensePoller().catch((err) => logger.error('Recurring expense poller error', { error: err.message })));
+cron.schedule('30 23 * * *', () =>
+  runExpenseProvisioner().catch((err) => logger.error('Expense provisioner error', { error: err.message })));
+cron.schedule('0 9 * * *', () =>
+  runDuesReminder().catch((err) => logger.error('Dues reminder error', { error: err.message })));
+cron.schedule('*/15 * * * *', () =>
+  runSlaBreachChecker().catch((err) => logger.error('SLA breach checker error', { error: err.message })));
+cron.schedule('0 * * * *', () =>
+  runVisitorQrExpiry().catch((err) => logger.error('Visitor QR expiry error', { error: err.message })));
 
 const start = async () => {
   // Start listening FIRST — health check must respond immediately

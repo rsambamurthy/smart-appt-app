@@ -19,8 +19,14 @@ export const runRecurringExpensePoller = async (): Promise<void> => {
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today.getTime() + 86400000);
 
+  // Catch anything due today OR overdue (next_due_date in the past), not
+  // just an exact match on today. A narrow `gte: today` window means a
+  // single missed run (the poller not being wired up at all, a deploy, a
+  // restart at the wrong moment) leaves that item stuck forever — its
+  // due date never advances, so a same-day-only window can never see it
+  // again once "today" moves past it.
   const due = await prisma.recurringExpense.findMany({
-    where: { is_active: true, next_due_date: { gte: today, lt: tomorrow } },
+    where: { is_active: true, next_due_date: { lt: tomorrow } },
   });
 
   for (const rec of due) {
@@ -46,7 +52,11 @@ export const runRecurringExpensePoller = async (): Promise<void> => {
       },
     });
 
-    await prisma.recurringExpense.update({ where: { id: rec.id }, data: { next_due_date: nextDueDate(today, rec.frequency) } });
+    // Advance from the item's own scheduled date, not from "today" — so a
+    // late/catch-up run doesn't drag the day-of-month forward with it (a
+    // monthly item due on the 1st stays due on the 1st, even if this
+    // particular run happened on the 4th).
+    await prisma.recurringExpense.update({ where: { id: rec.id }, data: { next_due_date: nextDueDate(rec.next_due_date, rec.frequency) } });
 
     const treasurers = await prisma.user.findMany({
       where: { association_id: rec.association_id, role: UserRole.TREASURER, is_active: true, deleted_at: null },
