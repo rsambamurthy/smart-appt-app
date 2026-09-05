@@ -95,12 +95,19 @@ export class SystemService {
     items: Array<{ group_id: string; role: string; enabled: boolean }>,
     editableRoles: string[],
   ) {
-    const rejected = items.find(i => !editableRoles.includes(i.role));
-    if (rejected) {
-      throw new ForbiddenError(
-        `You cannot change what the ${rejected.role} role sees.`,
-      );
-    }
+    // The screen loads and holds the WHOLE config for the association —
+    // including roles the caller cannot edit (e.g. a super user's earlier
+    // overrides for MANAGER) — because that is also what a manager's own GET
+    // returns. Its save button then flattens the entire draft, so any
+    // pre-existing row for a role outside editableRoles rides along in
+    // `items` on every save, not just ones that actually touch that role.
+    //
+    // Rejecting the whole batch for that meant a manager's save could fail
+    // in full — silently, since the caller has no try/catch — even though
+    // every change they actually made was for roles they ARE allowed to
+    // edit. Filtering instead means a foreign role's rows are left exactly
+    // as deleteMany already scopes them: untouched.
+    const filtered = items.filter(i => editableRoles.includes(i.role));
 
     const before = await prisma.menuGroupConfig.findMany({
       where: { association_id: associationId },
@@ -112,9 +119,9 @@ export class SystemService {
       prisma.menuGroupConfig.deleteMany({
         where: { association_id: associationId, role: { in: editableRoles } },
       }),
-      ...(items.length
+      ...(filtered.length
         ? [prisma.menuGroupConfig.createMany({
-            data: items.map(i => ({
+            data: filtered.map(i => ({
               association_id: associationId,
               group_id:       i.group_id,
               role:           i.role,
@@ -125,7 +132,7 @@ export class SystemService {
     ]);
 
     const beforeMap = new Map(before.map(b => [`${b.group_id}|${b.role}`, b.enabled]));
-    const afterMap  = new Map(items.map(i => [`${i.group_id}|${i.role}`, i.enabled]));
+    const afterMap  = new Map(filtered.map(i => [`${i.group_id}|${i.role}`, i.enabled]));
     const keys = new Set([...beforeMap.keys(), ...afterMap.keys()]);
     const changed = [...keys].filter(k => beforeMap.get(k) !== afterMap.get(k));
 

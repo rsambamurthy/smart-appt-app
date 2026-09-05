@@ -85,22 +85,50 @@ export default function WebMenuPage() {
     setDirty(true);
   };
 
+  // `draft` is seeded from the GET response, which returns every role that has
+  // ANY override stored for this association — including roles this caller
+  // cannot edit (e.g. a super user's earlier overrides for MANAGER, sitting
+  // alongside a manager's own RESIDENT overrides). Flattening the whole draft
+  // used to resend those foreign-role rows on every save; the backend has its
+  // own filter for this too, but keeping it out of the payload here means a
+  // manager's save only ever describes the role they were actually editing.
   const flatten = (d: Record<string, Record<string, boolean>>) =>
-    Object.entries(d).flatMap(([r, cells]) =>
-      Object.entries(cells).map(([group_id, enabled]) => ({ group_id, role: r, enabled })));
+    Object.entries(d)
+      .filter(([r]) => editable.includes(r))
+      .flatMap(([r, cells]) =>
+        Object.entries(cells).map(([group_id, enabled]) => ({ group_id, role: r, enabled })));
+
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const onSave = async () => {
     if (!assocId) return;
-    await save({ associationId: assocId, items: flatten(draft) }).unwrap();
-    setDirty(false);
+    setSaveError(null);
+    try {
+      await save({ associationId: assocId, items: flatten(draft) }).unwrap();
+      setDirty(false);
+    } catch (err) {
+      // Without this, a failed save left the button reading "Save changes"
+      // with nothing else on screen to say why — which reads exactly like a
+      // save that silently did nothing.
+      const msg = (err as { data?: { message?: string } })?.data?.message
+        ?? 'Could not save — please try again.';
+      setSaveError(msg);
+    }
   };
 
   const resetRole = async () => {
     if (!assocId) return;
+    setSaveError(null);
     const next = { ...draft, [role]: {} };
     setDraft(next);
-    await save({ associationId: assocId, items: flatten(next) }).unwrap();
-    setDirty(false);
+    try {
+      await save({ associationId: assocId, items: flatten(next) }).unwrap();
+      setDirty(false);
+    } catch (err) {
+      const msg = (err as { data?: { message?: string } })?.data?.message
+        ?? 'Could not save — please try again.';
+      setSaveError(msg);
+    }
   };
 
   const visibleCount  = items.filter(i => isOn(i.id)).length;
@@ -176,6 +204,14 @@ export default function WebMenuPage() {
             </button>
           )}
         </div>
+
+        {saveError && (
+          <div style={{ border: '1px solid #fca5a5', background: '#fef2f2',
+                        borderRadius: 10, padding: '10px 14px', marginBottom: 14,
+                        fontSize: 12.5, color: '#b91c1c' }}>
+            {saveError}
+          </div>
+        )}
 
         {error ? (
           // Without this the screen sat on "Loading…" for ever whenever the
