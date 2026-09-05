@@ -74,4 +74,11 @@ router.post(
   (req, res, next) => maintenanceController.feedback(req as never, res, next),
 );
 
+// DELETE /maintenance/:id — Manager only, and only once the ticket is CLOSED (see maintenanceService.deleteTicket)
+router.delete(
+  '/:id',
+  requireRoles(UserRole.MANAGER),
+  (req, res, next) => maintenanceController.remove(req as never, res, next),
+);
+
 export default router;

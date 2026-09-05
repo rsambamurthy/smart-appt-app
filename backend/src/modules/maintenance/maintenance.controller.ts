@@ -73,6 +73,13 @@ export class MaintenanceController {
     } catch (err) { next(err); }
   }
 
+  async remove(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const result = await maintenanceService.deleteTicket(req.user!.association_id, req.params['id']);
+      res.json(result);
+    } catch (err) { next(err); }
+  }
+
   async dashboard(req: AuthRequest, res: Response, next: NextFunction) {
     try {
       const result = await maintenanceService.getDashboard(req.user!.association_id);

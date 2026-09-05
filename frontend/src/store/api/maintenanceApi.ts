@@ -33,11 +33,16 @@ export const maintenanceApi = baseApi.injectEndpoints({
     getDashboard: builder.query<{ data: unknown }, void>({
       query: () => '/maintenance/dashboard',
     }),
+    // Manager only, and only once the ticket is CLOSED — see maintenanceService.deleteTicket.
+    deleteTicket: builder.mutation<{ data: { message: string } }, string>({
+      query: (id) => ({ url: `/maintenance/${id}`, method: 'DELETE' }),
+      invalidatesTags: (_r, _e, id) => [{ type: 'Ticket', id }, 'Ticket'],
+    }),
   }),
 });
 
 export const {
   useListTicketsQuery, useListMyTicketsQuery, useGetTicketQuery,
   useCreateTicketMutation, useAssignTicketMutation, useUpdateStatusMutation,
-  useSubmitFeedbackMutation, useGetDashboardQuery,
+  useSubmitFeedbackMutation, useGetDashboardQuery, useDeleteTicketMutation,
 } = maintenanceApi;

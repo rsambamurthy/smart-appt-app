@@ -2,6 +2,7 @@ import prisma from '../../config/database';
 import { NotFoundError, ForbiddenError, UnprocessableError } from '../../utils/errors';
 import { computeSlaDueAt, paginatedResponse } from '../../utils/helpers';
 import { notificationService } from '../../services/notification.service';
+import { auditService } from '../../services/audit.service';
 import { CreateTicketBody, AssignTicketBody, UpdateStatusBody, FeedbackBody } from './maintenance.schema';
 import { TicketStatus, UserRole } from '@prisma/client';
 
@@ -65,7 +66,7 @@ export class MaintenanceService {
       date_from?: string; date_to?: string;
     },
   ) {
-    const where: Record<string, unknown> = { association_id: associationId };
+    const where: Record<string, unknown> = { association_id: associationId, deleted_at: null };
     if (query.status) where['status'] = query.status;
     if (query.category) where['category'] = query.category;
     if (query.priority) where['priority'] = query.priority;
@@ -96,7 +97,7 @@ export class MaintenanceService {
 
   async getTicket(associationId: string, ticketId: string, userId: string, role: UserRole) {
     const ticket = await prisma.maintenanceTicket.findFirst({
-      where: { id: ticketId, association_id: associationId },
+      where: { id: ticketId, association_id: associationId, deleted_at: null },
       include: {
         unit: true,
         raiser: { select: { name: true, phone: true } },
@@ -113,7 +114,7 @@ export class MaintenanceService {
   }
 
   async assignTicket(associationId: string, ticketId: string, body: AssignTicketBody, performedBy: string) {
-    const ticket = await prisma.maintenanceTicket.findFirst({ where: { id: ticketId, association_id: associationId } });
+    const ticket = await prisma.maintenanceTicket.findFirst({ where: { id: ticketId, association_id: associationId, deleted_at: null } });
     if (!ticket) throw new NotFoundError('Ticket');
 
     const now = new Date();
@@ -149,7 +150,7 @@ export class MaintenanceService {
   }
 
   async updateStatus(associationId: string, ticketId: string, body: UpdateStatusBody, performedBy: string) {
-    const ticket = await prisma.maintenanceTicket.findFirst({ where: { id: ticketId, association_id: associationId } });
+    const ticket = await prisma.maintenanceTicket.findFirst({ where: { id: ticketId, association_id: associationId, deleted_at: null } });
     if (!ticket) throw new NotFoundError('Ticket');
 
     const now = new Date();
@@ -185,7 +186,7 @@ export class MaintenanceService {
   }
 
   async submitFeedback(associationId: string, ticketId: string, userId: string, body: FeedbackBody) {
-    const ticket = await prisma.maintenanceTicket.findFirst({ where: { id: ticketId, association_id: associationId } });
+    const ticket = await prisma.maintenanceTicket.findFirst({ where: { id: ticketId, association_id: associationId, deleted_at: null } });
     if (!ticket) throw new NotFoundError('Ticket');
     if (ticket.raised_by !== userId) throw new ForbiddenError();
     if (ticket.status !== TicketStatus.RESOLVED) throw new UnprocessableError('Feedback can only be submitted on RESOLVED tickets.');
@@ -198,20 +199,57 @@ export class MaintenanceService {
     return { data: updated };
   }
 
+  /**
+   * Soft-delete a ticket, Manager only — and only once it's CLOSED.
+   *
+   * Restricting this to CLOSED (rather than letting a Manager delete an
+   * open ticket) keeps the delete button from doubling as a way to make an
+   * unresolved complaint disappear; a ticket still SUBMITTED/ACKNOWLEDGED/
+   * IN_PROGRESS/RESOLVED has to be closed first, same as any other closeout.
+   */
+  async deleteTicket(associationId: string, ticketId: string) {
+    const ticket = await prisma.maintenanceTicket.findFirst({
+      where: { id: ticketId, association_id: associationId, deleted_at: null },
+    });
+    if (!ticket) throw new NotFoundError('Ticket');
+    if (ticket.status !== TicketStatus.CLOSED) {
+      throw new UnprocessableError('Only a CLOSED ticket can be deleted.');
+    }
+
+    await prisma.maintenanceTicket.update({
+      where: { id: ticketId },
+      data: { deleted_at: new Date() },
+    });
+
+    await auditService.delete(
+      'ticket', ticketId, ticket,
+      `Deleted maintenance ticket "${ticket.title}"`,
+    );
+
+    return { data: { message: 'Ticket deleted' } };
+  }
+
   async getDashboard(associationId: string) {
     const [openByCategory, slaBreaches, avgResolution] = await Promise.all([
       prisma.maintenanceTicket.groupBy({
         by: ['category'],
-        where: { association_id: associationId, status: { notIn: [TicketStatus.CLOSED, TicketStatus.RESOLVED] } },
+        where: {
+          association_id: associationId, deleted_at: null,
+          status: { notIn: [TicketStatus.CLOSED, TicketStatus.RESOLVED] },
+        },
         _count: { id: true },
       }),
       prisma.maintenanceTicket.count({
-        where: { association_id: associationId, sla_breached: true, status: { notIn: [TicketStatus.CLOSED] } },
+        where: {
+          association_id: associationId, deleted_at: null,
+          sla_breached: true, status: { notIn: [TicketStatus.CLOSED] },
+        },
       }),
       prisma.$queryRaw<{ avg_hours: number }[]>`
         SELECT EXTRACT(EPOCH FROM AVG(resolved_at - created_at))/3600 AS avg_hours
         FROM maintenance_tickets
         WHERE association_id = ${associationId}::uuid
+          AND deleted_at IS NULL
           AND resolved_at IS NOT NULL
           AND created_at > NOW() - INTERVAL '30 days'
       `,
