@@ -64,6 +64,7 @@ import MobileMenuPage from './pages/admin/MobileMenuPage';
 import BrandingPage from './pages/admin/BrandingPage';
 import IntegrationApiKeysPage from './pages/admin/IntegrationApiKeysPage';
 import AuditLogPage from './pages/admin/AuditLogPage';
+import ExpenseApprovalSettingsPage from './pages/admin/ExpenseApprovalSettingsPage';
 import InsightsPage from './pages/reports/InsightsPage';
 import ChangeMpinPage from './pages/ChangeMpinPage';
 import TransactionsDashboardPage from './pages/transactions/TransactionsDashboardPage';
@@ -236,6 +237,7 @@ export default function App() {
         {!IS_NATIVE && <Route path="/admin/branding" element={<ProtectedRoute><MenuFeatureGate itemId="system_branding" label="Branding"><BrandingPage /></MenuFeatureGate></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/admin/audit-log" element={<ProtectedRoute><MenuFeatureGate itemId="system_audit_log" label="Audit Trail"><AuditLogPage /></MenuFeatureGate></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/admin/integration-keys" element={<ProtectedRoute><MenuFeatureGate itemId="system_integration_keys" label="Integration API Keys"><IntegrationApiKeysPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/expense-approval" element={<ProtectedRoute><MenuFeatureGate itemId="system_expense_approval" label="Expense Approval"><ExpenseApprovalSettingsPage /></MenuFeatureGate></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/reports/insights" element={<ProtectedRoute><MenuFeatureGate itemId="reports_insights" label="Insights"><InsightsPage /></MenuFeatureGate></ProtectedRoute>} />}
 
         {/* Transactions */}

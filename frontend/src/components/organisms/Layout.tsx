@@ -89,6 +89,11 @@ export const NAV_GROUPS: NavGroup[] = [
       // directly. Manager-only by default, same posture as the other admin
       // screens above.
       { id: 'system_integration_keys', label: 'Integration API Keys', path: '/admin/integration-keys', roles: ['SUPER_USER', 'MANAGER'], dot: '#16a34a', end: true },
+      // The amount above which an expense needs Treasurer/Committee (and
+      // Manager, for high-value items) approval instead of being recorded
+      // immediately. Manager-only by default, same posture as the rest of
+      // this group — see admin.schema.ts on the backend for what it edits.
+      { id: 'system_expense_approval', label: 'Expense Approval', path: '/admin/expense-approval', roles: ['SUPER_USER', 'MANAGER'], dot: '#dc2626', end: true },
     ],
   },
   {
