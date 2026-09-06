@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { UserRole } from '@prisma/client';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
+import { requireMenuFeature } from '../../middleware/menu-access';
 import { validate } from '../../middleware/validate';
 import { updateAssociationConfigSchema } from './admin.schema';
 import prisma from '../../config/database';
@@ -10,23 +11,30 @@ import { AuthRequest } from '../../types';
 const router = Router();
 router.use(authenticate);
 
-// GET /admin/config
-router.get('/config', requireRoles(UserRole.MANAGER, UserRole.TREASURER), async (req: AuthRequest, res, next) => {
+// GET & PUT /admin/config
+//
+// Gated by requireMenuFeature rather than a fixed requireRoles list: which
+// role(s) may actually view/change this — not just see its sidebar link —
+// is a call for this association's own Manager to make via Web Menu
+// Configuration (itemId 'system_expense_approval', see Layout.tsx), not
+// something to hardcode here. MANAGER is only the *default* that applies
+// until a Manager explicitly configures something else — e.g. handing this
+// to COMMITTEE instead, or adding it alongside MANAGER — for associations
+// where Committee, not Manager, owns financial policy like this.
+router.get('/config', requireMenuFeature('system_expense_approval', UserRole.MANAGER, UserRole.TREASURER), async (req: AuthRequest, res, next) => {
   try {
     const config = await prisma.associationConfig.findUnique({ where: { association_id: req.user!.association_id } });
     res.json({ data: config });
   } catch (err) { next(err); }
 });
 
-// PUT /admin/config
-//
 // A plain `update`, not an upsert: the config row is always created inside
 // the same transaction that creates the Association itself
 // (associations.service.ts), so by the time any user can authenticate and
 // reach this route it is guaranteed to already exist. (An upsert here used
 // to crash on every partial body — see admin.schema.ts for the story.) The
 // validate() call whitelists exactly which fields this endpoint may touch.
-router.put('/config', requireRoles(UserRole.MANAGER), validate(updateAssociationConfigSchema), async (req: AuthRequest, res, next) => {
+router.put('/config', requireMenuFeature('system_expense_approval', UserRole.MANAGER), validate(updateAssociationConfigSchema), async (req: AuthRequest, res, next) => {
   try {
     const config = await prisma.associationConfig.update({
       where: { association_id: req.user!.association_id },

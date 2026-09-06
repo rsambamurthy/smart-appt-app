@@ -91,8 +91,12 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'system_integration_keys', label: 'Integration API Keys', path: '/admin/integration-keys', roles: ['SUPER_USER', 'MANAGER'], dot: '#16a34a', end: true },
       // The amount above which an expense needs Treasurer/Committee (and
       // Manager, for high-value items) approval instead of being recorded
-      // immediately. Manager-only by default, same posture as the rest of
-      // this group — see admin.schema.ts on the backend for what it edits.
+      // immediately. MANAGER here is only the default — unlike the items
+      // above, the backend enforces this same Web Menu Configuration
+      // decision too (requireMenuFeature, not a fixed requireRoles list), so
+      // reassigning it to e.g. COMMITTEE from that screen is a real access
+      // change, not just a sidebar one. See admin.schema.ts on the backend
+      // for what the page actually edits.
       { id: 'system_expense_approval', label: 'Expense Approval', path: '/admin/expense-approval', roles: ['SUPER_USER', 'MANAGER'], dot: '#dc2626', end: true },
     ],
   },
