@@ -20,6 +20,11 @@ export interface NavItem {
   roles: string[];
   dot: string;
   end?: boolean;
+  // Present in this catalogue (so Web Menu Configuration and requireMenuFeature
+  // can gate it per-role, same as any other item) but never drawn as its own
+  // sidebar link — for a feature that lives inside another item's page rather
+  // than at its own destination. See 'expense_approval' below.
+  sidebarHidden?: boolean;
 }
 
 export interface NavGroup {
@@ -138,6 +143,17 @@ export const NAV_GROUPS: NavGroup[] = [
     landingPath: '/accounting/journal',
     items: [
       { id: 'journal_entries', label: 'Journal Entries', path: '/accounting/journal',        roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#7c3aed', end: true },
+      // Not a page of its own — the Approve/Reject action shown on a
+      // Pending Approval entry inside Journal Entries (a Cash/Bank/JV entry
+      // to an Expenses account over threshold; see journal.service.ts). Whose
+      // role(s) may act on it is this same per-association Web Menu decision
+      // as everything else here, not a role I get to hardcode — COMMITTEE is
+      // only the default that applies until a Manager configures otherwise
+      // (e.g. handing it to Manager instead, or adding Manager alongside
+      // Committee). Enforced on the backend by requireMenuFeatureOrApiKeyScope
+      // (menu-access.ts), which also leaves the BPM tool's own scoped
+      // Integration API Key call to expenses:approve untouched.
+      { id: 'expense_approval', label: 'Approve Expenses', path: '/accounting/journal',      roles: ['SUPER_USER', 'COMMITTEE'],                          dot: '#f59e0b', end: true, sidebarHidden: true },
       { id: 'ledger',          label: 'Ledger',          path: '/accounting/ledger',          roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#16a34a', end: true },
       { id: 'pnl',             label: 'Profit & Loss',   path: '/accounting/pnl',             roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#f59e0b', end: true },
       { id: 'balance_sheet',   label: 'Balance Sheet',   path: '/accounting/balance-sheet',   roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#7c3aed', end: true },
@@ -258,6 +274,7 @@ function WebLayout({ children }: { children: React.ReactNode }) {
     .map((g) => ({
       ...g,
       items: g.items.filter((i) => {
+        if (i.sidebarHidden) return false;                  // configurable, but never its own link
         if (role === 'SUPER_USER') return true;            // SUPER_USER always sees all
         const stored = menuConfig?.[role]?.[i.id];
         if (stored !== undefined) return stored;           // use Super User's config if set

@@ -4,8 +4,7 @@ import { UserRole } from '@prisma/client';
 import { expensesController } from './expenses.controller';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
-import { requireMenuFeature } from '../../middleware/menu-access';
-import { requireRolesOrApiKeyScope } from '../../middleware/api-key-scope';
+import { requireMenuFeature, requireMenuFeatureOrApiKeyScope } from '../../middleware/menu-access';
 import { validate } from '../../middleware/validate';
 import {
   createExpenseSchema, approveExpenseSchema, setBudgetSchema,
@@ -85,7 +84,14 @@ router.delete('/:id', requireRoles(UserRole.TREASURER, UserRole.MANAGER), (req, 
 // Also callable by a scoped Integration API Key (the BPM/workflow tool) —
 // see middleware/api-key-scope.ts. A key never bypasses this: it must carry
 // the 'expenses:approve' scope, same as a Committee member needing the role.
-router.patch('/:id/approve', requireRolesOrApiKeyScope('expenses:approve', UserRole.COMMITTEE), validate(approveExpenseSchema), (req, res, next) =>
+//
+// Which role(s) may approve — not just reach the Journal Entries page the
+// action lives on — is a per-association Web Menu Configuration decision
+// (itemId 'expense_approval', see Layout.tsx), same as expense_threshold:
+// COMMITTEE is only the *default*, not a hardcoded requirement. This is the
+// one route an outside integration is also allowed to call directly, hence
+// requireMenuFeatureOrApiKeyScope rather than plain requireMenuFeature.
+router.patch('/:id/approve', requireMenuFeatureOrApiKeyScope('expense_approval', 'expenses:approve', UserRole.COMMITTEE), validate(approveExpenseSchema), (req, res, next) =>
   expensesController.approve(req as never, res, next));
 
 export default router;

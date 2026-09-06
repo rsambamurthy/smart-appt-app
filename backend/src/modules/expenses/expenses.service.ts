@@ -352,7 +352,7 @@ export class ExpensesService {
         action: body.decision === 'APPROVED' ? 'APPROVE' : 'REJECT',
         performed_by: approvedBy,
         // approvedBy is null exactly when this ran via a scoped Integration
-        // API Key (see requireRolesOrApiKeyScope on this route) — the
+        // API Key (see requireMenuFeatureOrApiKeyScope on this route) — the
         // context's actorLabel is set by middleware/auth.ts for that case.
         actor_label: approvedBy ? null : (getContext().actorLabel ?? null),
         old_value: { status: expense.status } as never, new_value: { status: newStatus, note: body.note } as never,

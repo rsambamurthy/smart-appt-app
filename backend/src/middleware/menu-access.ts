@@ -38,18 +38,56 @@ export function requireMenuFeature(itemId: string, ...defaultRoles: UserRole[]) 
     if (req.user.role === UserRole.SUPER_USER) return next();
 
     try {
-      const override = await prisma.menuGroupConfig.findUnique({
-        where: {
-          association_id_group_id_role: {
-            association_id: req.user.association_id,
-            group_id: itemId,
-            role: req.user.role,
-          },
-        },
-        select: { enabled: true },
-      });
+      const allowed = await isMenuFeatureAllowed(itemId, req.user.association_id, req.user.role, defaultRoles);
+      if (!allowed) {
+        return next(new ForbiddenError('Not enabled for your role. Ask your Manager to enable this under Web Menu Configuration.'));
+      }
+      next();
+    } catch (err) {
+      next(err);
+    }
+  };
+}
 
-      const allowed = override ? override.enabled : defaultRoles.includes(req.user.role);
+async function isMenuFeatureAllowed(
+  itemId: string,
+  associationId: string,
+  role: UserRole,
+  defaultRoles: UserRole[],
+): Promise<boolean> {
+  const override = await prisma.menuGroupConfig.findUnique({
+    where: {
+      association_id_group_id_role: {
+        association_id: associationId,
+        group_id: itemId,
+        role,
+      },
+    },
+    select: { enabled: true },
+  });
+  return override ? override.enabled : defaultRoles.includes(role);
+}
+
+/**
+ * Like requireMenuFeature, but also lets an Integration API Key through when
+ * it carries `scope` — for the small set of endpoints (e.g.
+ * PATCH /expenses/:id/approve) an outside integration such as the BPM tool is
+ * allowed to call directly. A real user still goes through the same
+ * per-association Web Menu Configuration decision as requireMenuFeature;
+ * only the API-key path is fixed (an integration doesn't have a "role" to
+ * look up an override for).
+ */
+export function requireMenuFeatureOrApiKeyScope(itemId: string, scope: string, ...defaultRoles: UserRole[]) {
+  return async (req: AuthRequest, _res: Response, next: NextFunction): Promise<void> => {
+    if (req.apiKey) {
+      if (req.apiKey.scopes.includes(scope)) return next();
+      return next(new ForbiddenError(`This API key is not scoped for '${scope}'.`));
+    }
+    if (!req.user) return next(new UnauthorizedError());
+    if (req.user.role === UserRole.SUPER_USER) return next();
+
+    try {
+      const allowed = await isMenuFeatureAllowed(itemId, req.user.association_id, req.user.role, defaultRoles);
       if (!allowed) {
         return next(new ForbiddenError('Not enabled for your role. Ask your Manager to enable this under Web Menu Configuration.'));
       }

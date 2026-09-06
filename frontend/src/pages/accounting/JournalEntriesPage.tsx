@@ -13,6 +13,8 @@ import {
   BPCategory,
   JournalEntry,
 } from '../../store/api/accountingApi';
+import { useApproveExpenseMutation } from '../../store/api/expensesApi';
+import { useMenuItemEnabled } from '../../hooks/useMenuItemEnabled';
 
 // ── Infer BPCategory from BPType name ─────────────────────────────────────────
 function inferCategoryFromTypeName(name: string): BPCategory | null {
@@ -176,6 +178,34 @@ export default function JournalEntriesPage() {
   const [downloadAttachment] = useDownloadJournalAttachmentMutation();
   const [attachmentError, setAttachmentError] = useState('');
   const [confirmRemoveAttachment, setConfirmRemoveAttachment] = useState(false);
+
+  // ── Approve / Reject a Pending Approval (DRAFT) entry ────────────────────
+  // Whether the current user's role may act on this at all is a per-
+  // association Web Menu Configuration decision (itemId 'expense_approval'),
+  // not a role hardcoded here — see Layout.tsx and requireMenuFeatureOrApiKeyScope
+  // on the backend, which enforces the same decision on PATCH /expenses/:id/approve.
+  const { enabled: canApproveExpenses } = useMenuItemEnabled('expense_approval');
+  const [approveExpense, { isLoading: approving }] = useApproveExpenseMutation();
+  const [approveTarget, setApproveTarget] = useState<{ entry: JournalEntry; decision: 'APPROVED' | 'REJECTED' } | null>(null);
+  const [approveNote, setApproveNote] = useState('');
+  const [approveError, setApproveError] = useState('');
+
+  const handleApprove = async () => {
+    if (!approveTarget?.entry.reference_id) return;
+    setApproveError('');
+    try {
+      await approveExpense({
+        id: approveTarget.entry.reference_id,
+        body: { decision: approveTarget.decision, note: approveNote || undefined },
+      }).unwrap();
+      setApproveTarget(null);
+      setApproveNote('');
+      refetch();
+    } catch (e: unknown) {
+      const err = e as { data?: { message?: string; detail?: string } };
+      setApproveError(err?.data?.message ?? err?.data?.detail ?? 'Could not save — please try again.');
+    }
+  };
 
   const handleRemoveAttachment = async (entryId: string) => {
     setAttachmentError('');
@@ -860,6 +890,18 @@ export default function JournalEntriesPage() {
               <i className="ti ti-pencil" style={{ fontSize: 13 }} /> Edit
             </button>
           )}
+          {entry.status === 'DRAFT' && entry.reference_id && canApproveExpenses && (
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <button onClick={() => setApproveTarget({ entry, decision: 'APPROVED' })}
+                style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: '#16a34a', color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                ✓ Approve
+              </button>
+              <button onClick={() => setApproveTarget({ entry, decision: 'REJECTED' })}
+                style={{ padding: '7px 14px', borderRadius: 7, border: 'none', background: '#dc2626', color: '#fff', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>
+                ✕ Reject
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Lines table */}
@@ -1169,6 +1211,41 @@ export default function JournalEntriesPage() {
         </div>
 
       </div>
+
+      {/* Approve / Reject a Pending Approval entry */}
+      {approveTarget && (
+        <>
+          <div onClick={() => { setApproveTarget(null); setApproveNote(''); setApproveError(''); }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 200 }} />
+          <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 201, background: '#fff', borderRadius: 12, padding: '22px 24px', width: 360, boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>
+              {approveTarget.decision === 'APPROVED' ? '✓ Approve' : '✕ Reject'} this expense?
+            </div>
+            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+              {approveTarget.entry.narration} — {fmtAmt(approveTarget.entry.lines.reduce((s, l) => s + Number(l.debit), 0))}
+              {approveTarget.decision === 'APPROVED'
+                ? '. This posts the journal entry to the ledger.'
+                : '. This cancels the journal entry — it will not post.'}
+            </div>
+            <input type="text" placeholder="Reason (optional)…" value={approveNote}
+              onChange={(e) => setApproveNote(e.target.value)}
+              style={{ width: '100%', padding: '8px 11px', borderRadius: 7, border: '1px solid #cbd5e1', fontSize: 13, boxSizing: 'border-box', marginBottom: 12 }} />
+            {approveError && (
+              <div style={{ fontSize: 12.5, color: '#dc2626', marginBottom: 10 }}>{approveError}</div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={handleApprove} disabled={approving}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: 'none', background: approveTarget.decision === 'APPROVED' ? '#16a34a' : '#dc2626', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: approving ? 0.7 : 1 }}>
+                {approving ? 'Saving…' : approveTarget.decision === 'APPROVED' ? 'Approve' : 'Reject'}
+              </button>
+              <button onClick={() => { setApproveTarget(null); setApproveNote(''); setApproveError(''); }}
+                style={{ flex: 1, padding: '9px 0', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: 13, cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </Layout>
   );
 }

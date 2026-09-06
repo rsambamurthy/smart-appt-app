@@ -96,7 +96,12 @@ export const expensesApi = baseApi.injectEndpoints({
     }),
     approveExpense: builder.mutation<{ data: unknown }, { id: string; body: object }>({
       query: ({ id, body }) => ({ url: `/expenses/${id}/approve`, method: 'PATCH', body }),
-      invalidatesTags: ['Expense'],
+      // Also invalidates 'Journal': an expense that originated from a
+      // Cash/Bank/JV entry (see journal.service.ts's createManual) has a
+      // DRAFT JournalEntry linked to it that this same call finalizes or
+      // cancels (see expenses.service.ts's approveExpense) — Journal Entries
+      // needs to refetch too, not just the Expenses list.
+      invalidatesTags: ['Expense', 'Journal'],
     }),
 
     // ── Dashboard / Reporting ────────────────────────────────────────────────
