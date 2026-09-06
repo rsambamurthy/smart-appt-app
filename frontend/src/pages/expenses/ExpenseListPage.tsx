@@ -43,6 +43,9 @@ export default function ExpenseListPage() {
   const user = useSelector((s: RootState) => s.auth.user);
   const isTreasurer = user?.role === 'TREASURER' || user?.role === 'SUPER_USER';
   const isCommittee = user?.role === 'COMMITTEE' || user?.role === 'SUPER_USER';
+  // Delete is also open to Manager (create/edit stay Treasurer-only — matches
+  // the backend's DELETE /expenses/:id gate).
+  const canDeleteExpenses = isTreasurer || user?.role === 'MANAGER';
 
   const [filterCategory, setFilterCategory] = useState('');
   const [filterDateFrom, setFilterDateFrom] = useState('');
@@ -265,7 +268,7 @@ export default function ExpenseListPage() {
                     const canEdit = isTreasurer && (e.status === 'RECORDED' || e.status === 'PENDING_APPROVAL');
                     // Deleting an already-posted expense now cancels its ledger entry
                     // alongside it (see expensesService.deleteExpense) — safe for any status.
-                    const canDelete = isTreasurer;
+                    const canDelete = canDeleteExpenses;
                     const canApprove = isCommittee && e.status === 'PENDING_APPROVAL';
                     return (
                       <tr key={e.id}>

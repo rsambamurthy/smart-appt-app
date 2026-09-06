@@ -60,16 +60,16 @@ router.get('/provisions', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, U
 router.put('/budgets/:category', requireRoles(UserRole.TREASURER), validate(setBudgetSchema), (req, res, next) =>
   expensesController.setBudget(req as never, res, next));
 
-router.get('/', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE), (req, res, next) =>
+router.get('/', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   expensesController.list(req as never, res, next));
 
-router.get('/:id', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE), (req, res, next) =>
+router.get('/:id', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   expensesController.getOne(req as never, res, next));
 
 router.patch('/:id', requireRoles(UserRole.TREASURER), validate(createExpenseSchema.partial()), (req, res, next) =>
   expensesController.update(req as never, res, next));
 
-router.delete('/:id', requireRoles(UserRole.TREASURER), (req, res, next) =>
+router.delete('/:id', requireRoles(UserRole.TREASURER, UserRole.MANAGER), (req, res, next) =>
   expensesController.remove(req as never, res, next));
 
 router.patch('/:id/approve', requireRoles(UserRole.COMMITTEE), validate(approveExpenseSchema), (req, res, next) =>

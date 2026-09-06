@@ -164,7 +164,7 @@ export default function App() {
         {!IS_NATIVE && <Route path="/dues/other-receipts" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OtherReceiptsPage /></RoleRoute>} />}
 
         {/* Expenses */}
-        {!IS_NATIVE && <Route path="/expenses" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseListPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/expenses" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ExpenseListPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseDashboardPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/categories" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><ExpenseCategoriesPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/recurring" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><RecurringExpensesPage /></RoleRoute>} />}
