@@ -45,6 +45,13 @@ export interface JournalEntry {
   reference_code: string | null;
   voucher_type:   string | null;
   source:         'AUTO' | 'MANUAL';
+  // The backend already sends this on every list/get response (see
+  // journal.service.ts's shared ENTRY_FIELDS) — it just had no field here to
+  // land in, so a cancelled entry (e.g. deleteExpense cancelling the entry
+  // behind a removed duplicate) rendered identically to a normal posted one.
+  status:               'DRAFT' | 'POSTED' | 'CANCELLED';
+  cancelled_at?:         string | null;
+  cancellation_reason?:  string | null;
   created_by:     string | null;
   created_at:     string;
   lines:          JournalLine[];

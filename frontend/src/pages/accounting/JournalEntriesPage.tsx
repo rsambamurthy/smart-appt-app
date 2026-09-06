@@ -817,6 +817,11 @@ export default function JournalEntriesPage() {
               <span style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 9px', borderRadius: 99, background: tc.bg, color: tc.color }}>
                 {tc.label}
               </span>
+              {entry.status === 'CANCELLED' && (
+                <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 9px', borderRadius: 99, background: '#fef2f2', color: '#991b1b', border: '1px solid #fca5a5' }}>
+                  Cancelled
+                </span>
+              )}
               {entry.reference_code && (
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', padding: '2px 10px', borderRadius: 5, letterSpacing: '0.04em', fontFamily: 'monospace' }}>
                   {entry.reference_code}
@@ -828,10 +833,16 @@ export default function JournalEntriesPage() {
                 </span>
               )}
             </div>
-            <div style={{ fontSize: 18, fontWeight: 600, color: '#1e293b', marginBottom: 4 }}>{entry.narration}</div>
+            <div style={{ fontSize: 18, fontWeight: 600, color: entry.status === 'CANCELLED' ? '#94a3b8' : '#1e293b', marginBottom: 4, textDecoration: entry.status === 'CANCELLED' ? 'line-through' : 'none' }}>{entry.narration}</div>
             <div style={{ fontSize: 12, color: '#94a3b8' }}>{fmtDate(entry.entry_date)}</div>
+            {entry.status === 'CANCELLED' && (
+              <div style={{ fontSize: 12, color: '#991b1b', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '6px 10px', marginTop: 8, maxWidth: 480 }}>
+                Cancelled{entry.cancelled_at ? ` on ${fmtDate(entry.cancelled_at)}` : ''}
+                {entry.cancellation_reason ? ` — ${entry.cancellation_reason}` : ''}. Excluded from every report and balance; kept here only for the audit trail.
+              </div>
+            )}
           </div>
-          {entry.source === 'MANUAL' && (
+          {entry.source === 'MANUAL' && entry.status !== 'CANCELLED' && (
             <button onClick={() => openEditForm(entry)}
               style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12.5, cursor: 'pointer', flexShrink: 0 }}>
               <i className="ti ti-pencil" style={{ fontSize: 13 }} /> Edit
@@ -1048,12 +1059,18 @@ export default function JournalEntriesPage() {
                           borderBottom: '1px solid #e2e8f0',
                           borderLeft: isActive ? '3px solid #2563eb' : '3px solid transparent',
                           background: isActive ? '#eff6ff' : '#fff',
+                          opacity: entry.status === 'CANCELLED' ? 0.55 : 1,
                           transition: 'background 0.12s, border-left-color 0.12s',
                         }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
                           <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: tc.bg, color: tc.color }}>
                             {tc.label}
                           </span>
+                          {entry.status === 'CANCELLED' && (
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: '#fef2f2', color: '#991b1b' }}>
+                              Cancelled
+                            </span>
+                          )}
                           {entry.reference_code && (
                             <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#7c3aed', fontWeight: 600 }}>
                               {entry.reference_code}
@@ -1061,7 +1078,7 @@ export default function JournalEntriesPage() {
                           )}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                          <span style={{ fontSize: 12.5, fontWeight: 500, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 500, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0, textDecoration: entry.status === 'CANCELLED' ? 'line-through' : 'none' }}>
                             {entry.narration}
                           </span>
                           <span style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', whiteSpace: 'nowrap' }}>
