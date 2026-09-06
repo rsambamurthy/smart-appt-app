@@ -238,6 +238,28 @@ export class ExpensesService {
       data: { status: newStatus, approved_by: approvedBy, approved_at: new Date(), approval_note: body.note },
     });
 
+    // If this expense originated from a Cash/Bank/Journal voucher rather than
+    // the standalone Expense form (see journal.service.ts's createManual), a
+    // JournalEntry already exists for it, held as DRAFT — finalize that same
+    // entry instead of posting a new one via postExpense below. Rejecting
+    // cancels it instead. A JE-originated expense is never is_recurring, so
+    // this never overlaps with the recurring-settlement block that follows.
+    const draftEntry = await prisma.journalEntry.findFirst({
+      where: {
+        association_id: associationId, reference_type: 'EXPENSE', reference_id: expenseId,
+        status: JournalStatus.DRAFT,
+      },
+      select: { id: true },
+    });
+    if (draftEntry) {
+      await prisma.journalEntry.update({
+        where: { id: draftEntry.id },
+        data: newStatus === ExpenseStatus.APPROVED
+          ? { status: JournalStatus.POSTED, posted_by_id: approvedBy, posted_at: new Date() }
+          : { status: JournalStatus.CANCELLED, cancelled_by_id: approvedBy, cancelled_at: new Date(), cancellation_reason: body.note ?? 'Expense rejected' },
+      });
+    }
+
     // Recurring expenses always come in as PENDING_APPROVAL (see the
     // recurring-expense poller), so this is the first moment a recurring
     // item is confirmed real. If it was already provisioned at month-end,

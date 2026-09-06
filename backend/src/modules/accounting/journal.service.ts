@@ -1,9 +1,10 @@
-import { AccountType, AuditAction, JournalEntrySource, JournalStatus, VoucherType, ExpenseStatus, Prisma } from '@prisma/client';
+import { AccountType, AuditAction, JournalEntrySource, JournalStatus, VoucherType, ExpenseStatus, ExpensePaymentMode, UserRole, Prisma } from '@prisma/client';
 import prisma from '../../config/database';
 import { NotFoundError, UnprocessableError } from '../../utils/errors';
 import { CreateJournalEntryBody } from './journal.schema';
 import logger from '../../utils/logger';
 import { auditService } from '../../services/audit.service';
+import { notificationService } from '../../services/notification.service';
 import { fyClosureService, getFinancialYear } from './fy-closure.service';
 import { accountingService } from './accounting.service';
 
@@ -2349,6 +2350,105 @@ class JournalService {
 
     await this.validateVoucherType(associationId, voucherType, body.lines);
 
+    const postLines = body.lines.map(l => ({
+      account_id:          l.account_id,
+      business_partner_id: l.business_partner_id ?? null,
+      debit:               l.debit  ?? 0,
+      credit:              l.credit ?? 0,
+      narration:           l.narration,
+    }));
+
+    // ── Expense-account gate ─────────────────────────────────────────────
+    // A Cash/Bank/Journal voucher whose lines debit an EXPENSE-type account
+    // IS an expense — it shouldn't take a second, separate "Add Expense" form
+    // to trigger the same approval workflow that form does. If the amount
+    // debited to expense account(s) is over this association's configured
+    // expense_approval_threshold, the entry is created but held as DRAFT
+    // (not POSTED), alongside a linked, PENDING_APPROVAL Expense row — the
+    // exact row type/endpoint (PATCH /expenses/:id/approve) the standalone
+    // Expense flow and the BPM tool integration already use, found via the
+    // existing reference_type/reference_id link (no schema change needed;
+    // DRAFT/CANCELLED already existed on JournalStatus, unused until now).
+    // Approving it flips this same entry to POSTED (see
+    // expenses.service.ts's approveExpense); rejecting cancels it. At or
+    // under threshold, the entry posts immediately as before, but still gets
+    // a backing RECORDED Expense row, so budget/vendor/recurring-spend
+    // tracking and the Expenses list see it without a separate form either.
+    const accountIds  = [...new Set(body.lines.map(l => l.account_id))];
+    const accounts    = await prisma.account.findMany({
+      where:  { id: { in: accountIds } },
+      select: { id: true, name: true, type: true },
+    });
+    const acctById     = new Map(accounts.map(a => [a.id, a]));
+    const expenseLines = body.lines.filter(l => acctById.get(l.account_id)?.type === AccountType.EXPENSE);
+    const expenseAmount = expenseLines.reduce((s, l) => s + (l.debit ?? 0), 0);
+
+    if (expenseAmount > 0) {
+      const config    = await prisma.associationConfig.findUnique({ where: { association_id: associationId } });
+      const threshold = Number(config?.expense_approval_threshold ?? 0);
+      const needsApproval = expenseAmount > threshold && threshold > 0;
+      // Not resolved from Business Partner → Vendor here (unlike the
+      // standalone Expense form) — keeping this first cut simple. A control
+      // account line still requires + keeps its business_partner_id on the
+      // journal line itself either way (validateControlAccounts, above).
+      const primaryAccount = acctById.get(expenseLines[0].account_id)!;
+
+      const { expense, entry } = await prisma.$transaction(async (tx) => {
+        const expense = await tx.expense.create({
+          data: {
+            association_id: associationId,
+            expense_date:   new Date(body.entry_date),
+            category:       primaryAccount.name,
+            amount:         expenseAmount,
+            payment_mode:   voucherType === VoucherType.CV ? ExpensePaymentMode.CASH : ExpensePaymentMode.ONLINE,
+            description:    body.narration,
+            status:         needsApproval ? ExpenseStatus.PENDING_APPROVAL : ExpenseStatus.RECORDED,
+            created_by:     createdBy,
+          },
+        });
+
+        const entry = await this.post(associationId, {
+          entry_date:      new Date(body.entry_date),
+          narration:       body.narration,
+          reference_type:  'EXPENSE',
+          reference_id:    expense.id,
+          voucher_type:    voucherType,
+          source:          JournalEntrySource.MANUAL,
+          status:          needsApproval ? JournalStatus.DRAFT : JournalStatus.POSTED,
+          created_by_id:   createdBy,
+          lines:           postLines,
+          client:          tx,
+        });
+
+        return { expense, entry };
+      });
+
+      if (needsApproval) {
+        const committee = await prisma.user.findMany({
+          where:  { association_id: associationId, role: UserRole.COMMITTEE, is_active: true, deleted_at: null },
+          select: { id: true },
+        });
+        await notificationService.dispatch({
+          type: 'EXPENSE_PENDING_APPROVAL',
+          channels: ['PUSH', 'EMAIL'],
+          recipients: committee.map((c) => c.id),
+          data: { expense_id: expense.id, amount: expenseAmount, category: primaryAccount.name },
+        });
+      }
+
+      await auditService.record({
+        entity_type: 'journal_entry',
+        entity_id:   entry.id,
+        action:      AuditAction.CREATE,
+        summary:     needsApproval
+          ? `Manual ${voucherType} ${entry.reference_code} — ₹${expenseAmount.toFixed(2)} expense, submitted for approval`
+          : `Manual ${voucherType} ${entry.reference_code} — ₹${totalDebit.toFixed(2)}`,
+        new_value:   { ...body, voucher_type: voucherType, financial_year: entryFY, expense_id: expense.id },
+      });
+
+      return { data: entry };
+    }
+
     const entry = await this.post(associationId, {
       entry_date:    new Date(body.entry_date),
       narration:     body.narration,
@@ -2356,13 +2456,7 @@ class JournalService {
       source:        JournalEntrySource.MANUAL,
       status:        JournalStatus.POSTED,
       created_by_id: createdBy,
-      lines:      body.lines.map(l => ({
-        account_id:          l.account_id,
-        business_partner_id: l.business_partner_id ?? null,
-        debit:               l.debit  ?? 0,
-        credit:              l.credit ?? 0,
-        narration:           l.narration,
-      })),
+      lines:         postLines,
     });
 
     await auditService.record({

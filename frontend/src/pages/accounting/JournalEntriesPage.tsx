@@ -822,6 +822,11 @@ export default function JournalEntriesPage() {
                   Cancelled
                 </span>
               )}
+              {entry.status === 'DRAFT' && (
+                <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 9px', borderRadius: 99, background: '#fffbeb', color: '#92400e', border: '1px solid #fde68a' }}>
+                  Pending Approval
+                </span>
+              )}
               {entry.reference_code && (
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', background: '#f5f3ff', padding: '2px 10px', borderRadius: 5, letterSpacing: '0.04em', fontFamily: 'monospace' }}>
                   {entry.reference_code}
@@ -841,8 +846,15 @@ export default function JournalEntriesPage() {
                 {entry.cancellation_reason ? ` — ${entry.cancellation_reason}` : ''}. Excluded from every report and balance; kept here only for the audit trail.
               </div>
             )}
+            {entry.status === 'DRAFT' && (
+              <div style={{ fontSize: 12, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '6px 10px', marginTop: 8, maxWidth: 480 }}>
+                This entry hits an Expenses account above the configured threshold, so it isn't posted
+                yet — it's waiting on Committee sign-off against its linked Expense record. It will post
+                automatically once approved, or be cancelled if rejected.
+              </div>
+            )}
           </div>
-          {entry.source === 'MANUAL' && entry.status !== 'CANCELLED' && (
+          {entry.source === 'MANUAL' && entry.status !== 'CANCELLED' && entry.status !== 'DRAFT' && (
             <button onClick={() => openEditForm(entry)}
               style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12.5, cursor: 'pointer', flexShrink: 0 }}>
               <i className="ti ti-pencil" style={{ fontSize: 13 }} /> Edit
@@ -1069,6 +1081,11 @@ export default function JournalEntriesPage() {
                           {entry.status === 'CANCELLED' && (
                             <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: '#fef2f2', color: '#991b1b' }}>
                               Cancelled
+                            </span>
+                          )}
+                          {entry.status === 'DRAFT' && (
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 99, background: '#fffbeb', color: '#92400e' }}>
+                              Pending Approval
                             </span>
                           )}
                           {entry.reference_code && (
