@@ -771,6 +771,13 @@ model Expense {
   updated_at      DateTime           @updatedAt @db.Timestamptz
   deleted_at      DateTime?          @db.Timestamptz
 
+  // A recurring expense gets at most one non-deleted Expense per calendar
+  // day: enforced by a partial unique index (recurring_id, expense_date)
+  // WHERE recurring_id IS NOT NULL AND deleted_at IS NULL, added by migration
+  // 20260906000001_expense_recurring_one_per_day. Not representable as a
+  // plain @@unique here (Prisma's schema DSL has no WHERE clause), so it
+  // only exists in that migration's raw SQL — this comment is the only trace
+  // of it in schema.prisma.
   @@index([expense_date])
   @@index([category])
   @@index([status])

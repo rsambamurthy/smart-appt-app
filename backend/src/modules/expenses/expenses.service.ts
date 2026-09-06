@@ -6,7 +6,7 @@ import {
   CreateExpenseBody, UpdateExpenseBody, ApproveExpenseBody, SetBudgetBody,
   RecurringExpenseBody, CategoryConfigBody, UpdateCategoryConfigBody,
 } from './expenses.schema';
-import { ExpenseStatus, JournalStatus, UserRole } from '@prisma/client';
+import { ExpenseStatus, JournalStatus, UserRole, Prisma } from '@prisma/client';
 import { journalService } from '../accounting/journal.service';
 import { fyClosureService } from '../accounting/fy-closure.service';
 import { ensureVendorBP, ensureVendorFromBusinessPartner } from '../accounting/bp-type.seed';
@@ -499,21 +499,36 @@ export class ExpensesService {
     });
     if (existing) throw new ConflictError('Already posted today for this recurring expense.');
 
-    const expense = await prisma.expense.create({
-      data: {
-        association_id: associationId,
-        expense_date: today,
-        category: rec.category,
-        vendor_id: rec.vendor_id,
-        amount: rec.amount,
-        payment_mode: 'CASH',
-        description: rec.description,
-        status: ExpenseStatus.PENDING_APPROVAL,
-        is_recurring: true,
-        recurring_id: rec.id,
-        created_by: userId,
-      },
-    });
+    // The findFirst above is a check, not a lock — a same-second click of
+    // this button (or a race with the nightly poller, which runs the same
+    // check) can both pass it before either insert commits. The partial
+    // unique index expenses_recurring_one_per_day (migration
+    // 20260906000001_expense_recurring_one_per_day) is the real guarantee;
+    // this catch turns the loser's raw constraint violation into the same
+    // friendly message the check above already gives the common case.
+    let expense;
+    try {
+      expense = await prisma.expense.create({
+        data: {
+          association_id: associationId,
+          expense_date: today,
+          category: rec.category,
+          vendor_id: rec.vendor_id,
+          amount: rec.amount,
+          payment_mode: 'CASH',
+          description: rec.description,
+          status: ExpenseStatus.PENDING_APPROVAL,
+          is_recurring: true,
+          recurring_id: rec.id,
+          created_by: userId,
+        },
+      });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictError('Already posted today for this recurring expense.');
+      }
+      throw err;
+    }
 
     await prisma.recurringExpense.update({
       where: { id: rec.id },
