@@ -3,6 +3,7 @@ import { UserRole } from '@prisma/client';
 import { AuthRequest } from '../../types';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
+import { requireMenuFeature } from '../../middleware/menu-access';
 import { analyticsService } from './analytics.service';
 import logger from '../../utils/logger';
 
@@ -16,7 +17,7 @@ router.use(authenticate);
  */
 router.get(
   '/insights',
-  requireRoles(UserRole.TREASURER, UserRole.MANAGER, UserRole.COMMITTEE),
+  requireMenuFeature('reports_insights', UserRole.TREASURER, UserRole.MANAGER, UserRole.COMMITTEE),
   async (req: AuthRequest, res, next) => {
     try {
       const months = parseInt((req.query['months'] as string) ?? '6', 10);

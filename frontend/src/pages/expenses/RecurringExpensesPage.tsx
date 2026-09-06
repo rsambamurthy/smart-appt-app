@@ -14,7 +14,6 @@ import {
   ProvisionStatus,
 } from '../../store/api/expensesApi';
 import { useListBPMastersQuery } from '../../store/api/accountingApi';
-import { useMenuItemEnabled } from '../../hooks/useMenuItemEnabled';
 
 interface RecForm {
   description: string;
@@ -58,7 +57,6 @@ const isDue = (item: RecurringExpense): boolean => {
 };
 
 export default function RecurringExpensesPage() {
-  const { enabled: menuEnabled, isLoading: menuLoading } = useMenuItemEnabled('recurring_expenses');
   const { data, isLoading } = useListRecurringQuery();
   const items = data?.data ?? [];
 
@@ -145,19 +143,9 @@ export default function RecurringExpensesPage() {
     }
   };
 
-  if (!menuLoading && !menuEnabled) {
-    return (
-      <Layout>
-        <PageSubHeader crumbs={[{ label: 'Accounting', path: '/accounting/journal' }, { label: 'Recurring Expenses' }]} />
-        <div style={{ padding: '2rem', maxWidth: 640 }}>
-          <div style={{ padding: '1rem 1.25rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#991b1b', fontSize: '0.9rem' }}>
-            Recurring Expenses isn't enabled for your role. Ask your Manager to enable it under Web Menu Configuration if you need access.
-          </div>
-        </div>
-      </Layout>
-    );
-  }
-
+  // Access to this page is gated at the route level by MenuFeatureGate
+  // (App.tsx, itemId="recurring_expenses") — no need to duplicate that check
+  // here.
   return (
     <Layout>
       <PageSubHeader crumbs={[{ label: 'Accounting', path: '/accounting/journal' }, { label: 'Recurring Expenses' }]} />

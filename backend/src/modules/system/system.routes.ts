@@ -3,6 +3,7 @@ import { UserRole } from '@prisma/client';
 import { systemController } from './system.controller';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
+import { requireMenuFeature } from '../../middleware/menu-access';
 
 const router = Router();
 router.use(authenticate);
@@ -16,7 +17,7 @@ router.get('/menu-config', (req, res, next) =>
 // Configuring it is manager-and-up. The association a manager may touch is
 // their own, enforced in scopeAssociation rather than by the route, because
 // the id in the URL is a hint and never an authority.
-router.get('/menu-config/:associationId', requireRoles(UserRole.SUPER_USER, UserRole.MANAGER), (req, res, next) =>
+router.get('/menu-config/:associationId', requireMenuFeature('system_web_menu', UserRole.MANAGER), (req, res, next) =>
   systemController.getMenuConfigById(req as never, res, next));
 
 router.put('/menu-config/:associationId', requireRoles(UserRole.SUPER_USER, UserRole.MANAGER), (req, res, next) =>
@@ -37,7 +38,10 @@ router.get('/mobile-config', (req, res, next) =>
 // this route is how the Branding screen reaches the API, and a manager only
 // gets to use it at all once a super user grants that screen via Web Menu by
 // Role — the menu item defaults to SUPER_USER-only.
-router.get('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER, UserRole.MANAGER), (req, res, next) =>
+// system_branding's own coded default is SUPER_USER only — no MANAGER
+// fallback — so a manager only reaches this at all once a super user
+// explicitly enables system_branding for MANAGER via Web Menu Configuration.
+router.get('/mobile-config/:associationId', requireMenuFeature('system_branding'), (req, res, next) =>
   systemController.getMobileConfigById(req as never, res, next));
 
 router.put('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER, UserRole.MANAGER), (req, res, next) =>
@@ -46,7 +50,7 @@ router.put('/mobile-config/:associationId', requireRoles(UserRole.SUPER_USER, Us
 // Role-by-role mobile menu. Kept on its own path rather than folded into
 // mobile-config: the matrix is large, the rest of the config is small, and the
 // app never needs the matrix at all.
-router.get('/mobile-menu/:associationId', requireRoles(UserRole.SUPER_USER, UserRole.MANAGER), (req, res, next) =>
+router.get('/mobile-menu/:associationId', requireMenuFeature('system_mobile_menu', UserRole.MANAGER), (req, res, next) =>
   systemController.getMobileMenuMatrix(req as never, res, next));
 
 router.put('/mobile-menu/:associationId', requireRoles(UserRole.SUPER_USER, UserRole.MANAGER), (req, res, next) =>
@@ -55,10 +59,10 @@ router.put('/mobile-menu/:associationId', requireRoles(UserRole.SUPER_USER, User
 // ── Audit Trail (read-only) ───────────────────────────────────────────────────
 // Managers see their own association; SUPER_USER can query across all.
 // There is deliberately no write/delete endpoint — the trail is append-only.
-router.get('/audit-logs', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), (req, res, next) =>
+router.get('/audit-logs', requireMenuFeature('system_audit_log', UserRole.MANAGER), (req, res, next) =>
   systemController.listAuditLogs(req as never, res, next));
 
-router.get('/audit-logs/facets', requireRoles(UserRole.MANAGER, UserRole.SUPER_USER), (req, res, next) =>
+router.get('/audit-logs/facets', requireMenuFeature('system_audit_log', UserRole.MANAGER), (req, res, next) =>
   systemController.auditFacets(req as never, res, next));
 
 export default router;

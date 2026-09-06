@@ -5,6 +5,7 @@ import {
 } from '@prisma/client';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
+import { requireMenuFeature } from '../../middleware/menu-access';
 import { requireModule, requireModuleFull } from '../../middleware/entitlement';
 import { AuthRequest } from '../../types';
 import { UnprocessableError, ForbiddenError } from '../../utils/errors';
@@ -76,7 +77,7 @@ router.get('/meetings/my', async (req: AuthRequest, res, next) => {
 
 // ── Meetings ──────────────────────────────────────────────────────────────────
 
-router.get('/meetings', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
+router.get('/meetings', requireMenuFeature('gov_meetings', UserRole.MANAGER, UserRole.COMMITTEE), async (req: AuthRequest, res, next) => {
   try {
     res.json(await governanceService.listMeetings(req.user!.association_id, {
       status:   req.query['status'] as string,
@@ -303,7 +304,12 @@ router.get('/compliance', requireRoles(...organiserRoles), async (req: AuthReque
   } catch (err) { next(err); }
 });
 
-router.get('/compliance/items', requireRoles(...organiserRoles), async (req: AuthRequest, res, next) => {
+// This is CompliancePage.tsx's actual landing call (useListComplianceItemsQuery)
+// — gov_compliance's own coded default (Layout.tsx) includes TREASURER, which
+// organiserRoles never did; using it here fixes a real bug, not just converts
+// one: TREASURER could already reach this page (nav + RoleRoute both admit
+// it), and this GET call was 403ing on load.
+router.get('/compliance/items', requireMenuFeature('gov_compliance', UserRole.MANAGER, UserRole.COMMITTEE, UserRole.TREASURER), async (req: AuthRequest, res, next) => {
   try { res.json(await complianceService.listItemsWithStatus(req.user!.association_id)); }
   catch (err) { next(err); }
 });

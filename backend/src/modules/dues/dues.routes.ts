@@ -11,6 +11,7 @@ import { NotFoundError, UnprocessableError } from '../../utils/errors';
 import { paymentUploadController } from './payment-upload.controller';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
+import { requireMenuFeature } from '../../middleware/menu-access';
 import { validate } from '../../middleware/validate';
 import {
   duesConfigSchema, generateBillsSchema, rollbackBillsSchema, offlinePaymentSchema,
@@ -50,13 +51,13 @@ router.post('/payments/webhook', (req, res, next) =>
 
 router.use(authenticate);
 
-router.get('/config', requireRoles(UserRole.TREASURER), (req, res, next) =>
+router.get('/config', requireMenuFeature('dues_config', UserRole.TREASURER), (req, res, next) =>
   duesController.getConfig(req as never, res, next));
 
 router.put('/config', requireRoles(UserRole.TREASURER), validate(duesConfigSchema), (req, res, next) =>
   duesController.upsertConfig(req as never, res, next));
 
-router.get('/razorpay-config', requireRoles(UserRole.TREASURER), (req, res, next) =>
+router.get('/razorpay-config', requireMenuFeature('razorpay_config', UserRole.TREASURER), (req, res, next) =>
   duesController.getRazorpayConfig(req as never, res, next));
 
 router.put('/razorpay-config', requireRoles(UserRole.TREASURER), (req, res, next) =>
@@ -68,7 +69,7 @@ router.post('/bills/generate', requireRoles(UserRole.TREASURER, UserRole.MANAGER
 router.post('/bills/rollback', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(rollbackBillsSchema), (req, res, next) =>
   duesController.rollbackBills(req as never, res, next));
 
-router.get('/bills', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
+router.get('/bills', requireMenuFeature('dues_bills', UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   duesController.listBills(req as never, res, next));
 
 // All authenticated users can view their own bills (mobile app — no role difference)
@@ -98,7 +99,7 @@ router.post('/payments/upload/preview', requireRoles(...treasurerOrManagerRoles)
 router.post('/payments/upload/apply', requireRoles(...treasurerOrManagerRoles), (req, res, next) =>
   paymentUploadController.applyUpload(req as never, res, next));
 
-router.get('/arrears', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
+router.get('/arrears', requireMenuFeature('dues_arrears', UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   duesController.arrears(req as never, res, next));
 
 router.post('/levy', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(createLevySchema), (req, res, next) =>
@@ -112,7 +113,7 @@ router.get('/dashboard', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, Us
 const treasurerOrManager = requireRoles(UserRole.TREASURER, UserRole.MANAGER);
 const treasurerOrCommittee = requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER);
 
-router.get('/one-time-dues', treasurerOrCommittee, (req, res, next) =>
+router.get('/one-time-dues', requireMenuFeature('dues_one_time', UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   duesController.listOneTimeDues(req as never, res, next));
 
 router.post('/one-time-dues', treasurerOrManager, validate(oneTimeDueSchema), (req, res, next) =>
@@ -143,7 +144,7 @@ router.post('/one-time-dues/:id/close', treasurerOrManager, (req, res, next) =>
 // of every charge and every payment, which a bare arrears figure cannot give.
 
 /** Every flat's balance as at a date — the arrears list. */
-router.get('/statement', requireRoles(...treasurerOrManagerRoles), async (req: AuthRequest, res, next) => {
+router.get('/statement', requireMenuFeature('dues_statement', UserRole.TREASURER, UserRole.MANAGER, UserRole.COMMITTEE), async (req: AuthRequest, res, next) => {
   try {
     res.json(await statementService.summary(
       req.user!.association_id, req.query['as_of'] as string,
@@ -187,7 +188,7 @@ router.get('/statement/:unitId', async (req: AuthRequest, res, next) => {
 // is the honest place for it.
 
 /** What would be charged if the run were applied now. Charges nothing. */
-router.get('/penalties/preview', requireRoles(...treasurerOrManagerRoles), async (req: AuthRequest, res, next) => {
+router.get('/penalties/preview', requireMenuFeature('dues_penalties', UserRole.TREASURER, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
   try {
     res.json(await penaltyService.preview(
       req.user!.association_id, req.query['as_of'] as string,
@@ -303,7 +304,7 @@ router.get('/upi/claims/mine', async (req: AuthRequest, res, next) => {
 });
 
 /** The treasurer's queue. */
-router.get('/upi/claims', requireRoles(...treasurerOrManagerRoles), async (req: AuthRequest, res, next) => {
+router.get('/upi/claims', requireMenuFeature('dues_upi_claims', UserRole.TREASURER, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
   try {
     const status = req.query['status'] as string | undefined;
     res.json(await upiService.pending(

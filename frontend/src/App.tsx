@@ -79,6 +79,7 @@ import DayBookPage from './pages/accounting/DayBookPage';
 import ReceiptsPaymentsPage from './pages/accounting/ReceiptsPaymentsPage';
 import IncomeExpenditurePage from './pages/accounting/IncomeExpenditurePage';
 import FYClosurePage    from './pages/accounting/FYClosurePage';
+import MenuFeatureGate from './components/organisms/MenuFeatureGate';
 
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
   const token = useSelector((s: RootState) => s.auth.access_token);
@@ -139,10 +140,14 @@ export default function App() {
         {!IS_NATIVE && <Route path="/maintenance/:id" element={<ProtectedRoute><TicketDetailPage /></ProtectedRoute>} />}
 
         {/* Dues */}
+        {/* dues_bills, dues_config, razorpay_config are menu features now —
+            Web Menu Configuration decides who's in, enforced by
+            requireMenuFeature on the backend and useMenuItemEnabled inside
+            each page, so the route itself no longer needs a role list. */}
         {!IS_NATIVE && <Route path="/dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><DuesDashboardPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/dues/bills" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><DuesBillsPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/dues/config" element={<RoleRoute roles={['TREASURER']}><DuesConfigPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/config/razorpay" element={<RoleRoute roles={['TREASURER']}><RazorpayConfigPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/bills" element={<ProtectedRoute><MenuFeatureGate itemId="dues_bills" label="Bills & Payments"><DuesBillsPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/config" element={<ProtectedRoute><MenuFeatureGate itemId="dues_config" label="Fee Configuration"><DuesConfigPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/config/razorpay" element={<ProtectedRoute><MenuFeatureGate itemId="razorpay_config" label="Razorpay"><RazorpayConfigPage /></MenuFeatureGate></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/dues/my-bills" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><MyBillsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/my-statement" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><MyStatementPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/dues/pay/:billId" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><PaymentPage /></RoleRoute>} />}
@@ -155,24 +160,25 @@ export default function App() {
             to that token's user — this route is a UX convenience, not the
             security boundary. */}
         {!IS_NATIVE && <Route path="/dues/pay-native/:billId" element={<PaymentPage />} />}
+        {/* chat keeps its own fixed RoleRoute — it's a deliberate, documented
+            exception where even SUPER_USER is excluded (see chat.routes.ts's
+            CHAT_ROLES), which requireMenuFeature's blanket SUPER_USER bypass
+            would silently undo, so it doesn't get the same treatment. */}
         {!IS_NATIVE && <Route path="/chat" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><ChatPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/dues/one-time-dues" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OneTimeDuesPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/dues/arrears" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ArrearsPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/dues/statement" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><StatementPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/dues/penalties" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><PenaltyRunPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/dues/upi-claims" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><UpiClaimsPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/one-time-dues" element={<ProtectedRoute><MenuFeatureGate itemId="dues_one_time" label="One-Time Dues"><OneTimeDuesPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/arrears" element={<ProtectedRoute><MenuFeatureGate itemId="dues_arrears" label="Arrears"><ArrearsPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/statement" element={<ProtectedRoute><MenuFeatureGate itemId="dues_statement" label="Statement of Account"><StatementPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/penalties" element={<ProtectedRoute><MenuFeatureGate itemId="dues_penalties" label="Late Payment Penalty"><PenaltyRunPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/dues/upi-claims" element={<ProtectedRoute><MenuFeatureGate itemId="dues_upi_claims" label="UPI Payments"><UpiClaimsPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {/* other-receipts is orphaned from NAV_GROUPS (no menu item), so it
+            keeps its fixed role list unchanged. */}
         {!IS_NATIVE && <Route path="/dues/other-receipts" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OtherReceiptsPage /></RoleRoute>} />}
 
         {/* Expenses */}
         {!IS_NATIVE && <Route path="/expenses" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ExpenseListPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseDashboardPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/categories" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><ExpenseCategoriesPage /></RoleRoute>} />}
-        {/* /expenses/recurring intentionally uses a wide RoleRoute — which roles
-            actually get in is decided inside the page itself via
-            useMenuItemEnabled (Web Menu by Role config), not by this list. It's
-            the one page this still applies to now that the Expenses nav item
-            (and its own menu-config gate) has been removed. */}
-        {!IS_NATIVE && <Route path="/expenses/recurring" element={<RoleRoute roles={['TREASURER', 'MANAGER', 'COMMITTEE', 'RESIDENT', 'GATE_STAFF']}><RecurringExpensesPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/expenses/recurring" element={<ProtectedRoute><MenuFeatureGate itemId="recurring_expenses" label="Recurring Expenses"><RecurringExpensesPage /></MenuFeatureGate></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/transparency" element={<ProtectedRoute><TransparencyPage /></ProtectedRoute>} />}
 
         {/* Announcements */}
@@ -180,10 +186,16 @@ export default function App() {
         <Route path="/documents" element={<ProtectedRoute><DocumentRepositoryPage /></ProtectedRoute>} />
 
         {/* Visitors */}
-        {!IS_NATIVE && <Route path="/visitors" element={<RoleRoute roles={['MANAGER', 'GATE_STAFF']}><VisitorLogPage /></RoleRoute>} />}
+        {/* visitors_log was the widest-reaching mismatch found in the audit
+            behind this change: the nav item always claimed every role could
+            see it, and the backend GET has never restricted it either, but
+            this RoleRoute alone was quietly narrower than both — Resident/
+            Committee/Treasurer saw the sidebar link and got bounced right
+            back. Fixed by matching what was already true everywhere else. */}
+        {!IS_NATIVE && <Route path="/visitors" element={<ProtectedRoute><MenuFeatureGate itemId="visitors_log" label="Visitor Log"><VisitorLogPage /></MenuFeatureGate></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/visitors/preapprove" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><PreApproveVisitorPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/visitors/requests" element={<RoleRoute roles={['RESIDENT', 'MANAGER', 'COMMITTEE', 'TREASURER']}><VisitorRequestsPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/gate" element={<RoleRoute roles={['GATE_STAFF']}><GateDashboardPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/gate" element={<ProtectedRoute><MenuFeatureGate itemId="visitors_gate" label="Gate Dashboard"><GateDashboardPage /></MenuFeatureGate></ProtectedRoute>} />}
 
         {/* Admin */}
         {!IS_NATIVE && <Route path="/admin/units" element={<RoleRoute roles={['MANAGER']}><UnitManagementPage /></RoleRoute>} />}
@@ -195,47 +207,59 @@ export default function App() {
 
         {/* Governance. Organisers manage meetings; every resident sees /meetings
             and votes there. Module entitlement is enforced server-side. */}
-        {!IS_NATIVE && <Route path="/governance/meetings" element={<RoleRoute roles={['MANAGER', 'COMMITTEE', 'SUPER_USER']}><MeetingsPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/governance/meetings" element={<ProtectedRoute><MenuFeatureGate itemId="gov_meetings" label="Meetings"><MeetingsPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {/* Detail sub-route isn't its own menu item (reached via a link from
+            the list, not the sidebar) and its backend GET wasn't converted,
+            so it keeps gov_meetings' fixed role list rather than getting
+            ahead of what's actually enforced. */}
         {!IS_NATIVE && <Route path="/governance/meetings/:id" element={<RoleRoute roles={['MANAGER', 'COMMITTEE', 'SUPER_USER']}><MeetingDetailPage /></RoleRoute>} />}
+        {/* gov_committees and gov_register keep their fixed role lists — their
+            backend GETs are open-by-design (committees) or shared with the
+            elections page (register), so neither converts cleanly to a
+            single menu-feature gate. */}
         {!IS_NATIVE && <Route path="/governance/committees" element={<RoleRoute roles={['MANAGER', 'COMMITTEE', 'SUPER_USER']}><CommitteesPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/governance/register" element={<RoleRoute roles={['MANAGER', 'COMMITTEE', 'SUPER_USER']}><RegisterPage /></RoleRoute>} />}
         {/* Every member can reach elections: standing, seconding and voting
             are things a member does, not an organiser. */}
         {!IS_NATIVE && <Route path="/governance/elections" element={<ProtectedRoute><ElectionsPage /></ProtectedRoute>} />}
-        {!IS_NATIVE && <Route path="/governance/compliance" element={<RoleRoute roles={['MANAGER', 'COMMITTEE', 'TREASURER', 'SUPER_USER']}><CompliancePage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/governance/compliance" element={<ProtectedRoute><MenuFeatureGate itemId="gov_compliance" label="Compliance Calendar"><CompliancePage /></MenuFeatureGate></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/meetings" element={<ProtectedRoute><MyMeetingsPage /></ProtectedRoute>} />}
-        {!IS_NATIVE && <Route path="/admin/web-menu" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><WebMenuPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/web-menu" element={<ProtectedRoute><MenuFeatureGate itemId="system_web_menu" label="Web Menu by Role"><WebMenuPage /></MenuFeatureGate></ProtectedRoute>} />}
         {/* Old path kept so existing bookmarks still land somewhere. */}
-        {!IS_NATIVE && <Route path="/admin/menu-config" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><WebMenuPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/admin/mobile-menu" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><MobileMenuPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/menu-config" element={<ProtectedRoute><MenuFeatureGate itemId="system_web_menu" label="Web Menu by Role"><WebMenuPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/mobile-menu" element={<ProtectedRoute><MenuFeatureGate itemId="system_mobile_menu" label="Mobile Menu by Role"><MobileMenuPage /></MenuFeatureGate></ProtectedRoute>} />}
         {/* The old per-association matrix wrote the same column in a shape that
             had no role dimension, so leaving it reachable meant one screen could
             silently undo the other. Same page now. */}
-        {!IS_NATIVE && <Route path="/admin/mobile-config" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><MobileMenuPage /></RoleRoute>} />}
-        {/* Reachable by both roles; the sidebar link is what's actually gated
-            — off for Manager by default, grantable per association via Web
-            Menu by Role (see Layout.tsx's system_branding item). */}
-        {!IS_NATIVE && <Route path="/admin/branding" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><BrandingPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/admin/audit-log" element={<RoleRoute roles={['SUPER_USER', 'MANAGER']}><AuditLogPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/reports/insights" element={<RoleRoute roles={['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE']}><InsightsPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/mobile-config" element={<ProtectedRoute><MenuFeatureGate itemId="system_mobile_menu" label="Mobile Menu by Role"><MobileMenuPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/branding" element={<ProtectedRoute><MenuFeatureGate itemId="system_branding" label="Branding"><BrandingPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/audit-log" element={<ProtectedRoute><MenuFeatureGate itemId="system_audit_log" label="Audit Trail"><AuditLogPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/reports/insights" element={<ProtectedRoute><MenuFeatureGate itemId="reports_insights" label="Insights"><InsightsPage /></MenuFeatureGate></ProtectedRoute>} />}
 
         {/* Transactions */}
         {!IS_NATIVE && <Route path="/transactions/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><TransactionsDashboardPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/transactions/reports"   element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ReportsPage /></RoleRoute>} />}
 
         {/* Accounting */}
+        {/* chart_of_accounts and business_partners keep their fixed role list:
+            both backend GETs are shared master-data lookups (vendor/account
+            pickers reused by Expenses, Recurring Expenses, Journal Entries,
+            Ledger), so gating them on one page's menu item would break those
+            other pages for any role that has them but not this one. Every
+            report below is a single page's own exclusive data call, so those
+            convert cleanly. */}
         {!IS_NATIVE && <Route path="/accounting/chart-of-accounts" element={<RoleRoute roles={['MANAGER', 'TREASURER']}><ChartOfAccountsPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/accounting/business-partners"  element={<RoleRoute roles={['MANAGER', 'TREASURER']}><BusinessPartnersPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/accounting/journal"            element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><JournalEntriesPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/accounting/ledger"             element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><LedgerPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/accounting/pnl"               element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><PnLPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/accounting/balance-sheet"     element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><BalanceSheetPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/accounting/trial-balance"     element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><TrialBalancePage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/accounting/cash-book"         element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><CashBookPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/accounting/day-book"          element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><DayBookPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/accounting/receipts-payments" element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><ReceiptsPaymentsPage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/accounting/income-expenditure" element={<RoleRoute roles={['MANAGER', 'TREASURER', 'COMMITTEE']}><IncomeExpenditurePage /></RoleRoute>} />}
-        {!IS_NATIVE && <Route path="/accounting/fy-closure"        element={<RoleRoute roles={['MANAGER', 'TREASURER']}><FYClosurePage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/journal"            element={<ProtectedRoute><MenuFeatureGate itemId="journal_entries" label="Journal Entries"><JournalEntriesPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/ledger"             element={<ProtectedRoute><MenuFeatureGate itemId="ledger" label="Ledger"><LedgerPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/pnl"               element={<ProtectedRoute><MenuFeatureGate itemId="pnl" label="Profit & Loss"><PnLPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/balance-sheet"     element={<ProtectedRoute><MenuFeatureGate itemId="balance_sheet" label="Balance Sheet"><BalanceSheetPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/trial-balance"     element={<ProtectedRoute><MenuFeatureGate itemId="trial_balance" label="Trial Balance"><TrialBalancePage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/cash-book"         element={<ProtectedRoute><MenuFeatureGate itemId="cash_book" label="Cash / Bank Book"><CashBookPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/day-book"          element={<ProtectedRoute><MenuFeatureGate itemId="day_book" label="Day Book"><DayBookPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/receipts-payments" element={<ProtectedRoute><MenuFeatureGate itemId="receipts_payments" label="Receipts & Payments"><ReceiptsPaymentsPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/income-expenditure" element={<ProtectedRoute><MenuFeatureGate itemId="income_expenditure" label="Income & Expenditure"><IncomeExpenditurePage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/accounting/fy-closure"        element={<ProtectedRoute><MenuFeatureGate itemId="fy_closure" label="FY Closure"><FYClosurePage /></MenuFeatureGate></ProtectedRoute>} />}
 
         {/* change-mpin is available on web; mobile version is inside the MobileLayout block above */}
         {!IS_NATIVE && <Route path="/change-mpin" element={<ProtectedRoute><ChangeMpinPage /></ProtectedRoute>} />}

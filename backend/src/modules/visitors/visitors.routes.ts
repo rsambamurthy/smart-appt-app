@@ -3,6 +3,7 @@ import multer from 'multer';
 import { UserRole } from '@prisma/client';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
+import { requireMenuFeature } from '../../middleware/menu-access';
 import { visitorsService } from './visitors.service';
 import { parsePagination } from '../../utils/helpers';
 import { UnprocessableError } from '../../utils/errors';
@@ -31,9 +32,17 @@ router.post('/walkin', requireRoles(UserRole.GATE_STAFF), async (req: AuthReques
   catch (err) { next(err); }
 });
 
-// Visitor log is readable by every authenticated member of the association.
-// (Write actions — walk-in, approve, check-in/out — remain role-restricted.)
-router.get('/log', async (req: AuthRequest, res, next) => {
+// Visitor log's own coded default (Layout.tsx NAV_GROUPS) is every role —
+// matching this route's original "readable by every authenticated member"
+// design — but the App.tsx RoleRoute guarding /visitors had drifted to
+// ['MANAGER','GATE_STAFF'] only, so RESIDENT/COMMITTEE/TREASURER saw the
+// sidebar link and got bounced straight back by the frontend despite this
+// endpoint (and the nav item) always having allowed them. Fixed on the
+// frontend alongside this; gating it here for the first time is what lets a
+// Manager actually restrict it per role later, which no endpoint here could
+// do before. (Write actions — walk-in, approve, check-in/out — remain
+// role-restricted, unchanged.)
+router.get('/log', requireMenuFeature('visitors_log', UserRole.MANAGER, UserRole.GATE_STAFF, UserRole.RESIDENT, UserRole.COMMITTEE, UserRole.TREASURER), async (req: AuthRequest, res, next) => {
   try {
     const { cursor, limit } = parsePagination(req.query as never);
     res.json(await visitorsService.getLog(req.user!.association_id, {
@@ -73,12 +82,12 @@ router.patch('/frequent/:id', async (req: AuthRequest, res, next) => {
 
 // ── Gate console ──────────────────────────────────────────────────────────────
 // Declared before '/:id' routes so 'gate' is never read as a visitor id.
-router.get('/gate/units', requireRoles(UserRole.GATE_STAFF), async (req: AuthRequest, res, next) => {
+router.get('/gate/units', requireMenuFeature('visitors_gate', UserRole.GATE_STAFF), async (req: AuthRequest, res, next) => {
   try { res.json(await visitorsService.getGateUnits(req.user!.association_id)); }
   catch (err) { next(err); }
 });
 
-router.get('/gate/board', requireRoles(UserRole.GATE_STAFF), async (req: AuthRequest, res, next) => {
+router.get('/gate/board', requireMenuFeature('visitors_gate', UserRole.GATE_STAFF), async (req: AuthRequest, res, next) => {
   try { res.json(await visitorsService.getGateBoard(req.user!.association_id)); }
   catch (err) { next(err); }
 });
