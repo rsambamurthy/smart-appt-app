@@ -92,7 +92,13 @@ router.post ('/fy/reopen',    requireRoles(...managerRoles), fyClosureController
 // these doesn't change who has access today — only who a Manager can
 // re-assign it to later via Web Menu Configuration.
 router.get ('/journal',         requireMenuFeature('journal_entries', UserRole.MANAGER, UserRole.TREASURER, UserRole.COMMITTEE), journalController.list);
-router.post('/journal',         requireRoles(...managerRoles), ...journalController.createManual);
+// Viewing this page and creating/editing a voucher on it are two different
+// rights — 'journal_entries' above now includes COMMITTEE (so they can reach
+// Pending Approval entries), but that was never meant to also let Committee
+// record a voucher. 'journal_entries_create' is its own item for exactly
+// that, defaulting to MANAGER/TREASURER (today's actual behavior,
+// unchanged) so a Manager can still re-assign it later.
+router.post('/journal',         requireMenuFeature('journal_entries_create', UserRole.MANAGER, UserRole.TREASURER), ...journalController.createManual);
 router.get ('/journal/ledger',     requireModuleFull(ModuleKey.ACCOUNTING), requireMenuFeature('ledger', UserRole.MANAGER, UserRole.TREASURER, UserRole.COMMITTEE), journalController.getLedger);
 router.get ('/journal/ledger/all', requireModuleFull(ModuleKey.ACCOUNTING), requireMenuFeature('ledger', UserRole.MANAGER, UserRole.TREASURER, UserRole.COMMITTEE), journalController.getAllLedger);
 router.get ('/journal/ledger/sub', requireModuleFull(ModuleKey.ACCOUNTING), requireMenuFeature('ledger', UserRole.MANAGER, UserRole.TREASURER, UserRole.COMMITTEE), journalController.getSubLedger);
@@ -105,11 +111,13 @@ router.get ('/journal/receipts-payments', requireModuleFull(ModuleKey.ACCOUNTING
 router.get ('/journal/income-expenditure', requireModuleFull(ModuleKey.ACCOUNTING), requireMenuFeature('income_expenditure', UserRole.MANAGER, UserRole.TREASURER, UserRole.COMMITTEE), journalController.getIncomeExpenditure);
 router.post('/journal/backfill',         requireRoles(...managerRoles), journalController.backfill);
 router.post('/journal/backfill-bp-tags', requireRoles(...managerRoles), journalController.backfillBPTags);
-// Supporting document for a voucher — invoice, receipt, bank slip.
-router.post  ('/journal/:id/attachment', requireRoles(...managerRoles), upload.single('file'), journalController.uploadAttachment);
+// Supporting document for a voucher — invoice, receipt, bank slip. Uploading
+// and deleting are edit-adjacent (same 'journal_entries_create' right);
+// downloading is a read and stays open to anyone who can view the page.
+router.post  ('/journal/:id/attachment', requireMenuFeature('journal_entries_create', UserRole.MANAGER, UserRole.TREASURER), upload.single('file'), journalController.uploadAttachment);
 router.get   ('/journal/:id/attachment', requireModuleFull(ModuleKey.ACCOUNTING), requireRoles(...viewRoles),    journalController.downloadAttachment);
-router.delete('/journal/:id/attachment', requireRoles(...managerRoles), journalController.deleteAttachment);
+router.delete('/journal/:id/attachment', requireMenuFeature('journal_entries_create', UserRole.MANAGER, UserRole.TREASURER), journalController.deleteAttachment);
 
-router.patch('/journal/:id',          requireRoles(...managerRoles), ...journalController.updateEntry);
+router.patch('/journal/:id',          requireMenuFeature('journal_entries_create', UserRole.MANAGER, UserRole.TREASURER), ...journalController.updateEntry);
 
 export default router;

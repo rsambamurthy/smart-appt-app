@@ -154,6 +154,15 @@ export const NAV_GROUPS: NavGroup[] = [
       // (menu-access.ts), which also leaves the BPM tool's own scoped
       // Integration API Key call to expenses:approve untouched.
       { id: 'expense_approval', label: 'Approve Expenses', path: '/accounting/journal',      roles: ['SUPER_USER', 'COMMITTEE'],                          dot: '#f59e0b', end: true, sidebarHidden: true },
+      // Also not a page of its own — creating/editing a voucher (the "+ New"
+      // button and Edit action) inside Journal Entries. Viewing the page and
+      // creating/editing on it are two different rights: a Committee member
+      // now reaches this page to approve/reject (see 'journal_entries'
+      // above) but has never been able to record a voucher — MANAGER/
+      // TREASURER is only the default that preserves that, not a hardcoded
+      // requirement. Enforced on the backend by requireMenuFeature on
+      // POST/PATCH /journal (accounting.routes.ts).
+      { id: 'journal_entries_create', label: 'Create/Edit Journal Entry', path: '/accounting/journal', roles: ['SUPER_USER', 'MANAGER', 'TREASURER'],   dot: '#2563eb', end: true, sidebarHidden: true },
       { id: 'ledger',          label: 'Ledger',          path: '/accounting/ledger',          roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#16a34a', end: true },
       { id: 'pnl',             label: 'Profit & Loss',   path: '/accounting/pnl',             roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#f59e0b', end: true },
       { id: 'balance_sheet',   label: 'Balance Sheet',   path: '/accounting/balance-sheet',   roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#7c3aed', end: true },

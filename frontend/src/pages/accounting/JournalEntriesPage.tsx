@@ -185,6 +185,12 @@ export default function JournalEntriesPage() {
   // not a role hardcoded here — see Layout.tsx and requireMenuFeatureOrApiKeyScope
   // on the backend, which enforces the same decision on PATCH /expenses/:id/approve.
   const { enabled: canApproveExpenses } = useMenuItemEnabled('expense_approval');
+  // Viewing Journal Entries (to approve/reject) and creating/editing a
+  // voucher are two different rights — a Committee member who can now reach
+  // this page needs the first but never the second. Also a per-association
+  // Web Menu Configuration decision (itemId 'journal_entries_create'), not
+  // hardcoded — see requireMenuFeature on POST/PATCH /journal on the backend.
+  const { enabled: canManageEntries } = useMenuItemEnabled('journal_entries_create');
   const [approveExpense, { isLoading: approving }] = useApproveExpenseMutation();
   const [approveTarget, setApproveTarget] = useState<{ entry: JournalEntry; decision: 'APPROVED' | 'REJECTED' } | null>(null);
   const [approveNote, setApproveNote] = useState('');
@@ -884,7 +890,7 @@ export default function JournalEntriesPage() {
               </div>
             )}
           </div>
-          {entry.source === 'MANUAL' && entry.status !== 'CANCELLED' && entry.status !== 'DRAFT' && (
+          {entry.source === 'MANUAL' && entry.status !== 'CANCELLED' && entry.status !== 'DRAFT' && canManageEntries && (
             <button onClick={() => openEditForm(entry)}
               style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 14px', borderRadius: 7, border: '1px solid #e2e8f0', background: '#fff', color: '#475569', fontSize: 12.5, cursor: 'pointer', flexShrink: 0 }}>
               <i className="ti ti-pencil" style={{ fontSize: 13 }} /> Edit
@@ -973,10 +979,12 @@ export default function JournalEntriesPage() {
                 style={{ padding: '4px 11px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#2563eb', fontSize: 12, cursor: 'pointer' }}>
                 Download
               </button>
-              <button type="button" onClick={() => { setAttachmentError(''); setConfirmRemoveAttachment(true); }}
-                style={{ padding: '4px 11px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fff', color: '#dc2626', fontSize: 12, cursor: 'pointer' }}>
-                Delete
-              </button>
+              {canManageEntries && (
+                <button type="button" onClick={() => { setAttachmentError(''); setConfirmRemoveAttachment(true); }}
+                  style={{ padding: '4px 11px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fff', color: '#dc2626', fontSize: 12, cursor: 'pointer' }}>
+                  Delete
+                </button>
+              )}
             </div>
 
             {confirmRemoveAttachment && (
@@ -1029,13 +1037,15 @@ export default function JournalEntriesPage() {
                   ({entries.length})
                 </span>
               </span>
-              <button onClick={openNewForm} style={{
-                display: 'flex', alignItems: 'center', gap: 4,
-                padding: '5px 12px', borderRadius: 6, border: 'none',
-                background: '#2563eb', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer',
-              }}>
-                <i className="ti ti-plus" style={{ fontSize: 13 }} /> New
-              </button>
+              {canManageEntries && (
+                <button onClick={openNewForm} style={{
+                  display: 'flex', alignItems: 'center', gap: 4,
+                  padding: '5px 12px', borderRadius: 6, border: 'none',
+                  background: '#2563eb', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                }}>
+                  <i className="ti ti-plus" style={{ fontSize: 13 }} /> New
+                </button>
+              )}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ position: 'relative' }}>
@@ -1199,15 +1209,25 @@ export default function JournalEntriesPage() {
 
         {/* ═══ RIGHT PANEL: detail / form / empty ══════════════════════════ */}
         <div style={{ flex: 1, overflowY: 'auto', background: '#fff' }}>
-          {formMode
+          {formMode && canManageEntries
             ? renderForm()
             : selectedEntry
               ? renderDetail(selectedEntry)
-              // Nothing picked yet — land on a ready-to-fill New Entry form
-              // instead of a blank panel (formMode stays null here; the
-              // Bank/Receipt fields it renders come from the same defaults
-              // openNewForm()/closeForm() already reset to).
-              : renderForm()}
+              : canManageEntries
+                // Nothing picked yet — land on a ready-to-fill New Entry form
+                // instead of a blank panel (formMode stays null here; the
+                // Bank/Receipt fields it renders come from the same defaults
+                // openNewForm()/closeForm() already reset to).
+                ? renderForm()
+                // A view-only role (e.g. Committee, here only to approve/
+                // reject) has no create form to land on — an empty list
+                // reads as "nothing to see" rather than inviting a click on
+                // a button that isn't there.
+                : (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#94a3b8', fontSize: 13, textAlign: 'center', padding: '2rem' }}>
+                    Select an entry from the list to view its details.
+                  </div>
+                )}
         </div>
 
       </div>
