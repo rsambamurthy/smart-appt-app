@@ -81,6 +81,11 @@ export class ExpensesController {
     catch (err) { next(err); }
   }
 
+  async postRecurringNow(req: AuthRequest, res: Response, next: NextFunction) {
+    try { res.status(201).json(await expensesService.postRecurringNow(req.user!.association_id, req.params['id'], req.user!.id)); }
+    catch (err) { next(err); }
+  }
+
   async listProvisions(req: AuthRequest, res: Response, next: NextFunction) {
     try { res.json(await expensesService.listProvisions(req.user!.association_id, req.query['status'] as string | undefined)); }
     catch (err) { next(err); }

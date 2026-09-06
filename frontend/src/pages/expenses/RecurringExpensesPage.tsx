@@ -6,6 +6,7 @@ import {
   useListRecurringQuery,
   useCreateRecurringMutation,
   useUpdateRecurringMutation,
+  usePostRecurringNowMutation,
   useListProvisionsQuery,
   useListExpenseCategoriesQuery,
   RecurringExpense,
@@ -61,10 +62,13 @@ export default function RecurringExpensesPage() {
 
   const [createRecurring, { isLoading: isCreating }] = useCreateRecurringMutation();
   const [updateRecurring] = useUpdateRecurringMutation();
+  const [postRecurringNow, { isLoading: isPosting }] = usePostRecurringNowMutation();
 
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState<RecForm>(emptyForm());
   const [formError, setFormError] = useState('');
+  const [postingId, setPostingId] = useState<string | null>(null);
+  const [postMessage, setPostMessage] = useState<{ id: string; kind: 'ok' | 'err'; text: string } | null>(null);
 
   const setF = <K extends keyof RecForm>(key: K, value: RecForm[K]) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -108,6 +112,20 @@ export default function RecurringExpensesPage() {
     await updateRecurring({ id: item.id, body: { auto_provision: !item.auto_provision } }).unwrap();
   };
 
+  const handlePostNow = async (item: RecurringExpense) => {
+    setPostingId(item.id);
+    setPostMessage(null);
+    try {
+      await postRecurringNow(item.id).unwrap();
+      setPostMessage({ id: item.id, kind: 'ok', text: 'Posted — now waiting on Committee approval.' });
+    } catch (e: unknown) {
+      const err = e as { data?: { message?: string } };
+      setPostMessage({ id: item.id, kind: 'err', text: err?.data?.message ?? 'Could not post this expense.' });
+    } finally {
+      setPostingId(null);
+    }
+  };
+
   return (
     <Layout>
       <PageSubHeader crumbs={[{ label: 'Accounting', path: '/accounting/journal' }, { label: 'Recurring Expenses' }]} />
@@ -115,7 +133,8 @@ export default function RecurringExpensesPage() {
       <div style={{ padding: '1.5rem 2rem', maxWidth: 960 }}>
 
         <div style={{ padding: '0.7rem 1rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: '0.85rem', color: '#1d4ed8', marginBottom: '1.25rem' }}>
-          Recurring expenses are created as a draft expense (needing approval) on each due date. For a fixed, contracted monthly cost —
+          Recurring expenses are created as a draft expense (needing approval) automatically on each due date — or right away with
+          <strong> Post Now</strong> below, if you don't want to wait. For a fixed, contracted monthly cost —
           a security agency, an AMC — turn on <strong>month-end accrual</strong> to also book it to <strong>Accounts Payable</strong> against
           that vendor's own ledger card on the last day of the month, even if the formal bill hasn't arrived yet. The accrual is automatically
           reversed once you approve the real expense, so it's never counted twice.
@@ -136,9 +155,10 @@ export default function RecurringExpensesPage() {
           ) : (
             <div>
               {items.map((item) => (
-                <div key={item.id} style={{
+                <div key={item.id}>
+                <div style={{
                   display: 'flex', alignItems: 'center', gap: '0.75rem',
-                  padding: '0.75rem 1.25rem', borderBottom: '1px solid var(--color-border)',
+                  padding: '0.75rem 1.25rem', borderBottom: postMessage?.id === item.id ? 'none' : '1px solid var(--color-border)',
                   opacity: item.is_active ? 1 : 0.5, flexWrap: 'wrap',
                 }}>
                   <div style={{ flex: '1 1 220px' }}>
@@ -167,6 +187,17 @@ export default function RecurringExpensesPage() {
                     {item.is_active ? 'Active' : 'Inactive'}
                   </span>
 
+                  {item.is_active && (
+                    <button
+                      title="Create today's draft expense now, instead of waiting for it to come due"
+                      onClick={() => handlePostNow(item)}
+                      disabled={isPosting && postingId === item.id}
+                      style={{ padding: '3px 10px', fontSize: '0.75rem', borderRadius: 4, cursor: 'pointer', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontWeight: 600 }}
+                    >
+                      {isPosting && postingId === item.id ? 'Posting…' : 'Post Now'}
+                    </button>
+                  )}
+
                   <button
                     title={item.is_active ? 'Deactivate' : 'Activate'}
                     onClick={() => toggleActive(item)}
@@ -174,6 +205,15 @@ export default function RecurringExpensesPage() {
                   >
                     {item.is_active ? 'Deactivate' : 'Activate'}
                   </button>
+                </div>
+                {postMessage?.id === item.id && (
+                  <div style={{
+                    padding: '0.4rem 1.25rem 0.6rem', fontSize: '0.78rem', borderBottom: '1px solid var(--color-border)',
+                    color: postMessage.kind === 'ok' ? '#16a34a' : '#dc2626',
+                  }}>
+                    {postMessage.text}
+                  </div>
+                )}
                 </div>
               ))}
               {items.length === 0 && (

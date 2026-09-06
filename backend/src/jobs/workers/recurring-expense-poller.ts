@@ -1,18 +1,8 @@
 import prisma from '../../config/database';
 import { notificationService } from '../../services/notification.service';
-import { ExpenseStatus, ExpenseFrequency, UserRole } from '@prisma/client';
+import { ExpenseStatus, UserRole } from '@prisma/client';
+import { nextRecurringDueDate } from '../../utils/helpers';
 import logger from '../../utils/logger';
-
-const nextDueDate = (current: Date, frequency: ExpenseFrequency): Date => {
-  const d = new Date(current);
-  switch (frequency) {
-    case ExpenseFrequency.MONTHLY: d.setMonth(d.getMonth() + 1); break;
-    case ExpenseFrequency.QUARTERLY: d.setMonth(d.getMonth() + 3); break;
-    case ExpenseFrequency.HALF_YEARLY: d.setMonth(d.getMonth() + 6); break;
-    case ExpenseFrequency.ANNUAL: d.setFullYear(d.getFullYear() + 1); break;
-  }
-  return d;
-};
 
 export const runRecurringExpensePoller = async (): Promise<void> => {
   const today = new Date();
@@ -56,7 +46,7 @@ export const runRecurringExpensePoller = async (): Promise<void> => {
     // late/catch-up run doesn't drag the day-of-month forward with it (a
     // monthly item due on the 1st stays due on the 1st, even if this
     // particular run happened on the 4th).
-    await prisma.recurringExpense.update({ where: { id: rec.id }, data: { next_due_date: nextDueDate(rec.next_due_date, rec.frequency) } });
+    await prisma.recurringExpense.update({ where: { id: rec.id }, data: { next_due_date: nextRecurringDueDate(rec.next_due_date, rec.frequency) } });
 
     const treasurers = await prisma.user.findMany({
       where: { association_id: rec.association_id, role: UserRole.TREASURER, is_active: true, deleted_at: null },

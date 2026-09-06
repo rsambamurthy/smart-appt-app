@@ -50,6 +50,10 @@ router.post('/recurring', requireRoles(UserRole.TREASURER, UserRole.MANAGER), va
 router.patch('/recurring/:id', requireRoles(UserRole.TREASURER, UserRole.MANAGER), (req, res, next) =>
   expensesController.updateRecurring(req as never, res, next));
 
+// POST /expenses/recurring/:id/post-now — create today's draft expense on demand, instead of waiting for the nightly poller
+router.post('/recurring/:id/post-now', requireRoles(UserRole.TREASURER, UserRole.MANAGER), (req, res, next) =>
+  expensesController.postRecurringNow(req as never, res, next));
+
 router.get('/provisions', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   expensesController.listProvisions(req as never, res, next));
 

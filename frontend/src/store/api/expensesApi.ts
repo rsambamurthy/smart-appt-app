@@ -117,6 +117,11 @@ export const expensesApi = baseApi.injectEndpoints({
       query: ({ id, body }) => ({ url: `/expenses/recurring/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['Expense'],
     }),
+    // Create today's draft expense on demand, instead of waiting for the nightly poller to reach next_due_date.
+    postRecurringNow: builder.mutation<{ data: unknown }, string>({
+      query: (id) => ({ url: `/expenses/recurring/${id}/post-now`, method: 'POST' }),
+      invalidatesTags: ['Expense'],
+    }),
 
     // ── Month-end provisions ────────────────────────────────────────────────
     listProvisions: builder.query<{ data: ExpenseProvision[] }, { status?: ProvisionStatus } | void>({
@@ -145,5 +150,6 @@ export const {
   useListRecurringQuery,
   useCreateRecurringMutation,
   useUpdateRecurringMutation,
+  usePostRecurringNowMutation,
   useListProvisionsQuery,
 } = expensesApi;

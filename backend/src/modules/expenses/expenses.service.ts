@@ -1,6 +1,6 @@
 import prisma from '../../config/database';
-import { NotFoundError, ForbiddenError, UnprocessableError } from '../../utils/errors';
-import { paginatedResponse } from '../../utils/helpers';
+import { NotFoundError, ForbiddenError, UnprocessableError, ConflictError } from '../../utils/errors';
+import { paginatedResponse, nextRecurringDueDate } from '../../utils/helpers';
 import { notificationService } from '../../services/notification.service';
 import {
   CreateExpenseBody, UpdateExpenseBody, ApproveExpenseBody, SetBudgetBody,
@@ -384,8 +384,13 @@ export class ExpensesService {
   }
 
   async listRecurring(associationId: string) {
+    // Inactive items are still returned — the admin screen shows them dimmed
+    // with an "Activate" button, which only works if a deactivated item can
+    // still be found again. Filtering them out here (as this used to do) means
+    // pausing one made it disappear for good, with no way back short of
+    // re-creating it from scratch.
     const items = await prisma.recurringExpense.findMany({
-      where: { association_id: associationId, is_active: true },
+      where: { association_id: associationId },
       include: { vendor: { select: { name: true } } },
       orderBy: { next_due_date: 'asc' },
     });
@@ -414,6 +419,67 @@ export class ExpensesService {
       data: { ...rest, ...(business_partner_id ? { vendor_id: vendorId } : {}) } as never,
     });
     return { data: updated };
+  }
+
+  /**
+   * "Post Now" — create today's draft expense for a recurring item on demand,
+   * instead of waiting for the nightly poller to reach its next_due_date.
+   *
+   * Mirrors jobs/workers/recurring-expense-poller.ts exactly (same status,
+   * same idempotency guard, same schedule-advance logic) so a manual post and
+   * an automatic one are indistinguishable afterwards — including advancing
+   * next_due_date from its own prior value rather than from today, so posting
+   * a few days early or late never drags the schedule's day-of-month with it.
+   */
+  async postRecurringNow(associationId: string, recurringId: string, userId: string) {
+    const rec = await prisma.recurringExpense.findFirst({
+      where: { id: recurringId, association_id: associationId },
+    });
+    if (!rec) throw new NotFoundError('Recurring expense');
+    if (!rec.is_active) throw new UnprocessableError('This recurring expense is inactive — activate it first.');
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today.getTime() + 86400000);
+
+    const existing = await prisma.expense.findFirst({
+      where: { recurring_id: rec.id, expense_date: { gte: today, lt: tomorrow } },
+    });
+    if (existing) throw new ConflictError('Already posted today for this recurring expense.');
+
+    const expense = await prisma.expense.create({
+      data: {
+        association_id: associationId,
+        expense_date: today,
+        category: rec.category,
+        vendor_id: rec.vendor_id,
+        amount: rec.amount,
+        payment_mode: 'CASH',
+        description: rec.description,
+        status: ExpenseStatus.PENDING_APPROVAL,
+        is_recurring: true,
+        recurring_id: rec.id,
+        created_by: userId,
+      },
+    });
+
+    await prisma.recurringExpense.update({
+      where: { id: rec.id },
+      data: { next_due_date: nextRecurringDueDate(rec.next_due_date, rec.frequency) },
+    });
+
+    const committee = await prisma.user.findMany({
+      where: { association_id: associationId, role: UserRole.COMMITTEE, is_active: true, deleted_at: null },
+      select: { id: true },
+    });
+    await notificationService.dispatch({
+      type: 'EXPENSE_PENDING_APPROVAL',
+      channels: ['PUSH', 'EMAIL'],
+      recipients: committee.map((c) => c.id),
+      data: { expense_id: expense.id, amount: Number(rec.amount), category: rec.category },
+    });
+
+    return { data: expense };
   }
 
   // ── Ledger-card wiring for month-end provisioning ─────────────────────────

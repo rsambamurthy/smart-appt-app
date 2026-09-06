@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { ExpenseFrequency } from '@prisma/client';
 
 /** Generate a cryptographically secure random token */
 export const generateToken = (bytes = 32): string =>
@@ -71,4 +72,24 @@ export const computeSlaDueAt = (priority: string, assignedAt: Date): Date => {
   };
   const hours = hoursMap[priority] ?? 72;
   return new Date(assignedAt.getTime() + hours * 60 * 60 * 1000);
+};
+
+/**
+ * The next scheduled date for a recurring expense, one period on from `current`.
+ *
+ * Shared between the nightly poller (jobs/workers/recurring-expense-poller.ts)
+ * and a manual "Post Now" trigger (expenses.service.ts postRecurringNow) so
+ * the schedule advances identically either way. Always advance from the
+ * item's own next_due_date, never from "today" — a late or early post
+ * shouldn't drag the day-of-month forward or back with it.
+ */
+export const nextRecurringDueDate = (current: Date, frequency: ExpenseFrequency): Date => {
+  const d = new Date(current);
+  switch (frequency) {
+    case ExpenseFrequency.MONTHLY: d.setMonth(d.getMonth() + 1); break;
+    case ExpenseFrequency.QUARTERLY: d.setMonth(d.getMonth() + 3); break;
+    case ExpenseFrequency.HALF_YEARLY: d.setMonth(d.getMonth() + 6); break;
+    case ExpenseFrequency.ANNUAL: d.setFullYear(d.getFullYear() + 1); break;
+  }
+  return d;
 };
