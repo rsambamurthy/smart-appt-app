@@ -41,16 +41,16 @@ router.get('/total', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRo
 router.get('/transparency', (req, res, next) =>
   expensesController.transparency(req as never, res, next));
 
-router.get('/recurring', requireRoles(UserRole.TREASURER), (req, res, next) =>
+router.get('/recurring', requireRoles(UserRole.TREASURER, UserRole.MANAGER), (req, res, next) =>
   expensesController.listRecurring(req as never, res, next));
 
-router.post('/recurring', requireRoles(UserRole.TREASURER), validate(recurringExpenseSchema), (req, res, next) =>
+router.post('/recurring', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(recurringExpenseSchema), (req, res, next) =>
   expensesController.createRecurring(req as never, res, next));
 
-router.patch('/recurring/:id', requireRoles(UserRole.TREASURER), (req, res, next) =>
+router.patch('/recurring/:id', requireRoles(UserRole.TREASURER, UserRole.MANAGER), (req, res, next) =>
   expensesController.updateRecurring(req as never, res, next));
 
-router.get('/provisions', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE), (req, res, next) =>
+router.get('/provisions', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   expensesController.listProvisions(req as never, res, next));
 
 router.put('/budgets/:category', requireRoles(UserRole.TREASURER), validate(setBudgetSchema), (req, res, next) =>

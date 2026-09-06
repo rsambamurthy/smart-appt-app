@@ -56,7 +56,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'admin_units',         label: 'Manage Units',       path: '/admin/units',                   roles: ['SUPER_USER', 'MANAGER'],                                dot: '#0095db', end: true },
       { id: 'chart_of_accounts',   label: 'Chart of Accounts',  path: '/accounting/chart-of-accounts',  roles: ['SUPER_USER', 'MANAGER', 'TREASURER'],                   dot: '#2563eb', end: true },
       { id: 'business_partners',   label: 'Business Partners',  path: '/accounting/business-partners',  roles: ['SUPER_USER', 'MANAGER', 'TREASURER'],                   dot: '#0891b2', end: true },
-      { id: 'recurring_expenses',  label: 'Recurring Expenses', path: '/expenses/recurring',             roles: ['SUPER_USER', 'TREASURER'],                              dot: '#0095db', end: true },
+      { id: 'recurring_expenses',  label: 'Recurring Expenses', path: '/expenses/recurring',             roles: ['SUPER_USER', 'TREASURER', 'MANAGER'],                   dot: '#0095db', end: true },
     ],
   },
   {
