@@ -16,12 +16,12 @@ router.use(authenticate);
 // Gated by requireMenuFeature rather than a fixed requireRoles list: which
 // role(s) may actually view/change this — not just see its sidebar link —
 // is a call for this association's own Manager to make via Web Menu
-// Configuration (itemId 'system_expense_approval', see Layout.tsx), not
+// Configuration (itemId 'expense_threshold', see Layout.tsx), not
 // something to hardcode here. MANAGER is only the *default* that applies
 // until a Manager explicitly configures something else — e.g. handing this
 // to COMMITTEE instead, or adding it alongside MANAGER — for associations
 // where Committee, not Manager, owns financial policy like this.
-router.get('/config', requireMenuFeature('system_expense_approval', UserRole.MANAGER, UserRole.TREASURER), async (req: AuthRequest, res, next) => {
+router.get('/config', requireMenuFeature('expense_threshold', UserRole.MANAGER, UserRole.TREASURER), async (req: AuthRequest, res, next) => {
   try {
     const config = await prisma.associationConfig.findUnique({ where: { association_id: req.user!.association_id } });
     res.json({ data: config });
@@ -34,7 +34,7 @@ router.get('/config', requireMenuFeature('system_expense_approval', UserRole.MAN
 // reach this route it is guaranteed to already exist. (An upsert here used
 // to crash on every partial body — see admin.schema.ts for the story.) The
 // validate() call whitelists exactly which fields this endpoint may touch.
-router.put('/config', requireMenuFeature('system_expense_approval', UserRole.MANAGER), validate(updateAssociationConfigSchema), async (req: AuthRequest, res, next) => {
+router.put('/config', requireMenuFeature('expense_threshold', UserRole.MANAGER), validate(updateAssociationConfigSchema), async (req: AuthRequest, res, next) => {
   try {
     const config = await prisma.associationConfig.update({
       where: { association_id: req.user!.association_id },

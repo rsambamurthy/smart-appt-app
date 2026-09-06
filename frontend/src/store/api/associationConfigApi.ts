@@ -3,7 +3,7 @@ import { baseApi } from './baseApi';
 /**
  * GET/PUT /admin/config — association-wide settings. Manager by default, but
  * which role(s) may actually call this is a per-association Web Menu
- * Configuration decision (itemId 'system_expense_approval'), enforced on the
+ * Configuration decision (itemId 'expense_threshold'), enforced on the
  * backend by requireMenuFeature — not a fixed role list.
  * The backend only accepts the fields listed in UpdateAssociationConfigBody
  * below (see backend/src/modules/admin/admin.schema.ts) — anything else is

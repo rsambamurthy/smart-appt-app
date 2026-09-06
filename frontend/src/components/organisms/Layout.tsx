@@ -57,6 +57,15 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'chart_of_accounts',   label: 'Chart of Accounts',  path: '/accounting/chart-of-accounts',  roles: ['SUPER_USER', 'MANAGER', 'TREASURER'],                   dot: '#2563eb', end: true },
       { id: 'business_partners',   label: 'Business Partners',  path: '/accounting/business-partners',  roles: ['SUPER_USER', 'MANAGER', 'TREASURER'],                   dot: '#0891b2', end: true },
       { id: 'recurring_expenses',  label: 'Recurring Expenses', path: '/expenses/recurring',             roles: ['SUPER_USER', 'TREASURER', 'MANAGER'],                   dot: '#0095db', end: true },
+      // The amount above which an expense needs Treasurer/Committee (and
+      // Manager, for high-value items) approval instead of being recorded
+      // immediately. MANAGER here is only the default — unlike most items in
+      // this file, the backend enforces this same Web Menu Configuration
+      // decision too (requireMenuFeature, not a fixed requireRoles list), so
+      // reassigning it to e.g. COMMITTEE from that screen is a real access
+      // change, not just a sidebar one. See admin.schema.ts on the backend
+      // for what the page actually edits.
+      { id: 'expense_threshold',   label: 'Expenses Threshold', path: '/admin/expense-approval',        roles: ['SUPER_USER', 'MANAGER'],                                dot: '#dc2626', end: true },
     ],
   },
   {
@@ -89,15 +98,6 @@ export const NAV_GROUPS: NavGroup[] = [
       // directly. Manager-only by default, same posture as the other admin
       // screens above.
       { id: 'system_integration_keys', label: 'Integration API Keys', path: '/admin/integration-keys', roles: ['SUPER_USER', 'MANAGER'], dot: '#16a34a', end: true },
-      // The amount above which an expense needs Treasurer/Committee (and
-      // Manager, for high-value items) approval instead of being recorded
-      // immediately. MANAGER here is only the default — unlike the items
-      // above, the backend enforces this same Web Menu Configuration
-      // decision too (requireMenuFeature, not a fixed requireRoles list), so
-      // reassigning it to e.g. COMMITTEE from that screen is a real access
-      // change, not just a sidebar one. See admin.schema.ts on the backend
-      // for what the page actually edits.
-      { id: 'system_expense_approval', label: 'Expense Approval', path: '/admin/expense-approval', roles: ['SUPER_USER', 'MANAGER'], dot: '#dc2626', end: true },
     ],
   },
   {

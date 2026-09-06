@@ -63,7 +63,7 @@ export default function ExpenseApprovalSettingsPage() {
 
   return (
     <Layout>
-      <PageSubHeader crumbs={[{ label: 'System Settings' }, { label: 'Expense Approval' }]} />
+      <PageSubHeader crumbs={[{ label: 'Configuration' }, { label: 'Expenses Threshold' }]} />
 
       <div style={{ padding: '1.5rem 2rem', maxWidth: 640 }}>
         <div style={{ padding: '0.7rem 1rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: '0.85rem', color: '#1d4ed8', marginBottom: '1.25rem' }}>
