@@ -32,6 +32,30 @@ export const runRecurringExpensePoller = async (): Promise<void> => {
       });
       if (existing) continue;
 
+      if (!rec.auto_post) {
+        // Auto-posting is deliberately off for this item — the whole point is
+        // that a human decides each cycle, so don't create the expense or
+        // advance next_due_date; leave it due so it keeps surfacing here.
+        // That means this reminder resends every night the item remains
+        // due-and-unposted (not a bug — that's the nag this setting exists
+        // for). Reuses the same TREASURER recipient list and PUSH channel as
+        // the auto-post path, just a different, more explicit message.
+        const treasurersToNudge = await prisma.user.findMany({
+          where: { association_id: rec.association_id, role: UserRole.TREASURER, is_active: true, deleted_at: null },
+          select: { id: true },
+        });
+
+        await notificationService.dispatch({
+          type: 'RECURRING_EXPENSE_NEEDS_MANUAL_POST',
+          channels: ['PUSH'],
+          recipients: treasurersToNudge.map((t) => t.id),
+          data: { description: rec.description, amount: String(rec.amount) },
+        });
+
+        logger.info('Recurring expense due but auto_post is off — skipped, reminder sent', { recurring_id: rec.id });
+        continue;
+      }
+
       await prisma.expense.create({
         data: {
           association_id: rec.association_id,

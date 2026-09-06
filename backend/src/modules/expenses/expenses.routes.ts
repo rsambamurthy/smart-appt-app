@@ -41,7 +41,13 @@ router.get('/total', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRo
 router.get('/transparency', (req, res, next) =>
   expensesController.transparency(req as never, res, next));
 
-router.get('/recurring', requireRoles(UserRole.TREASURER, UserRole.MANAGER), (req, res, next) =>
+// Read-only "can this role reach the page" gate is intentionally wide open —
+// which roles actually see/use Recurring Expenses is governed by Web Menu by
+// Role configuration (see useMenuItemEnabled on the frontend), not by a
+// hardcoded role list here. Every WRITE below (create/update/post-now) stays
+// on its own real authorization list — menu visibility and "who's allowed to
+// touch the ledger" are different questions.
+router.get('/recurring', requireRoles(UserRole.TREASURER, UserRole.MANAGER, UserRole.COMMITTEE, UserRole.RESIDENT, UserRole.GATE_STAFF), (req, res, next) =>
   expensesController.listRecurring(req as never, res, next));
 
 router.post('/recurring', requireRoles(UserRole.TREASURER, UserRole.MANAGER), validate(recurringExpenseSchema), (req, res, next) =>
@@ -54,16 +60,18 @@ router.patch('/recurring/:id', requireRoles(UserRole.TREASURER, UserRole.MANAGER
 router.post('/recurring/:id/post-now', requireRoles(UserRole.TREASURER, UserRole.MANAGER), (req, res, next) =>
   expensesController.postRecurringNow(req as never, res, next));
 
-router.get('/provisions', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
+router.get('/provisions', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER, UserRole.RESIDENT, UserRole.GATE_STAFF), (req, res, next) =>
   expensesController.listProvisions(req as never, res, next));
 
 router.put('/budgets/:category', requireRoles(UserRole.TREASURER), validate(setBudgetSchema), (req, res, next) =>
   expensesController.setBudget(req as never, res, next));
 
-router.get('/', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
+// Same reasoning as GET /recurring above — this is the Expenses list page's
+// own "can this role reach it" gate, kept wide so Web Menu config decides.
+router.get('/', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER, UserRole.RESIDENT, UserRole.GATE_STAFF), (req, res, next) =>
   expensesController.list(req as never, res, next));
 
-router.get('/:id', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
+router.get('/:id', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER, UserRole.RESIDENT, UserRole.GATE_STAFF), (req, res, next) =>
   expensesController.getOne(req as never, res, next));
 
 router.patch('/:id', requireRoles(UserRole.TREASURER), validate(createExpenseSchema.partial()), (req, res, next) =>

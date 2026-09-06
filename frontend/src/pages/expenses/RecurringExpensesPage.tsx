@@ -14,6 +14,7 @@ import {
   ProvisionStatus,
 } from '../../store/api/expensesApi';
 import { useListBPMastersQuery } from '../../store/api/accountingApi';
+import { useMenuItemEnabled } from '../../hooks/useMenuItemEnabled';
 
 interface RecForm {
   description: string;
@@ -43,7 +44,21 @@ const STATUS_STYLE: Record<ProvisionStatus, { bg: string; fg: string; label: str
 
 const MONTH_NAME = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+// `next_due_date` comes back as an ISO string built from a DB DATE column —
+// UTC midnight of that calendar date. Comparing it against "tomorrow" (local
+// midnight + 1 day), not "today", is what makes "due today" actually count
+// as due — the same boundary the backend guard in
+// expenses.service.ts's postRecurringNow (and the poller) uses, for the
+// same timezone reason. Keep this in sync with that guard if either changes.
+const isDue = (item: RecurringExpense): boolean => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today.getTime() + 86400000);
+  return new Date(item.next_due_date) < tomorrow;
+};
+
 export default function RecurringExpensesPage() {
+  const { enabled: menuEnabled, isLoading: menuLoading } = useMenuItemEnabled('recurring_expenses');
   const { data, isLoading } = useListRecurringQuery();
   const items = data?.data ?? [];
 
@@ -112,6 +127,10 @@ export default function RecurringExpensesPage() {
     await updateRecurring({ id: item.id, body: { auto_provision: !item.auto_provision } }).unwrap();
   };
 
+  const toggleAutoPost = async (item: RecurringExpense) => {
+    await updateRecurring({ id: item.id, body: { auto_post: !item.auto_post } }).unwrap();
+  };
+
   const handlePostNow = async (item: RecurringExpense) => {
     setPostingId(item.id);
     setPostMessage(null);
@@ -126,6 +145,19 @@ export default function RecurringExpensesPage() {
     }
   };
 
+  if (!menuLoading && !menuEnabled) {
+    return (
+      <Layout>
+        <PageSubHeader crumbs={[{ label: 'Accounting', path: '/accounting/journal' }, { label: 'Recurring Expenses' }]} />
+        <div style={{ padding: '2rem', maxWidth: 640 }}>
+          <div style={{ padding: '1rem 1.25rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#991b1b', fontSize: '0.9rem' }}>
+            Recurring Expenses isn't enabled for your role. Ask your Manager to enable it under Web Menu Configuration if you need access.
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <PageSubHeader crumbs={[{ label: 'Accounting', path: '/accounting/journal' }, { label: 'Recurring Expenses' }]} />
@@ -133,11 +165,14 @@ export default function RecurringExpensesPage() {
       <div style={{ padding: '1.5rem 2rem', maxWidth: 960 }}>
 
         <div style={{ padding: '0.7rem 1rem', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: '0.85rem', color: '#1d4ed8', marginBottom: '1.25rem' }}>
-          Recurring expenses are created as a draft expense (needing approval) automatically on each due date — or right away with
-          <strong> Post Now</strong> below, if you don't want to wait. For a fixed, contracted monthly cost —
-          a security agency, an AMC — turn on <strong>month-end accrual</strong> to also book it to <strong>Accounts Payable</strong> against
-          that vendor's own ledger card on the last day of the month, even if the formal bill hasn't arrived yet. The accrual is automatically
-          reversed once you approve the real expense, so it's never counted twice.
+          By default, each recurring expense is created as a draft (needing approval) automatically once its due date arrives.
+          Turn off <strong>Auto-post</strong> on an item to require a conscious <strong>Post Now</strong> click each cycle instead —
+          useful for higher-scrutiny costs you want a human to look at before it's booked. Either way, <strong>Post Now</strong> only
+          becomes available once the item is actually due — it's not an early-payment button, and posting it advances the item to its
+          next cycle. For a fixed, contracted monthly cost — a security agency, an AMC — turn on <strong>month-end accrual</strong> to
+          also book it to <strong>Accounts Payable</strong> against that vendor's own ledger card on the last day of the month, even if
+          the formal bill hasn't arrived yet. The accrual is automatically reversed once you approve the real expense, so it's never
+          counted twice.
         </div>
 
         {/* ── Recurring expenses list ─────────────────────────────────────── */}
@@ -179,6 +214,14 @@ export default function RecurringExpensesPage() {
                     </label>
                   )}
 
+                  <label
+                    title="When off, this item is never posted automatically — it only gets posted when someone clicks Post Now, once it's due."
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--color-muted)', cursor: 'pointer' }}
+                  >
+                    <input type="checkbox" checked={item.auto_post} onChange={() => toggleAutoPost(item)} />
+                    Auto-post
+                  </label>
+
                   <span style={{
                     fontSize: '0.75rem', fontWeight: 600, padding: '1px 7px', borderRadius: 4,
                     background: item.is_active ? '#f0fdf4' : '#f1f5f9',
@@ -187,16 +230,29 @@ export default function RecurringExpensesPage() {
                     {item.is_active ? 'Active' : 'Inactive'}
                   </span>
 
-                  {item.is_active && (
-                    <button
-                      title="Create today's draft expense now, instead of waiting for it to come due"
-                      onClick={() => handlePostNow(item)}
-                      disabled={isPosting && postingId === item.id}
-                      style={{ padding: '3px 10px', fontSize: '0.75rem', borderRadius: 4, cursor: 'pointer', border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontWeight: 600 }}
-                    >
-                      {isPosting && postingId === item.id ? 'Posting…' : 'Post Now'}
-                    </button>
-                  )}
+                  {item.is_active && (() => {
+                    const due = isDue(item);
+                    const disabled = !due || (isPosting && postingId === item.id);
+                    return (
+                      <button
+                        title={due
+                          ? "Create today's draft expense now"
+                          : `Not due yet — next due ${new Date(item.next_due_date).toLocaleDateString()}`}
+                        onClick={() => handlePostNow(item)}
+                        disabled={disabled}
+                        style={{
+                          padding: '3px 10px', fontSize: '0.75rem', borderRadius: 4,
+                          cursor: disabled ? 'not-allowed' : 'pointer',
+                          border: '1px solid #bfdbfe',
+                          background: due ? '#eff6ff' : '#f1f5f9',
+                          color: due ? '#1d4ed8' : '#94a3b8',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {isPosting && postingId === item.id ? 'Posting…' : 'Post Now'}
+                      </button>
+                    );
+                  })()}
 
                   <button
                     title={item.is_active ? 'Deactivate' : 'Activate'}

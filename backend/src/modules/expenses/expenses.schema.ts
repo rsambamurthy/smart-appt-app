@@ -49,6 +49,10 @@ export const recurringExpenseSchema = z.object({
   // vendor's own sub-ledger card, so there's no such thing as an anonymous
   // accrual — see journal.service.ts's postExpenseProvision.
   auto_provision: z.boolean().optional().default(false),
+  // When false, the nightly poller skips this item entirely — it only ever
+  // gets posted via a manual "Post Now" click once it's actually due. See
+  // RecurringExpense.auto_post in schema.prisma.
+  auto_post: z.boolean().optional().default(true),
 }).superRefine((data, ctx) => {
   if (data.auto_provision && !data.business_partner_id) {
     ctx.addIssue({

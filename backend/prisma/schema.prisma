@@ -832,6 +832,14 @@ model RecurringExpense {
   next_due_date  DateTime         @db.Date
   reminder_days  Int              @default(3) @db.SmallInt
   is_active      Boolean          @default(true)
+  // When true (the default — matches every item created before this existed),
+  // the nightly poller creates this item's draft expense automatically once
+  // next_due_date arrives, same as always. When false, the poller skips it
+  // entirely — it only ever gets posted by someone consciously clicking
+  // "Post Now" on the Recurring Expenses screen once it's actually due. Lets
+  // an association require a human look at higher-scrutiny recurring costs
+  // each cycle, while leaving routine ones (rent, a small AMC) on autopilot.
+  auto_post      Boolean          @default(true)
   // Opt-in: when true, the month-end job books an accrual (DR Expense / CR
   // 2004 "Accounts Payable", against this item's vendor) if it hasn't
   // actually been recorded yet that month, instead of letting the P&L

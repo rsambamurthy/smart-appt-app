@@ -477,11 +477,18 @@ export class ExpensesService {
    * "Post Now" — create today's draft expense for a recurring item on demand,
    * instead of waiting for the nightly poller to reach its next_due_date.
    *
+   * Only usable once the item is actually due (next_due_date <= today) — it
+   * is NOT a "pay early" button. Posting advances next_due_date to the next
+   * cycle (see below), so once used, the button has nothing left to do until
+   * that next date arrives; this guard is what makes that true on the server
+   * as well as in the UI, rather than trusting the button's disabled state
+   * alone.
+   *
    * Mirrors jobs/workers/recurring-expense-poller.ts exactly (same status,
    * same idempotency guard, same schedule-advance logic) so a manual post and
    * an automatic one are indistinguishable afterwards — including advancing
-   * next_due_date from its own prior value rather than from today, so posting
-   * a few days early or late never drags the schedule's day-of-month with it.
+   * next_due_date from its own prior value rather than from today, so a
+   * late catch-up post never drags the schedule's day-of-month with it.
    */
   async postRecurringNow(associationId: string, recurringId: string, userId: string) {
     const rec = await prisma.recurringExpense.findFirst({
@@ -493,6 +500,18 @@ export class ExpensesService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const tomorrow = new Date(today.getTime() + 86400000);
+
+    // `next_due_date` is a DB DATE column — Prisma reads it back as UTC
+    // midnight of that calendar date, which sits a few hours *after*
+    // `today`'s own local (IST) midnight. Comparing against `tomorrow`
+    // rather than `today` is what keeps "due today" actually passing this
+    // check — the exact same boundary the poller's own query already uses,
+    // for the exact same reason.
+    if (rec.next_due_date >= tomorrow) {
+      throw new UnprocessableError(
+        `Not due yet — next due ${rec.next_due_date.toLocaleDateString('en-IN')}.`,
+      );
+    }
 
     const existing = await prisma.expense.findFirst({
       where: { recurring_id: rec.id, expense_date: { gte: today, lt: tomorrow } },

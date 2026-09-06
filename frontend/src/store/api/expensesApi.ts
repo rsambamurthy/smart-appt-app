@@ -12,6 +12,9 @@ export interface RecurringExpense {
   reminder_days: number;
   is_active: boolean;
   auto_provision: boolean;
+  // When false, the nightly poller skips this item once due — a Treasurer
+  // must click "Post Now" each cycle instead of it happening automatically.
+  auto_post: boolean;
   // Display only — the underlying Vendor bridge row's name (which mirrors the
   // Business Partner's name at the time it was picked). Selecting a vendor
   // always goes through `business_partner_id`, never this.
@@ -29,6 +32,7 @@ export interface RecurringExpenseInput {
   next_due_date: string;
   reminder_days?: number;
   auto_provision?: boolean;
+  auto_post?: boolean;
 }
 
 export type ProvisionStatus = 'OPEN' | 'SETTLED' | 'REVERSED';
