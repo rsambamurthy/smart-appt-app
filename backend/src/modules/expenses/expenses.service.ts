@@ -6,8 +6,9 @@ import {
   CreateExpenseBody, UpdateExpenseBody, ApproveExpenseBody, SetBudgetBody,
   RecurringExpenseBody, CategoryConfigBody, UpdateCategoryConfigBody,
 } from './expenses.schema';
-import { ExpenseStatus, UserRole } from '@prisma/client';
+import { ExpenseStatus, JournalStatus, UserRole } from '@prisma/client';
 import { journalService } from '../accounting/journal.service';
+import { fyClosureService } from '../accounting/fy-closure.service';
 import { ensureVendorBP, ensureVendorFromBusinessPartner } from '../accounting/bp-type.seed';
 import logger from '../../utils/logger';
 
@@ -158,11 +159,56 @@ export class ExpensesService {
     return { data: updated };
   }
 
-  async deleteExpense(associationId: string, expenseId: string, userId: string) {
+  /**
+   * Delete an expense — and, if it was already posted to the ledger
+   * (APPROVED/RECORDED, so journalService.postExpense already ran), cancel
+   * that JournalEntry in the same transaction.
+   *
+   * This used to only ever soft-delete the Expense row itself, regardless of
+   * status. For a still-PENDING_APPROVAL expense that's harmless — nothing
+   * has been posted yet. But for one already approved, the posted
+   * JournalEntry (real debit/credit lines, counted in every balance sheet
+   * and P&L) was left behind with no Expense row left to trace it back to:
+   * deleting looked like it undid the expense, but the ledger impact stayed.
+   * That's exactly the gap that made a duplicate recurring-expense posting
+   * impossible to clean up safely — see postRecurringNow's own idempotency
+   * gap for how the duplicate could arise in the first place.
+   *
+   * Follows the same cancel-don't-hard-delete convention already used for
+   * undoing a payment (dues.service.ts undoPayment): the JournalEntry is
+   * marked CANCELLED (kept for audit; every report already excludes
+   * non-POSTED entries) rather than removed, and a closed financial year
+   * blocks it the same way.
+   */
+  async deleteExpense(associationId: string, expenseId: string, userId: string, reason?: string) {
     const expense = await prisma.expense.findFirst({ where: { id: expenseId, association_id: associationId, deleted_at: null } });
     if (!expense) throw new NotFoundError('Expense');
 
-    await prisma.expense.update({ where: { id: expenseId }, data: { deleted_at: new Date() } });
+    const entry = await prisma.journalEntry.findFirst({
+      where: { association_id: associationId, reference_type: 'EXPENSE', reference_id: expenseId },
+    });
+    const needsCancel = !!entry && entry.status !== JournalStatus.CANCELLED;
+
+    if (needsCancel && await fyClosureService.isYearClosed(associationId, entry!.financial_year)) {
+      throw new UnprocessableError(
+        `Financial year ${entry!.financial_year} is closed. Reopen it to delete this expense.`,
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (needsCancel) {
+        await tx.journalEntry.update({
+          where: { id: entry!.id },
+          data: {
+            status:              JournalStatus.CANCELLED,
+            cancelled_at:        new Date(),
+            cancelled_by_id:     userId,
+            cancellation_reason: reason?.trim() || 'Expense deleted from the Expenses screen.',
+          },
+        });
+      }
+      await tx.expense.update({ where: { id: expenseId }, data: { deleted_at: new Date() } });
+    });
 
     await prisma.auditLog.create({
       data: {
@@ -171,7 +217,13 @@ export class ExpensesService {
       },
     });
 
-    return { data: { message: 'Expense deleted' } };
+    return {
+      data: {
+        message: needsCancel
+          ? 'Expense deleted and its posted ledger entry cancelled'
+          : 'Expense deleted',
+      },
+    };
   }
 
   async approveExpense(associationId: string, expenseId: string, body: ApproveExpenseBody, approvedBy: string) {

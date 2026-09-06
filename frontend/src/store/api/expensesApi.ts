@@ -80,8 +80,14 @@ export const expensesApi = baseApi.injectEndpoints({
       query: ({ id, body }) => ({ url: `/expenses/${id}`, method: 'PATCH', body }),
       invalidatesTags: ['Expense'],
     }),
-    deleteExpense: builder.mutation<{ data: unknown }, string>({
-      query: (id) => ({ url: `/expenses/${id}`, method: 'DELETE' }),
+    // reason is optional and only meaningful when the expense being deleted
+    // was already posted — the server cancels its journal entry alongside
+    // the delete in that case, and records this as the cancellation reason.
+    deleteExpense: builder.mutation<{ data: { message: string } }, string | { id: string; reason?: string }>({
+      query: (arg) => {
+        const { id, reason } = typeof arg === 'string' ? { id: arg, reason: undefined } : arg;
+        return { url: `/expenses/${id}`, method: 'DELETE', body: reason ? { reason } : undefined };
+      },
       invalidatesTags: ['Expense'],
     }),
     approveExpense: builder.mutation<{ data: unknown }, { id: string; body: object }>({

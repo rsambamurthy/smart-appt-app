@@ -136,10 +136,20 @@ export default function ExpenseListPage() {
     }
   };
 
+  const [deleteReason, setDeleteReason] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    await deleteExpense(deleteTarget.id).unwrap();
-    setDeleteTarget(null);
+    setDeleteError('');
+    try {
+      await deleteExpense({ id: deleteTarget.id, reason: deleteReason.trim() || undefined }).unwrap();
+      setDeleteTarget(null);
+      setDeleteReason('');
+    } catch (e: unknown) {
+      const err = e as { data?: { message?: string } };
+      setDeleteError(err?.data?.message ?? 'Could not delete this expense.');
+    }
   };
 
   const handleApprove = async () => {
@@ -253,7 +263,9 @@ export default function ExpenseListPage() {
                   {filtered.map((e) => {
                     const cat = getCat(e.category);
                     const canEdit = isTreasurer && (e.status === 'RECORDED' || e.status === 'PENDING_APPROVAL');
-                    const canDelete = isTreasurer && e.status !== 'APPROVED';
+                    // Deleting an already-posted expense now cancels its ledger entry
+                    // alongside it (see expensesService.deleteExpense) — safe for any status.
+                    const canDelete = isTreasurer;
                     const canApprove = isCommittee && e.status === 'PENDING_APPROVAL';
                     return (
                       <tr key={e.id}>
@@ -374,14 +386,29 @@ export default function ExpenseListPage() {
           <div onClick={() => setDeleteTarget(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 200 }} />
           <div style={{ position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', background: '#fff', borderRadius: 8, padding: '1.5rem', width: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.2)', zIndex: 201 }}>
             <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>Delete Expense?</div>
-            <div style={{ fontSize: '0.875rem', color: 'var(--color-muted)', marginBottom: '1.25rem' }}>
+            <div style={{ fontSize: '0.875rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>
               {getCat(deleteTarget.category).display_name} — ₹{Number(deleteTarget.amount).toLocaleString()}<br />
               {deleteTarget.vendor?.name ?? deleteTarget.vendor_name ?? ''}<br />
-              <span style={{ color: '#dc2626', fontWeight: 600 }}>This cannot be undone.</span>
+              {(deleteTarget.status === 'APPROVED' || deleteTarget.status === 'RECORDED') ? (
+                <span style={{ color: '#b45309', fontWeight: 600 }}>
+                  This expense has already been posted to the ledger — deleting it will also cancel its journal
+                  entry, so it drops out of every report. This cannot be undone.
+                </span>
+              ) : (
+                <span style={{ color: '#dc2626', fontWeight: 600 }}>This cannot be undone.</span>
+              )}
             </div>
+            {(deleteTarget.status === 'APPROVED' || deleteTarget.status === 'RECORDED') && (
+              <textarea placeholder="Reason (optional) — e.g. duplicate posting" value={deleteReason}
+                onChange={(e) => setDeleteReason(e.target.value)} rows={2}
+                style={{ width: '100%', marginBottom: '1rem', resize: 'none', fontSize: '0.8rem' }} />
+            )}
+            {deleteError && (
+              <div style={{ fontSize: '0.8rem', color: '#dc2626', marginBottom: '0.75rem' }}>{deleteError}</div>
+            )}
             <div style={{ display: 'flex', gap: '0.6rem' }}>
               <button className="ent-btn-submit" style={{ background: '#dc2626', flex: 1 }} onClick={handleDelete}>Delete</button>
-              <button className="ent-btn-cancel" style={{ flex: 1 }} onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button className="ent-btn-cancel" style={{ flex: 1 }} onClick={() => { setDeleteTarget(null); setDeleteReason(''); setDeleteError(''); }}>Cancel</button>
             </div>
           </div>
         </>

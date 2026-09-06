@@ -37,7 +37,11 @@ export class ExpensesController {
   }
 
   async remove(req: AuthRequest, res: Response, next: NextFunction) {
-    try { res.json(await expensesService.deleteExpense(req.user!.association_id, req.params['id'], req.user!.id)); }
+    try {
+      res.json(await expensesService.deleteExpense(
+        req.user!.association_id, req.params['id'], req.user!.id, req.body?.reason,
+      ));
+    }
     catch (err) { next(err); }
   }
 
