@@ -123,7 +123,6 @@ export const NAV_GROUPS: NavGroup[] = [
     roles: ['SUPER_USER', 'MANAGER', 'TREASURER'],
     landingPath: '/accounting/journal',
     items: [
-      { id: 'expenses_list',   label: 'Expenses',        path: '/expenses',                  roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#ef4444', end: true },
       { id: 'journal_entries', label: 'Journal Entries', path: '/accounting/journal',        roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#7c3aed', end: true },
       { id: 'ledger',          label: 'Ledger',          path: '/accounting/ledger',          roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#16a34a', end: true },
       { id: 'pnl',             label: 'Profit & Loss',   path: '/accounting/pnl',             roles: ['SUPER_USER', 'MANAGER', 'TREASURER', 'COMMITTEE'], dot: '#f59e0b', end: true },

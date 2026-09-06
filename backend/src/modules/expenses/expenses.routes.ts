@@ -66,12 +66,10 @@ router.get('/provisions', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, U
 router.put('/budgets/:category', requireRoles(UserRole.TREASURER), validate(setBudgetSchema), (req, res, next) =>
   expensesController.setBudget(req as never, res, next));
 
-// Same reasoning as GET /recurring above — this is the Expenses list page's
-// own "can this role reach it" gate, kept wide so Web Menu config decides.
-router.get('/', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER, UserRole.RESIDENT, UserRole.GATE_STAFF), (req, res, next) =>
+router.get('/', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   expensesController.list(req as never, res, next));
 
-router.get('/:id', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER, UserRole.RESIDENT, UserRole.GATE_STAFF), (req, res, next) =>
+router.get('/:id', requireRoles(UserRole.TREASURER, UserRole.COMMITTEE, UserRole.MANAGER), (req, res, next) =>
   expensesController.getOne(req as never, res, next));
 
 router.patch('/:id', requireRoles(UserRole.TREASURER), validate(createExpenseSchema.partial()), (req, res, next) =>

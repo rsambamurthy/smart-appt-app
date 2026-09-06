@@ -164,13 +164,14 @@ export default function App() {
         {!IS_NATIVE && <Route path="/dues/other-receipts" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><OtherReceiptsPage /></RoleRoute>} />}
 
         {/* Expenses */}
-        {/* /expenses and /expenses/recurring intentionally use a wide RoleRoute
-            — which roles actually get in is decided inside the page itself via
-            useMenuItemEnabled (Web Menu by Role config), not by this list. Every
-            other expenses route below keeps its own real role gate. */}
-        {!IS_NATIVE && <Route path="/expenses" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER', 'RESIDENT', 'GATE_STAFF']}><ExpenseListPage /></RoleRoute>} />}
+        {!IS_NATIVE && <Route path="/expenses" element={<RoleRoute roles={['TREASURER', 'COMMITTEE', 'MANAGER']}><ExpenseListPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/dashboard" element={<RoleRoute roles={['TREASURER', 'COMMITTEE']}><ExpenseDashboardPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/categories" element={<RoleRoute roles={['TREASURER', 'MANAGER']}><ExpenseCategoriesPage /></RoleRoute>} />}
+        {/* /expenses/recurring intentionally uses a wide RoleRoute — which roles
+            actually get in is decided inside the page itself via
+            useMenuItemEnabled (Web Menu by Role config), not by this list. It's
+            the one page this still applies to now that the Expenses nav item
+            (and its own menu-config gate) has been removed. */}
         {!IS_NATIVE && <Route path="/expenses/recurring" element={<RoleRoute roles={['TREASURER', 'MANAGER', 'COMMITTEE', 'RESIDENT', 'GATE_STAFF']}><RecurringExpensesPage /></RoleRoute>} />}
         {!IS_NATIVE && <Route path="/expenses/transparency" element={<ProtectedRoute><TransparencyPage /></ProtectedRoute>} />}
 

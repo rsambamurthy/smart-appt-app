@@ -14,7 +14,6 @@ import {
 } from '../../store/api/expensesApi';
 import { useGetDuesDashboardQuery } from '../../store/api/duesApi';
 import { useListBPMastersQuery } from '../../store/api/accountingApi';
-import { useMenuItemEnabled } from '../../hooks/useMenuItemEnabled';
 
 const PAYMENT_MODES = ['CASH', 'CHEQUE', 'ONLINE', 'UPI'] as const;
 
@@ -41,7 +40,6 @@ const emptyForm = (): ExpenseForm => ({
 });
 
 export default function ExpenseListPage() {
-  const { enabled: menuEnabled, isLoading: menuLoading } = useMenuItemEnabled('expenses_list');
   const user = useSelector((s: RootState) => s.auth.user);
   const isTreasurer = user?.role === 'TREASURER' || user?.role === 'SUPER_USER';
   const isCommittee = user?.role === 'COMMITTEE' || user?.role === 'SUPER_USER';
@@ -164,19 +162,6 @@ export default function ExpenseListPage() {
   };
 
   const isSaving = isCreating || isUpdating;
-
-  if (!menuLoading && !menuEnabled) {
-    return (
-      <Layout>
-        <PageSubHeader crumbs={[{ label: 'Expenses', path: '/expenses' }, { label: 'Expense' }]} />
-        <div style={{ padding: '2rem', maxWidth: 640 }}>
-          <div style={{ padding: '1rem 1.25rem', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, color: '#991b1b', fontSize: '0.9rem' }}>
-            Expenses isn't enabled for your role. Ask your Manager to enable it under Web Menu Configuration if you need access.
-          </div>
-        </div>
-      </Layout>
-    );
-  }
 
   return (
     <Layout>
