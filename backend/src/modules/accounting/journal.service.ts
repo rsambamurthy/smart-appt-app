@@ -214,7 +214,7 @@ class JournalService {
     voucher_type:    VoucherType;
     source:          JournalEntrySource;
     status?:         JournalStatus;
-    created_by_id?:  string;
+    created_by_id?:  string | null;
     lines: { account_id: string; business_partner_id?: string | null; debit: number; credit: number; narration?: string | null }[];
     /// When the caller is inside a transaction, the entry must be written on
     /// that same client — otherwise a rolled-back charge leaves a live journal
@@ -436,7 +436,7 @@ class JournalService {
     amount:        number,
     narration:     string,
     entryDate:     Date,
-    createdById:   string,
+    createdById:   string | null,
     client:        Prisma.TransactionClient,
   ) {
     const [duesReceivable, penaltyIncome] = await Promise.all([

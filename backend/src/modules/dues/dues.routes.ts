@@ -12,6 +12,8 @@ import { paymentUploadController } from './payment-upload.controller';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
 import { requireMenuFeature } from '../../middleware/menu-access';
+import { requireRolesOrApiKeyScope } from '../../middleware/api-key-scope';
+import { actorAssociationId, actorUserId } from '../../utils/request-actor';
 import { validate } from '../../middleware/validate';
 import {
   duesConfigSchema, generateBillsSchema, rollbackBillsSchema, offlinePaymentSchema,
@@ -218,13 +220,21 @@ router.get('/penalties/unit/:unitId', requireRoles(...treasurerOrManagerRoles), 
   } catch (err) { next(err); }
 });
 
-/** Reverse one penalty in full. The reason is not optional. */
-router.post('/penalties/:id/waive', async (req: AuthRequest, res, next) => {
+/**
+ * Reverse one penalty in full. The reason is not optional.
+ *
+ * Also callable by a scoped Integration API Key (the BPM/workflow tool) with
+ * the 'dues:waive_penalty' scope — added here at the route level because a
+ * key has no UserRole for the service's own internal check to test against;
+ * waive() treats a null userRole as "already authorized by the route".
+ */
+router.post('/penalties/:id/waive', requireRolesOrApiKeyScope('dues:waive_penalty', UserRole.TREASURER, UserRole.MANAGER), async (req: AuthRequest, res, next) => {
   try {
-    // The role check lives in the service: it is part of the rule, not part of
-    // the routing, and the service is what the test harness will call.
+    // The role check (for a real user) lives in the service: it is part of
+    // the rule, not part of the routing, and the service is what the test
+    // harness will call.
     res.json(await penaltyService.waive(
-      req.user!.association_id, req.user!.id, req.user!.role,
+      actorAssociationId(req), actorUserId(req), req.user?.role ?? null,
       req.params['id'] as string, req.body?.reason ?? '',
     ));
   } catch (err) { next(err); }

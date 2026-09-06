@@ -5,6 +5,7 @@ import { expensesController } from './expenses.controller';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
 import { requireMenuFeature } from '../../middleware/menu-access';
+import { requireRolesOrApiKeyScope } from '../../middleware/api-key-scope';
 import { validate } from '../../middleware/validate';
 import {
   createExpenseSchema, approveExpenseSchema, setBudgetSchema,
@@ -81,7 +82,10 @@ router.patch('/:id', requireRoles(UserRole.TREASURER), validate(createExpenseSch
 router.delete('/:id', requireRoles(UserRole.TREASURER, UserRole.MANAGER), (req, res, next) =>
   expensesController.remove(req as never, res, next));
 
-router.patch('/:id/approve', requireRoles(UserRole.COMMITTEE), validate(approveExpenseSchema), (req, res, next) =>
+// Also callable by a scoped Integration API Key (the BPM/workflow tool) —
+// see middleware/api-key-scope.ts. A key never bypasses this: it must carry
+// the 'expenses:approve' scope, same as a Committee member needing the role.
+router.patch('/:id/approve', requireRolesOrApiKeyScope('expenses:approve', UserRole.COMMITTEE), validate(approveExpenseSchema), (req, res, next) =>
   expensesController.approve(req as never, res, next));
 
 export default router;

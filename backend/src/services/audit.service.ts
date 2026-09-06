@@ -80,7 +80,11 @@ class AuditService {
           performed_by: input.performed_by !== undefined
             ? input.performed_by
             : (ctx.userId ?? null),
-          actor_label:  input.actor_label?.slice(0, 120) ?? null,
+          // Falls back to the request context's actorLabel (set by
+          // middleware/auth.ts for an Integration API Key request) so a
+          // caller doesn't need to thread that through explicitly — same
+          // convention as performed_by falling back to ctx.userId above.
+          actor_label:  (input.actor_label ?? ctx.actorLabel)?.slice(0, 120) ?? null,
           ip_address:   ctx.ip?.slice(0, 45) ?? null,
           user_agent:   ctx.userAgent?.slice(0, 255) ?? null,
           summary:      input.summary?.slice(0, 255) ?? null,

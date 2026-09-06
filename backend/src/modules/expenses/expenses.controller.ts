@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../../types';
 import { expensesService } from './expenses.service';
 import { parsePagination } from '../../utils/helpers';
+import { actorAssociationId, actorUserId } from '../../utils/request-actor';
 
 export class ExpensesController {
   async create(req: AuthRequest, res: Response, next: NextFunction) {
@@ -46,7 +47,7 @@ export class ExpensesController {
   }
 
   async approve(req: AuthRequest, res: Response, next: NextFunction) {
-    try { res.json(await expensesService.approveExpense(req.user!.association_id, req.params['id'], req.body, req.user!.id)); }
+    try { res.json(await expensesService.approveExpense(actorAssociationId(req), req.params['id'], req.body, actorUserId(req))); }
     catch (err) { next(err); }
   }
 

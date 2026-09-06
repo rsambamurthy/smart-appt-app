@@ -84,6 +84,11 @@ export const NAV_GROUPS: NavGroup[] = [
       // has out of the box. The backend enforces the same split independently
       // (system.routes.ts / system.controller.ts).
       { id: 'system_branding',      label: 'Branding',              path: '/admin/branding',       roles: ['SUPER_USER'], dot: '#f59e0b', end: true },
+      // Lets a Manager generate/revoke scoped credentials for an outside
+      // service (the BPM/workflow tool) to call specific SmartAppt actions
+      // directly. Manager-only by default, same posture as the other admin
+      // screens above.
+      { id: 'system_integration_keys', label: 'Integration API Keys', path: '/admin/integration-keys', roles: ['SUPER_USER', 'MANAGER'], dot: '#16a34a', end: true },
     ],
   },
   {

@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { AuthRequest } from '../../types';
 import { maintenanceService } from './maintenance.service';
 import { parsePagination } from '../../utils/helpers';
+import { actorAssociationId, actorUserId } from '../../utils/request-actor';
 
 export class MaintenanceController {
   async create(req: AuthRequest, res: Response, next: NextFunction) {
@@ -61,7 +62,7 @@ export class MaintenanceController {
 
   async updateStatus(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const result = await maintenanceService.updateStatus(req.user!.association_id, req.params['id'], req.body, req.user!.id);
+      const result = await maintenanceService.updateStatus(actorAssociationId(req), req.params['id'], req.body, actorUserId(req));
       res.json(result);
     } catch (err) { next(err); }
   }

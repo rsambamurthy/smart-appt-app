@@ -10,8 +10,24 @@ export interface AuthUser {
   name: string;
 }
 
+/** The identity attached to a request authenticated by an Integration API Key
+ * instead of a real user login — see middleware/auth.ts and
+ * middleware/api-key-scope.ts. Deliberately has no `role`: a key is scoped to
+ * exact action scopes, never a role, so nothing downstream should ever branch
+ * on "what role does this request have" for one of these. */
+export interface AuthApiKey {
+  id:             string;
+  association_id: string;
+  name:           string;
+  scopes:         string[];
+}
+
 export interface AuthRequest extends Request {
   user?: AuthUser;
+  /** Set instead of `user` when the request authenticated via an Integration
+   * API Key (X-API-Key header) rather than a user's Bearer token. The two are
+   * mutually exclusive on any given request. */
+  apiKey?: AuthApiKey;
 }
 
 export interface PaginationQuery {

@@ -347,8 +347,12 @@ export class PenaltyService {
    */
   async waive(
     associationId: string,
-    userId:        string,
-    userRole:      UserRole,
+    userId:        string | null,
+    // null when this request authenticated via a scoped Integration API Key
+    // rather than a real user — requireRolesOrApiKeyScope (dues.routes.ts)
+    // has already authorized it in that case, so there's no role left here
+    // to check against.
+    userRole:      UserRole | null,
     penaltyId:     string,
     reason:        string,
   ) {
@@ -362,7 +366,7 @@ export class PenaltyService {
     // Waiving is forgiving association income, so it sits with the treasurer
     // and the manager rather than with everyone who can see the screen.
     const allowed: UserRole[] = [UserRole.TREASURER, UserRole.MANAGER, UserRole.SUPER_USER];
-    if (!allowed.includes(userRole)) {
+    if (userRole !== null && !allowed.includes(userRole)) {
       throw new ForbiddenError('Only a treasurer or manager can waive a penalty.');
     }
 

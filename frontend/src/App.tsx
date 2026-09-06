@@ -62,6 +62,7 @@ import OtherReceiptsPage from './pages/receipts/OtherReceiptsPage';
 import WebMenuPage from './pages/admin/WebMenuPage';
 import MobileMenuPage from './pages/admin/MobileMenuPage';
 import BrandingPage from './pages/admin/BrandingPage';
+import IntegrationApiKeysPage from './pages/admin/IntegrationApiKeysPage';
 import AuditLogPage from './pages/admin/AuditLogPage';
 import InsightsPage from './pages/reports/InsightsPage';
 import ChangeMpinPage from './pages/ChangeMpinPage';
@@ -234,6 +235,7 @@ export default function App() {
         {!IS_NATIVE && <Route path="/admin/mobile-config" element={<ProtectedRoute><MenuFeatureGate itemId="system_mobile_menu" label="Mobile Menu by Role"><MobileMenuPage /></MenuFeatureGate></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/admin/branding" element={<ProtectedRoute><MenuFeatureGate itemId="system_branding" label="Branding"><BrandingPage /></MenuFeatureGate></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/admin/audit-log" element={<ProtectedRoute><MenuFeatureGate itemId="system_audit_log" label="Audit Trail"><AuditLogPage /></MenuFeatureGate></ProtectedRoute>} />}
+        {!IS_NATIVE && <Route path="/admin/integration-keys" element={<ProtectedRoute><MenuFeatureGate itemId="system_integration_keys" label="Integration API Keys"><IntegrationApiKeysPage /></MenuFeatureGate></ProtectedRoute>} />}
         {!IS_NATIVE && <Route path="/reports/insights" element={<ProtectedRoute><MenuFeatureGate itemId="reports_insights" label="Insights"><InsightsPage /></MenuFeatureGate></ProtectedRoute>} />}
 
         {/* Transactions */}

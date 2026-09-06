@@ -11,6 +11,7 @@ import { journalService } from '../accounting/journal.service';
 import { fyClosureService } from '../accounting/fy-closure.service';
 import { ensureVendorBP, ensureVendorFromBusinessPartner } from '../accounting/bp-type.seed';
 import logger from '../../utils/logger';
+import { getContext } from '../../utils/request-context';
 
 // Default categories seeded for every new association
 const DEFAULT_CATEGORIES = [
@@ -226,7 +227,7 @@ export class ExpensesService {
     };
   }
 
-  async approveExpense(associationId: string, expenseId: string, body: ApproveExpenseBody, approvedBy: string) {
+  async approveExpense(associationId: string, expenseId: string, body: ApproveExpenseBody, approvedBy: string | null) {
     const expense = await prisma.expense.findFirst({ where: { id: expenseId, association_id: associationId, deleted_at: null } });
     if (!expense) throw new NotFoundError('Expense');
     if (expense.status !== ExpenseStatus.PENDING_APPROVAL) throw new UnprocessableError('Expense is not pending approval.');
@@ -327,7 +328,12 @@ export class ExpensesService {
       data: {
         association_id: associationId, entity_type: 'expense', entity_id: expenseId,
         action: body.decision === 'APPROVED' ? 'APPROVE' : 'REJECT',
-        performed_by: approvedBy, old_value: { status: expense.status } as never, new_value: { status: newStatus, note: body.note } as never,
+        performed_by: approvedBy,
+        // approvedBy is null exactly when this ran via a scoped Integration
+        // API Key (see requireRolesOrApiKeyScope on this route) — the
+        // context's actorLabel is set by middleware/auth.ts for that case.
+        actor_label: approvedBy ? null : (getContext().actorLabel ?? null),
+        old_value: { status: expense.status } as never, new_value: { status: newStatus, note: body.note } as never,
       },
     });
 

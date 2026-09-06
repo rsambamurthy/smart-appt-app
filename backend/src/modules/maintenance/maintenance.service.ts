@@ -3,6 +3,7 @@ import { NotFoundError, ForbiddenError, UnprocessableError } from '../../utils/e
 import { computeSlaDueAt, paginatedResponse } from '../../utils/helpers';
 import { notificationService } from '../../services/notification.service';
 import { auditService } from '../../services/audit.service';
+import { getContext } from '../../utils/request-context';
 import { CreateTicketBody, AssignTicketBody, UpdateStatusBody, FeedbackBody } from './maintenance.schema';
 import { TicketStatus, UserRole } from '@prisma/client';
 
@@ -149,7 +150,7 @@ export class MaintenanceService {
     return { data: updated };
   }
 
-  async updateStatus(associationId: string, ticketId: string, body: UpdateStatusBody, performedBy: string) {
+  async updateStatus(associationId: string, ticketId: string, body: UpdateStatusBody, performedBy: string | null) {
     const ticket = await prisma.maintenanceTicket.findFirst({ where: { id: ticketId, association_id: associationId, deleted_at: null } });
     if (!ticket) throw new NotFoundError('Ticket');
 
@@ -169,6 +170,11 @@ export class MaintenanceService {
             from_status: ticket.status,
             to_status: body.status,
             changed_by: performedBy,
+            // performedBy is null exactly when this ran via a scoped
+            // Integration API Key (requireRolesOrApiKeyScope on this route)
+            // rather than a real user — same actor-label fallback as
+            // AuditLog uses for the same case.
+            changed_by_label: performedBy ? null : (getContext().actorLabel ?? null),
             note: body.note,
           },
         },

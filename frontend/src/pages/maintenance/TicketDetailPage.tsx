@@ -108,7 +108,7 @@ export default function TicketDetailPage() {
             <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem' }}>History</h3>
             {(ticket['status_logs'] as Record<string, unknown>[]).map((log, i) => (
               <div key={i} style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginBottom: '0.25rem' }}>
-                {new Date(log['created_at'] as string).toLocaleString()} · {(log['changer'] as Record<string, string>)?.name ?? '?'} → {log['to_status'] as string}
+                {new Date(log['created_at'] as string).toLocaleString()} · {(log['changer'] as Record<string, string>)?.name ?? (log['changed_by_label'] as string) ?? '?'} → {log['to_status'] as string}
                 {log['note'] ? ` — ${log['note'] as string}` : null}
               </div>
             ))}

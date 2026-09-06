@@ -13,6 +13,11 @@ export interface RequestContext {
   role?: string;
   ip?: string;
   userAgent?: string;
+  /** Set instead of a real userId when the request authenticated via an
+   * Integration API Key — see middleware/auth.ts. Read as the audit trail's
+   * actor label whenever a caller doesn't supply its own override (see
+   * services/audit.service.ts). */
+  actorLabel?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

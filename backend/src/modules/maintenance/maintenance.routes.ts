@@ -4,6 +4,7 @@ import { UserRole } from '@prisma/client';
 import { maintenanceController } from './maintenance.controller';
 import { authenticate } from '../../middleware/auth';
 import { requireRoles } from '../../middleware/rbac';
+import { requireRolesOrApiKeyScope } from '../../middleware/api-key-scope';
 import { validate } from '../../middleware/validate';
 import {
   createTicketSchema, assignTicketSchema, updateStatusSchema,
@@ -59,10 +60,13 @@ router.patch(
   (req, res, next) => maintenanceController.assign(req as never, res, next),
 );
 
-// PATCH /maintenance/:id/status
+// PATCH /maintenance/:id/status — also callable by a scoped Integration API
+// Key (the BPM/workflow tool) with the 'maintenance:update_ticket' scope,
+// e.g. as the action a ticket-escalation workflow drives once its own
+// approval steps clear.
 router.patch(
   '/:id/status',
-  requireRoles(UserRole.MANAGER, UserRole.GATE_STAFF),
+  requireRolesOrApiKeyScope('maintenance:update_ticket', UserRole.MANAGER, UserRole.GATE_STAFF),
   validate(updateStatusSchema),
   (req, res, next) => maintenanceController.updateStatus(req as never, res, next),
 );

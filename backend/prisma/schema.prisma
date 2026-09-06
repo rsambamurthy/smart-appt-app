@@ -256,6 +256,7 @@ model Association {
   elections           Election[]
   compliance_items    ComplianceItem[]
   chat_channels       ChatChannel[]
+  integration_api_keys IntegrationApiKey[]
 
   @@map("associations")
 }
@@ -410,6 +411,8 @@ model User {
   chat_channels_created    ChatChannel[]       @relation("ChatChannelCreatedBy")
   chat_channel_memberships ChatChannelMember[] @relation("ChatChannelMemberUser")
   chat_messages_sent       ChatMessage[]       @relation("ChatMessageSender")
+  integration_api_keys_created IntegrationApiKey[] @relation("ApiKeyCreatedBy")
+  integration_api_keys_revoked IntegrationApiKey[] @relation("ApiKeyRevokedBy")
 
   @@unique([association_id, phone])
   @@index([phone])
@@ -523,8 +526,12 @@ model TicketStatusLog {
   ticket         MaintenanceTicket @relation(fields: [ticket_id], references: [id])
   from_status    TicketStatus?
   to_status      TicketStatus
-  changed_by     String            @db.Uuid
-  changer        User              @relation(fields: [changed_by], references: [id])
+  changed_by     String?           @db.Uuid
+  changer        User?             @relation(fields: [changed_by], references: [id])
+  /// Set instead of changed_by when this transition was made by a scoped
+  /// Integration API Key rather than a real user — e.g. "Integration API
+  /// Key: Escalation Workflow". Same pattern as AuditLog's actor_label.
+  changed_by_label String?         @db.VarChar(120)
   note           String?           @db.Text
   created_at     DateTime          @default(now()) @db.Timestamptz
 
@@ -2379,4 +2386,52 @@ model ComplianceOccurrence {
   @@unique([item_id, due_on])
   @@index([association_id, status, due_on])
   @@map("compliance_occurrences")
+}
+
+/// A named, scoped credential a Manager generates so an outside service (the
+/// BPM/workflow tool) can call specific SmartAppt actions on this
+/// association's behalf, without a shared human login and without every
+/// action in the audit trail being misattributed to one person. Deliberately
+/// narrow: it grants only the exact action scopes it's created with (see
+/// `scopes`), never a role, and never read access beyond what each scoped
+/// action already returns.
+model IntegrationApiKey {
+  id             String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  association_id String      @db.Uuid
+  association    Association @relation(fields: [association_id], references: [id])
+
+  name String @db.VarChar(120)
+
+  /// First 8 characters of the plaintext secret (e.g. "bpm_a1b2"), stored so
+  /// the admin screen can show which key is which without ever displaying
+  /// the full secret again after creation.
+  key_prefix String @db.VarChar(16)
+
+  /// SHA-256 hex digest of the full secret. The plaintext secret itself is
+  /// never persisted anywhere — only ever shown once, at creation time.
+  key_hash String @unique @db.VarChar(64)
+
+  /// Action scopes this key may invoke, e.g. "expenses:approve",
+  /// "dues:waive_penalty", "maintenance:update_ticket". Checked by
+  /// requireApiKeyScope alongside (not instead of) each endpoint's normal
+  /// role check — a request authenticates as either a real user (existing
+  /// requireRoles) or a key with the matching scope (requireApiKeyScope),
+  /// never both at once.
+  scopes String[] @db.VarChar(60)
+
+  is_active    Boolean   @default(true)
+  last_used_at DateTime? @db.Timestamptz
+
+  created_by_id String? @db.Uuid
+  creator       User?   @relation("ApiKeyCreatedBy", fields: [created_by_id], references: [id])
+
+  revoked_at    DateTime? @db.Timestamptz
+  revoked_by_id String?   @db.Uuid
+  revoker       User?     @relation("ApiKeyRevokedBy", fields: [revoked_by_id], references: [id])
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  @@index([association_id])
+  @@map("integration_api_keys")
 }
